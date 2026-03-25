@@ -26,6 +26,11 @@ uv run pytest                    # Run tests
 - **Async-first** — the SDK is async-native, use `async/await` throughout
 - **Imports:** absolute imports from `golem.*` (source is in `src/golem/`)
 
+### Windows Compatibility (Critical)
+- **Always use `encoding="utf-8"`** on all `read_text()`, `write_text()`, and `open()` calls — Windows defaults to cp1252
+- **No emoji in CLI/TUI output** — rich crashes on Windows cp1252 console; use ASCII text only
+- **Tests must use `git init -b main`** — Windows git defaults vary; never assume `master`
+
 ### Style
 - **Formatter/Linter:** ruff (configured in pyproject.toml)
 - **Line length:** 120
@@ -43,6 +48,7 @@ uv run pytest                    # Run tests
 src/
   golem/
     __init__.py
+    version.py          ← Version/platform metadata utility
     cli.py              ← CLI entry point (typer + rich)
     planner.py          ← Spec parser → tasks.json generation
     executor.py         ← Main execution loop (async orchestrator)
@@ -69,6 +75,17 @@ tests/
 - **Run:** `uv run pytest`
 - **Focus on:** task graph logic, state machine transitions, deterministic validation, git operations
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
+
+### Claude Agent SDK Gotchas
+- **Use `permission_mode="bypassPermissions"`** for all SDK sessions — `acceptEdits` blocks headless file writes
+- **Clear `ANTHROPIC_API_KEY` in SDK env** — the env var overrides CLI OAuth auth and fails; use `env=sdk_env()` from `config.py`
+- **Capture `AssistantMessage` text blocks as fallback** — `ResultMessage.result` may be empty; check both
+- **Validator PASS detection must be fuzzy** — AI models prefix preamble before "PASS:"; search anywhere, not just `startswith`
+- **Run `uv sync` in worktrees after creation** — new worktrees lack venv; module imports fail without it
+
+### Useful Commands
+- `uv run golem clean` — reset `.golem/` state between test runs
+- `uv run golem plan spec.md` — dry run the planner without executing workers (cheap sanity check)
 
 ## Key Design Decisions
 - **Deterministic Python orchestrator** — the execution loop is plain Python, not an AI agent. Claude fires only for planning, coding, and reviewing.
