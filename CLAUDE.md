@@ -11,11 +11,23 @@ uv run golem plan spec.md        # Dry run — generate tasks.json only
 uv run golem status              # Check current run progress
 uv run golem resume              # Resume interrupted run
 uv run golem clean               # Clean up .golem/ state
+uv run golem version             # Show version, Python, platform info
 uv run pytest                    # Run tests
 ```
 
+## Prerequisites
+- **Claude CLI authenticated** — run `claude login` once; the SDK spawns `claude` subprocesses using OAuth (not API keys)
+- **uv installed** — `pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+## Runtime State (`.golem/`)
+Created by `golem run` in the project root (gitignored):
+- `tasks.json` — shared task graph (source of truth)
+- `progress.log` — timestamped execution log
+- `config.json` — run configuration snapshot
+- `worktrees/` — git worktrees per parallel group
+
 ## The Spec
-**Read `docs/superpowers/specs/2026-03-25-golem-design.md` before doing ANY work.** It contains the complete design with architecture, SDK integration, task schema, execution loop, and verification criteria.
+**Read `docs/superpowers/specs/2026-03-25-golem-design.md` before doing ANY work.** It contains the complete design with architecture, SDK integration, task schema, execution loop, and verification criteria. See also `2026-03-25-golem-smoke-test.md` for a minimal test spec.
 
 ## Coding Conventions
 
@@ -64,6 +76,7 @@ src/
       worker.md         ← Worker system prompt template
       validator.md      ← Validator system prompt template
 tests/
+  __init__.py
   test_tasks.py         ← Task graph parsing and state machine
   test_executor.py      ← Execution loop logic
   test_worktree.py      ← Git worktree operations
@@ -82,10 +95,6 @@ tests/
 - **Capture `AssistantMessage` text blocks as fallback** — `ResultMessage.result` may be empty; check both
 - **Validator PASS detection must be fuzzy** — AI models prefix preamble before "PASS:"; search anywhere, not just `startswith`
 - **Run `uv sync` in worktrees after creation** — new worktrees lack venv; module imports fail without it
-
-### Useful Commands
-- `uv run golem clean` — reset `.golem/` state between test runs
-- `uv run golem plan spec.md` — dry run the planner without executing workers (cheap sanity check)
 
 ## Key Design Decisions
 - **Deterministic Python orchestrator** — the execution loop is plain Python, not an AI agent. Claude fires only for planning, coding, and reviewing.
