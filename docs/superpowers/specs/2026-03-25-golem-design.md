@@ -99,6 +99,8 @@ golem run spec.md
 
 Golem is installed via `pip install golem-cli` or `uvx golem`.
 
+**Research step:** Before implementing `cli.py`, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `typer` (PyPI). Verify the current patterns for defining commands, `typer.Argument`, `typer.Option`, callback usage, and app composition. Do NOT rely on training data for `typer`'s API.
+
 **Commands:**
 
 ```bash
@@ -139,6 +141,8 @@ Settings:
   [d] Dry run (show tasks.json only)
   [q] Quit
 ```
+
+**Research step:** Before implementing `tui.py`, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `rich` (PyPI). Verify the current API for `rich.live.Live`, `rich.table.Table`, `rich.progress.Progress`, and `rich.prompt.Prompt` — specifically how to nest these components, update them in real time, and compose them in a single `Live` context. Do NOT rely on training data for `rich`'s API.
 
 **Live execution dashboard:**
 
@@ -341,6 +345,8 @@ For each task in group (respecting depends_on ordering):
 
 ### 6. SDK Integration
 
+**Research step:** Before implementing any SDK integration code, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` (PyPI package). Verify the current import paths, the signature of `query()`, the fields on `ClaudeAgentOptions`, and the message types (`AssistantMessage`, `TextBlock`, `ResultMessage`, `ResultMessage.result`). Do NOT rely on training data or the code examples below as authoritative — treat them as illustrative only. Confirm the exact installed version with `uv run pip show claude-agent-sdk` and cross-reference against the official changelog.
+
 Golem uses the `claude-agent-sdk` Python package (v0.1.50+), which wraps the Claude Code CLI and provides an async API for spawning and managing agent sessions.
 
 **Spawning a worker session:**
@@ -466,6 +472,24 @@ The orchestrator runs each `validation_command` from the task as a subprocess. T
 - `bun test` — run project tests
 
 If any command fails, the output (stdout + stderr) is captured and fed back to the worker as `last_feedback`. No AI tokens spent.
+
+**WSL path fallback for build-tool commands:**
+
+On Windows hosts running Python natively (non-WSL), build tools like `bun build`, `tsc`, and `vite build` may fail due to path translation issues (e.g., `/tmp/` not resolving correctly). Any `validation_command` that invokes a build tool MUST include a code-inspection fallback. The fallback runs when the build command returns a non-zero exit code AND the stderr contains path-related errors (e.g., `ENOENT`, `cannot find`, `no such file`).
+
+The fallback replaces the build command with static code inspection:
+- `grep` for expected exports/imports in the relevant source files
+- `python -c "import ast; ast.parse(open('file.py').read())"` for Python syntax validation
+- File existence checks via `test -f path/to/file`
+
+Example `validation_commands` entry with WSL fallback:
+```json
+"validation_commands": [
+  "bun build --no-bundle src/runtime.ts --outdir /tmp/golem-check || grep -c 'export function getRuntimeDir' src/runtime.ts"
+]
+```
+
+The orchestrator treats a fallback exit code of 0 as a pass for deterministic validation purposes, and records in `progress.log` that the build tool was unavailable and code inspection was used instead.
 
 **Tier 2 — AI Review (Claude Code SDK, Sonnet):**
 
@@ -650,15 +674,131 @@ golem/
 
 ## Verification
 
-After implementation, verify:
+After implementation, verify each module passes ALL of the following acceptance criteria:
 
-1. `golem plan spec.md` produces valid tasks.json with correct dependencies
-2. `golem run spec.md` executes tasks in parallel across worktrees
-3. Worker sessions are scoped — they only modify files listed in their task
-4. Deterministic validation catches failures without spending tokens
-5. AI validation correctly identifies acceptance criteria violations
-6. Failed tasks retry with feedback and eventually pass or are marked blocked
-7. `golem resume` correctly picks up from an interrupted run
-8. Worktree merge produces a clean branch with no conflicts (for well-structured specs)
-9. PR is created with accurate report of completed/blocked tasks
-10. The TUI displays accurate real-time progress during execution
+### CLI (`cli.py`)
+- `uv run golem --help` exits 0 and lists `run`, `plan`, `status`, `resume`, `clean` subcommands
+- `uv run golem run spec.md --force` runs without prompting for TUI input
+- `uv run golem plan spec.md` writes `.golem/tasks.json` and exits without executing any workers
+
+### Planner (`planner.py`)
+- `uv run golem plan spec.md` produces a `.golem/tasks.json` that validates against the schema in Section 4 (all required keys present, `status` is `"pending"` for all tasks, `depends_on` references only tasks within the same group)
+- Every task in the output has at least one entry in `acceptance` and at least one entry in `validation_commands`
+- Tasks that reference the same files are in the same group
+
+### Executor (`executor.py`)
+- Running a 2-group spec launches exactly 2 coroutines concurrently (verifiable via `asyncio.gather` call in logs)
+- A task with `depends_on` pointing to an incomplete predecessor is not started until the predecessor reaches `status: "completed"`
+- A task that fails 3 times transitions to `status: "blocked"` and execution continues with remaining tasks
+
+### Worker (`worker.py`)
+- Worker session's `cwd` is the worktree path, not the main repo root (verifiable by reading the subprocess call)
+- Worker prompt includes `last_feedback` content on retry attempts and omits it on first attempt
+- Worker session is terminated (iterator exhausted) before the validator runs
+
+### Validator (`validator.py`)
+- Deterministic validation commands are run as subprocesses; a non-zero exit code sets `last_feedback` without invoking the AI validator
+- AI validator only fires when all deterministic commands return exit code 0
+- Validator session returns `(True, text)` for a response starting with `PASS` and `(False, text)` for any other response
+
+### Worktree (`worktree.py`)
+- `git worktree list` shows one entry per parallel group after worktrees are created
+- After all groups complete, each group branch is merged into `golem/<spec-slug>` sequentially
+- Merge conflicts trigger a Claude Code conflict-resolution session (Opus, max 30 turns)
+
+### Tasks (`tasks.py`)
+- `tasks.json` is written after every status transition (pending → in_progress, in_progress → completed, in_progress → blocked)
+- Concurrent writes from parallel groups do not corrupt `tasks.json` (serialized via `asyncio.Lock`)
+- `golem resume` resets any `in_progress` task to `pending` and continues from the next unfinished task
+
+### TUI (`tui.py`)
+- Pre-run screen displays group count, task count, and all 5 configurable settings before execution begins
+- Live dashboard updates task status in real time during execution (group progress bars, current task name, validator status)
+- `--force` flag bypasses TUI and uses defaults without rendering the settings screen
+
+### Final Validation & PR
+- `final_validation.commands` are run on the merged branch after all groups complete
+- A ready-to-review PR is created when final validation passes; a draft PR is created when it fails
+- PR body includes completed task list, blocked task list with last feedback, and validation command results
+
+## Implementation Plan
+
+### Epic 0: Environment Setup
+
+**0.1** Verify the environment is clean and install all dependencies:
+```bash
+uv sync
+uv run pytest --collect-only
+```
+
+**Research step:** Before implementing any test files, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `pytest-asyncio` (PyPI). Verify the current `asyncio_mode` configuration options, how to declare async fixtures, and whether `@pytest.mark.asyncio` is still required or auto-applied. Do NOT rely on training data for `pytest-asyncio` configuration.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-0: environment setup and dependency install"`
+
+### Epic 1: Core Data Model (`tasks.py`, `config.py`)
+
+**1.1** Implement `tasks.py` — `Task`, `Group`, `TasksFile` dataclasses, `read_tasks()`, `write_tasks()`, status state machine, `asyncio.Lock` serialization.
+**1.2** Implement `config.py` — `GolemConfig` dataclass with all defaults from the Configuration table.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-1: core data model tasks.py and config.py"`
+
+### Epic 2: Git Worktree Management (`worktree.py`)
+
+**2.1** Implement `worktree.py` — `create_worktree()`, `delete_worktree()`, `commit_task()`, `merge_group_branches()`, merge-conflict resolution session, PR creation.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-2: git worktree management"`
+
+### Epic 3: Planner (`planner.py`, `prompts/planner.md`)
+
+**3.1** Implement `prompts/planner.md` — planner system prompt template with spec, project context, and tasks.json schema injection points.
+**3.2** Implement `planner.py` — spawn Opus planner session, await `query()` iterator, parse `tasks.json` output, write to `.golem/tasks.json`.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-3: planner session and prompt"`
+
+### Epic 4: Worker and Validator Sessions (`worker.py`, `validator.py`, `prompts/`)
+
+**4.1** Implement `prompts/worker.md` — worker system prompt template.
+**4.2** Implement `prompts/validator.md` — validator system prompt template.
+**4.3** Implement `worker.py` — `run_worker()` async function per SDK integration spec.
+**4.4** Implement `validator.py` — `run_deterministic_checks()` (subprocess, zero tokens) and `run_ai_validator()` (Sonnet session).
+
+**Git checkpoint:** `git add -A && git commit -m "epic-4: worker and validator sessions"`
+
+### Epic 5: Execution Orchestrator (`executor.py`, `progress.py`)
+
+**5.1** Implement `executor.py` — `execute_group()` coroutine (per-task retry loop: worker → deterministic → AI validator), `execute_all_groups()` with `asyncio.gather()`, final validation, merge flow.
+**5.2** Implement `progress.py` — timestamped `progress.log` writer for task completions, retries, and blocked events.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-5: execution orchestrator and progress log"`
+
+### Epic 6: TUI (`tui.py`)
+
+**6.1** Implement `tui.py` — pre-run settings screen (rich `Prompt`, settings display, `[Enter]`/`[e]`/`[d]`/`[q]` handling) and live execution dashboard (rich `Live`, `Table`, `Progress`).
+
+**Git checkpoint:** `git add -A && git commit -m "epic-6: TUI pre-run screen and live dashboard"`
+
+### Epic 7: CLI Entry Point (`cli.py`)
+
+**7.1** Implement `cli.py` — `golem run`, `golem plan`, `golem status`, `golem resume`, `golem clean` commands via typer. Wire planner → TUI → executor pipeline.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-7: CLI entry point"`
+
+### Epic 8: Tests
+
+**8.1** Implement `tests/test_tasks.py` — task graph parsing, state machine transitions, lock serialization.
+**8.2** Implement `tests/test_executor.py` — retry loop logic, blocked propagation, group completion.
+**8.3** Implement `tests/test_worktree.py` — worktree create/delete/commit git operations.
+**8.4** Implement `tests/test_validator.py` — deterministic validation command execution and exit code handling.
+
+**Git checkpoint:** `git add -A && git commit -m "epic-8: test suite"`
+
+## Definition of Done
+
+The implementation is complete when ALL of the following are true:
+
+1. All epics (0–8) have been implemented and their git checkpoints committed.
+2. `uv run pytest` passes with 0 failures.
+3. `uv run golem plan docs/superpowers/specs/2026-03-25-golem-design.md` produces a valid `tasks.json` without error.
+4. `uv run golem run docs/superpowers/specs/2026-03-25-golem-design.md --force` completes without crashing (dry-run or smoke test against a sample spec).
+5. All verification criteria in `## Verification` are confirmed passing.
+6. A PR is created on the `golem/<spec-slug>` branch with an accurate Golem Run Report in the body.
