@@ -11,7 +11,7 @@ from golem.worktree import commit_task, create_worktree, delete_worktree, list_w
 
 def _init_git_repo(path: Path) -> None:
     """Initialize a git repo with an initial commit."""
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True, capture_output=True)
     (path / "README.md").write_text("init")
@@ -26,7 +26,7 @@ def test_create_and_delete_worktree() -> None:
         _init_git_repo(repo)
 
         wt_path = Path(tmpdir) / "worktrees" / "group-a"
-        create_worktree("group-a", "golem/spec/group-a", "master", wt_path, repo)
+        create_worktree("group-a", "golem/spec/group-a", "main", wt_path, repo)
 
         worktrees = list_worktrees(repo)
         assert any("group-a" in wt for wt in worktrees)
@@ -44,7 +44,7 @@ def test_commit_task() -> None:
         _init_git_repo(repo)
 
         wt_path = Path(tmpdir) / "worktrees" / "group-b"
-        create_worktree("group-b", "golem/spec/group-b", "master", wt_path, repo)
+        create_worktree("group-b", "golem/spec/group-b", "main", wt_path, repo)
 
         # Create a file in the worktree
         (wt_path / "new_file.py").write_text("# hello")
@@ -68,7 +68,7 @@ def test_commit_task_no_changes() -> None:
         _init_git_repo(repo)
 
         wt_path = Path(tmpdir) / "worktrees" / "group-c"
-        create_worktree("group-c", "golem/spec/group-c", "master", wt_path, repo)
+        create_worktree("group-c", "golem/spec/group-c", "main", wt_path, repo)
 
         result = commit_task(wt_path, "task-001", "Nothing changed")
         assert result is False
@@ -83,4 +83,5 @@ def test_list_worktrees_includes_main() -> None:
 
         worktrees = list_worktrees(repo)
         assert len(worktrees) >= 1
-        assert any(str(repo) in wt for wt in worktrees)
+        repo_resolved = str(repo.resolve())
+        assert any(repo_resolved in str(Path(wt).resolve()) for wt in worktrees)
