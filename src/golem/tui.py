@@ -40,7 +40,7 @@ class PreRunScreen:
         Show pre-run TUI. Returns (config, action) where action is one of:
         'run', 'dry_run', 'quit'.
         """
-        console.print("\n🗿 [bold]Golem v0.1.0[/bold]\n")
+        console.print("\n[bold]Golem v0.1.0[/bold]\n")
         console.print(f"Found [bold]{self._task_count}[/bold] tasks across [bold]{self._group_count}[/bold] parallel groups:\n")
         for summary in self._groups_summary:
             console.print(f"  {summary}")

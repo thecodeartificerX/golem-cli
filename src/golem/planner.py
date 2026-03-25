@@ -5,9 +5,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
 
-from golem.config import GolemConfig
+from golem.config import GolemConfig, sdk_env
 from golem.tasks import TasksFile, write_tasks
 
 _PLANNER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "planner.md"
@@ -80,7 +80,7 @@ def _extract_json(text: str) -> str:
 
 async def run_planner(spec_path: Path, golem_dir: Path, config: GolemConfig, repo_root: Path | None = None) -> TasksFile:
     """Spawn Opus planner session, parse tasks.json output, write to golem_dir/tasks.json."""
-    spec_content = spec_path.read_text()
+    spec_content = spec_path.read_text(encoding="utf-8")
 
     # Gather project context
     project_context = ""
@@ -88,15 +88,16 @@ async def run_planner(spec_path: Path, golem_dir: Path, config: GolemConfig, rep
     for name in ("CLAUDE.md", "README.md", "README"):
         candidate = cwd / name
         if candidate.exists():
-            project_context += f"## {name}\n{candidate.read_text()[:4000]}\n\n"
+            project_context += f"## {name}\n{candidate.read_text(encoding='utf-8')[:4000]}\n\n"
             break
 
-    template = _PLANNER_PROMPT_TEMPLATE.read_text()
+    template = _PLANNER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     prompt = template.replace("{spec_content}", spec_content)
     prompt = prompt.replace("{project_context}", project_context or "(none)")
     prompt = prompt.replace("{tasks_json_schema}", _TASKS_JSON_SCHEMA)
 
     result_text = ""
+    all_text_chunks: list[str] = []
     async for message in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
@@ -104,13 +105,20 @@ async def run_planner(spec_path: Path, golem_dir: Path, config: GolemConfig, rep
             cwd=str(cwd),
             allowed_tools=["Read", "Glob", "Grep", "Bash"],
             max_turns=30,
-            permission_mode="acceptEdits",
+            permission_mode="bypassPermissions",
+            env=sdk_env(),
         ),
     ):
         if isinstance(message, ResultMessage):
             result_text = message.result or ""
+        elif isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    all_text_chunks.append(block.text)
 
-    raw_json = _extract_json(result_text)
+    # Prefer ResultMessage, fall back to concatenated assistant text
+    output = result_text if result_text.strip() else "\n".join(all_text_chunks)
+    raw_json = _extract_json(output)
     data = json.loads(raw_json)
 
     # Inject runtime metadata

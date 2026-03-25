@@ -4,14 +4,14 @@ from pathlib import Path
 
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
 
-from golem.config import GolemConfig
+from golem.config import GolemConfig, sdk_env
 from golem.tasks import Task
 
 _WORKER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
 
 def _build_worker_prompt(task: Task, feedback: str | None) -> str:
-    template = _WORKER_PROMPT_TEMPLATE.read_text()
+    template = _WORKER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     files_create = "\n".join(task.files_create) if task.files_create else "(none)"
     files_modify = "\n".join(task.files_modify) if task.files_modify else "(none)"
     acceptance = "\n".join(f"- {a}" for a in task.acceptance)
@@ -62,7 +62,8 @@ async def run_worker(
             cwd=worktree_path,
             allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
             max_turns=config.max_worker_turns,
-            permission_mode="acceptEdits",
+            permission_mode="bypassPermissions",
+            env=sdk_env(),
         ),
     ):
         if isinstance(message, ResultMessage):

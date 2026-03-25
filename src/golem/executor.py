@@ -123,6 +123,10 @@ async def execute_all_groups(
         group_worktree_paths[group.id] = wt_path
         if not wt_path.exists():
             create_worktree(group.id, group.worktree_branch, base_branch, wt_path, repo_root)
+            # Install package in worktree so validation commands can import modules
+            subprocess.run(
+                ["uv", "sync"], cwd=wt_path, capture_output=True, text=True, check=False,
+            )
 
     # Run all groups concurrently
     coroutines = [

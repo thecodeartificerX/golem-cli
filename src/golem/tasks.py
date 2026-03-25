@@ -150,7 +150,7 @@ def task_by_id(tasks_file: TasksFile, task_id: str) -> Task | None:
 
 
 def read_tasks(path: Path) -> TasksFile:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return TasksFile.from_dict(data)
 
@@ -158,11 +158,11 @@ def read_tasks(path: Path) -> TasksFile:
 async def write_tasks(tasks_file: TasksFile, path: Path) -> None:
     async with _TASKS_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(tasks_file.to_dict(), f, indent=2)
 
 
 def write_tasks_sync(tasks_file: TasksFile, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(tasks_file.to_dict(), f, indent=2)

@@ -11,7 +11,7 @@ class ProgressLogger:
 
     def _write(self, msg: str) -> None:
         ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(self._path, "a") as f:
+        with open(self._path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {msg}\n")
 
     def log_task_start(self, task_id: str) -> None:
