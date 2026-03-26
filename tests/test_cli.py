@@ -280,6 +280,54 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_clean_with_real_golem_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem clean --force removes .golem/ directory and golem/* branches."""
+    import subprocess
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    # Set up a git repo
+    repo = tmp_path / "project"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    (repo / "README.md").write_text("init", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+    # Create .golem/ with tickets
+    golem_dir = repo / ".golem"
+    tickets_dir = golem_dir / "tickets"
+    tickets_dir.mkdir(parents=True)
+    _write_ticket_json(tickets_dir, "TICKET-001", "Task A", "pending")
+    _write_ticket_json(tickets_dir, "TICKET-002", "Task B", "done")
+    (golem_dir / "plans").mkdir()
+    (golem_dir / "plans" / "overview.md").write_text("# Plan", encoding="utf-8")
+
+    # Create a golem/* branch
+    subprocess.run(["git", "branch", "golem/spec/group-a"], cwd=repo, check=True, capture_output=True)
+
+    monkeypatch.chdir(repo)
+    runner = CliRunner()
+    result = runner.invoke(app, ["clean", "--force"])
+
+    assert result.exit_code == 0
+    assert "Cleaned" in result.output
+    assert "2 ticket(s)" in result.output
+    assert "1 plan(s)" in result.output
+    assert "1 golem branch" in result.output
+    # .golem/ should be gone
+    assert not golem_dir.exists()
+    # golem/* branches should be deleted
+    branch_check = subprocess.run(
+        ["git", "branch", "--list", "golem/*"], cwd=repo, capture_output=True, text=True
+    )
+    assert branch_check.stdout.strip() == ""
+
+
 def test_history_with_ticket_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem history shows events chronologically across tickets."""
     from typer.testing import CliRunner
