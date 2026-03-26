@@ -578,7 +578,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Reset a single ticket's status back to `pending` without cleaning the whole run.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 220. CLI — Help text improvements for all commands
+#### [x] 220. CLI — Help text improvements for all commands (DONE: 312b967)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Audit all command help strings. Add examples, clarify options, improve descriptions.
 **Done when:** `golem --help` and all subcommand `--help` are clear and complete.
