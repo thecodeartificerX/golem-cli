@@ -44,7 +44,13 @@ def _ensure_merged_to_main(project_root: Path) -> None:
 
     # Check if main already has the integration commits
     current = _git("rev-parse", "HEAD")
-    _git("checkout", "main")
+    checkout_result = _git("checkout", "main")
+    if checkout_result.returncode != 0:
+        # Fallback: try 'master' or detect default branch
+        checkout_result = _git("checkout", "master")
+        if checkout_result.returncode != 0:
+            print("[TECH LEAD] Warning: could not checkout main or master branch", file=sys.stderr)
+            return
 
     for branch in integration_branches:
         # Check if branch is already merged into main

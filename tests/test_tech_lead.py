@@ -108,3 +108,29 @@ def test_cleanup_golem_worktrees_removes_worktree() -> None:
 
         _cleanup_golem_worktrees(golem_dir, repo)
         assert not wt_path.exists()
+
+
+def test_ensure_merged_fallback_to_master() -> None:
+    """_ensure_merged_to_main falls back to 'master' when 'main' doesn't exist."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        # Init with 'master' instead of 'main'
+        subprocess.run(["git", "init", "-b", "master"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+        (repo / "README.md").write_text("init", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Create an integration branch
+        _git(repo, "checkout", "-b", "golem/test/integration")
+        (repo / "feature.txt").write_text("new feature", encoding="utf-8")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "integration work")
+        _git(repo, "checkout", "master")
+
+        # Should fallback to 'master' and merge successfully
+        _ensure_merged_to_main(repo)
+        log = _git(repo, "log", "--oneline").stdout
+        assert "integration work" in log
