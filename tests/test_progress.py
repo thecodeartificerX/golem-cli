@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+
+from golem.progress import ProgressLogger
+
+
+def test_log_planner_start_writes_event() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_planner_start()
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "PLANNER_START" in content
+
+
+def test_log_planner_complete_includes_ticket_id() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_planner_complete("TICKET-001")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "PLANNER_COMPLETE" in content
+        assert "TICKET-001" in content
+
+
+def test_log_tech_lead_complete_with_elapsed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_tech_lead_complete(elapsed_s=272.5)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "TECH_LEAD_COMPLETE" in content
+        assert "elapsed=4m32s" in content
+
+
+def test_log_tech_lead_complete_without_elapsed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_tech_lead_complete()
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "TECH_LEAD_COMPLETE" in content
+        assert "elapsed" not in content
+
+
+def test_log_ticket_created() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_ticket_created("TICKET-003", "Build the widget")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "TICKET_CREATED TICKET-003" in content
+        assert "Build the widget" in content
+
+
+def test_log_qa_result_passed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_qa_result("TICKET-001", passed=True, summary="5/5 checks passed")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "QA_PASSED TICKET-001" in content
+
+
+def test_log_qa_result_failed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_qa_result("TICKET-002", passed=False, summary="3/5 checks passed")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "QA_FAILED TICKET-002" in content
+
+
+def test_multiple_events_appended() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_planner_start()
+        logger.log_planner_complete("TICKET-001")
+        logger.log_tech_lead_start("TICKET-001")
+        lines = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 3
