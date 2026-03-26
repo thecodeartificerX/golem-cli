@@ -158,7 +158,7 @@ Tasks are organized by theme. Each task should be:
 **What:** If `git worktree add` fails after `path.parent.mkdir()`, the empty directory is left behind. Add cleanup in except block.
 **Done when:** `uv run pytest` passes with test for failure case.
 
-#### [ ] 140. `TicketStore.read()` — Handle corrupt JSON gracefully
+#### [S] 140. `TicketStore.read()` — Handle corrupt JSON gracefully (SKIP: JSONDecodeError now caught at CLI layer in task 144; wrapping would break test 134)
 **Size:** Small | **Files:** `src/golem/tickets.py`
 **What:** If a ticket JSON is corrupt, `json.loads` raises `JSONDecodeError` that propagates unhandled. Catch it and raise `ValueError(f"Ticket {ticket_id} file is corrupt")`.
 **Done when:** `uv run pytest` passes (pairs with test 134).
@@ -178,22 +178,22 @@ Tasks are organized by theme. Each task should be:
 **What:** `spec_path.read_text()` raises `PermissionError` if unreadable. Catch before retry logic and raise descriptive error.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 144. `cli.py:inspect()` — Catch `JSONDecodeError` alongside `FileNotFoundError`
+#### [x] 144. `cli.py:inspect()` — Catch `JSONDecodeError` alongside `FileNotFoundError` (DONE: 6b549c7)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Currently only catches `(FileNotFoundError, KeyError)`. A corrupt ticket JSON gives an ugly traceback instead of "ticket corrupt" message.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 145. `cli.py:clean()` — Handle subprocess errors from `git worktree remove`
+#### [x] 145. `cli.py:clean()` — Handle subprocess errors from `git worktree remove` (DONE: 6b549c7)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** `subprocess.run` for worktree remove has no `check` param. If it fails, `wt_count` is still incremented. Check returncode before counting.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 146. `golem status` — Count `qa_passed` and `ready_for_review` as "done-ish"
+#### [x] 146. `golem status` — Count `qa_passed` and `ready_for_review` as "done-ish" (DONE: 6b549c7)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Currently only `"done"` and `"approved"` count toward completion. Add `"qa_passed"` and `"ready_for_review"` to done_count.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 147. `golem status` — Fix double `console.print(table)` bug
+#### [x] 147. `golem status` — Fix double `console.print(table)` bug (DONE: 6b549c7)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Lines 296 and 299 both print the table. Remove the duplicate.
 **Done when:** `uv run pytest` passes and table prints once.
