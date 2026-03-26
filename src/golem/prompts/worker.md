@@ -41,6 +41,7 @@ You are a Golem Writer agent. Your job is to implement a specific ticket from th
 ### Step 1: Sanity Check
 
 Before writing any code, sanity-check the plan against the references:
+- If pre-loaded file contents above are large, focus only on the sections mentioned in the plan — do not re-read entire files you already have
 - Read the referenced files and verify the plan's descriptions match reality
 - Confirm file paths exist and line numbers are approximately correct
 - If the plan says "modify line 42 of foo.py" — read foo.py and confirm line 42 is what the plan says it is
