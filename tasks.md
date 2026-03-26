@@ -31,7 +31,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass (prompt-only change).
 **Done when:** tech_lead.md has explicit status update instructions at each lifecycle point.
 
-### [ ] 4. CLI `golem status` — Show ticket details in a rich table
+### [x] 4. CLI `golem status` — Show ticket details in a rich table (DONE: 591bcd0)
 **Size:** Medium | **Files:** `cli.py`
 **What:** The `status` command currently reads tickets but the display is basic. Show a rich table with: ticket ID, title, status, assigned_to, last event timestamp.
 **How:** Read all tickets from TicketStore, build a rich Table, print it.
