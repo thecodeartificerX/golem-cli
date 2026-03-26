@@ -155,6 +155,15 @@ def run(
         progress.log_tech_lead_complete(elapsed_s=elapsed)
         console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
 
+        # Final ticket summary
+        all_tickets = await store.list_tickets()
+        if all_tickets:
+            by_status: dict[str, int] = {}
+            for t in all_tickets:
+                by_status[t.status] = by_status.get(t.status, 0) + 1
+            parts = [f"{count} {status}" for status, count in sorted(by_status.items())]
+            console.print(f"  Tickets: {', '.join(parts)}")
+
     asyncio.run(_run_async())
 
 
