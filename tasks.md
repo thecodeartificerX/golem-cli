@@ -503,7 +503,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Reset ticket to `pending`, re-dispatch to a fresh writer with original context.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 205. `golem doctor` — Diagnose environment issues
+#### [x] 205. `golem doctor` — Diagnose environment issues (DONE: b656366)
 **Size:** Medium | **Files:** `src/golem/cli.py`
 **What:** New command that checks: claude CLI installed, authenticated, uv installed, git configured, rg installed. Print pass/fail for each.
 **Done when:** `uv run pytest` passes.
