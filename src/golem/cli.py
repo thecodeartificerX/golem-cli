@@ -229,8 +229,8 @@ def status() -> None:
     tickets_dir = golem_dir / "tickets"
 
     if not tickets_dir.exists():
-        console.print("[red]No tickets found. Run 'golem plan <spec>' first.[/red]")
-        raise typer.Exit(1)
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
 
     async def _status_async() -> None:
         store = TicketStore(tickets_dir)
