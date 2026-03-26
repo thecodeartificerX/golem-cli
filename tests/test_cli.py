@@ -244,3 +244,62 @@ def test_resume_cli_no_tickets_exits_cleanly() -> None:
     result = runner.invoke(app, ["resume"])
     # Should exit with error since no tickets dir exists
     assert result.exit_code != 0 or "no tickets" in result.output.lower()
+
+
+def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: str) -> None:
+    """Helper to write a ticket JSON file."""
+    data = {
+        "id": ticket_id,
+        "type": "task",
+        "title": title,
+        "status": status,
+        "priority": "medium",
+        "created_by": "planner",
+        "assigned_to": "writer",
+        "context": {
+            "plan_file": "",
+            "files": {},
+            "references": [],
+            "blueprint": "",
+            "acceptance": [],
+            "qa_checks": [],
+            "parallelism_hints": [],
+        },
+        "history": [
+            {
+                "ts": "2026-03-27T10:00:00+00:00",
+                "agent": "planner",
+                "action": "created",
+                "note": f"Ticket created: {title}",
+                "attachments": [],
+            }
+        ],
+    }
+    (tickets_dir / f"{ticket_id}.json").write_text(
+        json.dumps(data, indent=2), encoding="utf-8"
+    )
+
+
+def test_status_with_real_tickets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem status renders a table with ticket IDs, titles, and statuses."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    _write_ticket_json(tickets_dir, "TICKET-001", "Auth", "in_progress")
+    _write_ticket_json(tickets_dir, "TICKET-002", "Logging", "pending")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "TICKET-001" in result.output
+    assert "TICKET-002" in result.output
+    assert "Auth" in result.output
+    assert "Logging" in result.output
+    assert "in_progress" in result.output
+    assert "pending" in result.output
