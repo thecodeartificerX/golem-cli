@@ -573,7 +573,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Print `[3/5 tickets complete]` style progress updates as tickets finish.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 219. CLI — `golem reset <ticket-id>` — Reset ticket to pending
+#### [x] 219. CLI — `golem reset <ticket-id>` — Reset ticket to pending (DONE: 2a9810a)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Reset a single ticket's status back to `pending` without cleaning the whole run.
 **Done when:** `uv run pytest` passes.
