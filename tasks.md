@@ -647,7 +647,7 @@ Tasks are organized by theme. Each task should be:
 **What:** When `golem resume` runs, skip tickets already in `done`/`approved` status and only dispatch writers for `pending`/`needs_work` tickets.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 233. Pipeline — Configurable agent models per role
+#### [S] 233. Pipeline — Configurable agent models per role (SKIP: already implemented — GolemConfig has planner_model, tech_lead_model, worker_model)
 **Size:** Medium | **Files:** `src/golem/config.py`, `src/golem/planner.py`, `src/golem/tech_lead.py`, `src/golem/writer.py`
 **What:** Add `planner_model`, `tech_lead_model`, `writer_model` to config. Currently only `model` is used for all.
 **Done when:** `uv run pytest` passes.
@@ -657,12 +657,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Estimate API token usage based on spec size and ticket count. Print before running: "Estimated cost: ~$X.XX".
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 235. Worktree — `uv sync` inside new worktrees automatically
+#### [x] 235. Worktree — `uv sync` inside new worktrees automatically (DONE: 1cf8a37)
 **Size:** Small | **Files:** `src/golem/worktree.py`
 **What:** After creating a worktree, run `uv sync` if `pyproject.toml` exists. Currently left to the agent (which sometimes forgets).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 236. Worktree — npm/bun install inside new worktrees
+#### [x] 236. Worktree — npm/bun install inside new worktrees (DONE: 1cf8a37)
 **Size:** Small | **Files:** `src/golem/worktree.py`
 **What:** After creating a worktree, run `npm install` or `bun install` if `package.json` exists.
 **Done when:** `uv run pytest` passes.
