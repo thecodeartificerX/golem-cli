@@ -136,6 +136,11 @@ def run(
     progress = ProgressLogger(golem_dir)
     t0 = time.monotonic()
 
+    console.print(f"  Spec:    {spec.resolve()}")
+    console.print(f"  Project: {spec_project_root}")
+    if config.infrastructure_checks:
+        console.print(f"  Infra:   {', '.join(config.infrastructure_checks)}")
+
     async def _run_async() -> None:
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
