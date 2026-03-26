@@ -104,32 +104,32 @@ Tasks are organized by theme. Each task should be:
 **What:** Invoke `golem version`, verify the test count matches actual `uv run pytest --co -q` count.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 130. Test `detect_infrastructure_checks` — tsconfig.json detection
+#### [S] 130. Test `detect_infrastructure_checks` — tsconfig.json detection (SKIP: already covered by test_detect_infrastructure_checks_finds_tsc)
 **Size:** Small | **Files:** `tests/test_qa.py`
 **What:** `qa.detect_infrastructure_checks()` should detect `tsconfig.json` and add `"npx tsc --noEmit"`. Currently untested.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 131. Test `run_autofix` — Both ruff AND prettier present simultaneously
+#### [x] 131. Test `run_autofix` — Both ruff AND prettier present simultaneously (DONE: 5c7a8b2)
 **Size:** Small | **Files:** `tests/test_qa.py`
 **What:** Pass checks containing both `ruff check .` and `prettier --check .`, verify both autofix commands invoked.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 132. Test `QACheck.type` classification — lint vs test vs acceptance
+#### [x] 132. Test `QACheck.type` classification — lint vs test vs acceptance (DONE: 5c7a8b2)
 **Size:** Small | **Files:** `tests/test_qa.py`
 **What:** Run checks with ruff (lint), pytest (test), and custom command (acceptance), verify `check.type` is correct.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 133. Test `_handle_create_ticket` — `files` dict field preserved
+#### [x] 133. Test `_handle_create_ticket` — `files` dict field preserved (DONE: 5c7a8b2)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Call `handle_tool_call` with `create_ticket` including a `files` dict. Verify `str(k): str(v)` conversion works and persists.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 134. Test `TicketStore.read` — Corrupt JSON raises clean error
+#### [x] 134. Test `TicketStore.read` — Corrupt JSON raises clean error (DONE: 5c7a8b2)
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** Write a corrupt JSON file to the tickets dir, call `store.read()`, verify it raises a descriptive error (not raw `json.JSONDecodeError`).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 135. Test `merge_group_branches` — Empty branch list
+#### [x] 135. Test `merge_group_branches` — Empty branch list (DONE: 5c7a8b2)
 **Size:** Small | **Files:** `tests/test_worktree.py`
 **What:** Call `merge_group_branches([], "integration", repo)`, verify `(True, "")` returned without error.
 **Done when:** `uv run pytest` passes.
