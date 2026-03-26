@@ -483,7 +483,7 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme G: CLI Enhancements (201–220)
 
-#### [ ] 201. `golem diff` — Show git diff of changes from last run
+#### [x] 201. `golem diff` — Show git diff of changes from last run (DONE: e5c5a6d)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** New command that runs `git diff main` (or configured base branch) to show what the last golem run changed.
 **Done when:** `uv run pytest` passes.
