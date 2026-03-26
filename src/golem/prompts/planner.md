@@ -130,6 +130,16 @@ This ticket is how you hand off to the Tech Lead. If you skip this step, the ent
 
 ---
 
+## Infrastructure Checks (auto-detected)
+
+These checks were auto-detected from the project and MUST be included in every task plan's `qa_checks` list:
+
+{infrastructure_checks}
+
+Writers will run these automatically via `run_qa`. Include them in acceptance criteria.
+
+---
+
 ## Output Requirements
 
 By the time you finish, these files MUST exist on disk:
