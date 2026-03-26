@@ -4,16 +4,16 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 45 tasks, 8 batches, 134 tests, 65 commits
+**Status:** COMPLETE — 60 tasks, 11 batches, 143 tests, 82 commits
 
 ### Final Stats
-- **Tasks completed:** 45
-- **Batches:** 8
-- **Tests:** 134 (up from 106 at start)
-- **Commits:** 65
-- **Files changed:** 23
-- **Lines added:** 1,443
-- **Lines removed:** 125
+- **Tasks completed:** 60
+- **Batches:** 11
+- **Tests:** 143 (up from 106 at start — +35% coverage)
+- **Commits:** 82
+- **Files changed:** 24
+- **Lines added:** 1,722
+- **Lines removed:** 132
 
 ### Batch 1 (tasks 1-10) — Core improvements
 - [x] Task 1: SDK Message Streaming (ea785c1)
@@ -92,4 +92,13 @@ Batch 9 complete. 137 tests passing.
 - [x] Task 54: Friendly history/inspect (d1c3f30)
 - [x] Task 55: CLAUDE.md test files (d148214)
 
-Batch 10 complete. 140 tests passing. 55 tasks shipped overnight.
+Batch 10 complete. 140 tests passing.
+
+### Batch 11 (tasks 56-60) — Final polish
+- [x] Task 56: Short spec warning test (3d1adbe)
+- [x] Task 57: No structure warning test (3d1adbe)
+- [x] Task 58: Concurrent updates test (cc0ff0a)
+- [x] Task 59: Planner model ID hints (02fbab3)
+- [x] Task 60: Final overnight stats (this commit)
+
+Batch 11 complete. 143 tests passing. 60 tasks shipped overnight.

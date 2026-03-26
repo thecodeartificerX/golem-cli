@@ -380,27 +380,27 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 11: Overnight Queue (final polish)
 
-### [ ] 56. Test `_validate_spec` — Short spec warning
+### [x] 56. (DONE: 3d1adbe) Test `_validate_spec` — Short spec warning
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** _validate_spec warns on specs < 50 chars but doesn't exit. Verify the warning path.
 **Done when:** `uv run pytest` passes with new test.
 
-### [ ] 57. Test `_validate_spec` — No structure warning
+### [x] 57. (DONE: 3d1adbe) Test `_validate_spec` — No structure warning
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Specs with no headings/task markers get a warning. Verify.
 **Done when:** `uv run pytest` passes with new test.
 
-### [ ] 58. Test TicketStore — Concurrent updates don't corrupt
+### [x] 58. (DONE: cc0ff0a) Test TicketStore — Concurrent updates don't corrupt
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** 5 concurrent update() calls should all succeed and history should have all events.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 59. Planner prompt — Clarify sub-agent model hints
+### [x] 59. (DONE: 02fbab3) Planner prompt — Clarify sub-agent model hints
 **Size:** Small | **Files:** `prompts/planner.md`
 **What:** The prompt says "Haiku model" and "Sonnet model" for sub-agents but doesn't give exact model IDs. Add them.
 **Done when:** Prompt updated, tests pass.
 
-### [ ] 60. Final overnight stats update
+### [x] 60. (DONE: this commit) Final overnight stats update
 **Size:** Small
 **What:** Update overnight-log.md with final cumulative stats.
 **Done when:** Log updated and committed.
