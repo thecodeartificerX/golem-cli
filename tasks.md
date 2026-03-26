@@ -355,32 +355,32 @@ Tasks are organized by theme. Each task should be:
 **What:** Phase 7 "if the project is a web project" is vague. Add: "A project is a web project if it has an `index.html`, a `dev` script in `package.json`, or a frontend framework (React/Vue/Svelte) in dependencies."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 177. Tech Lead prompt — Verify merge with more than 3 commits
+#### [x] 177. Tech Lead prompt — Verify merge with more than 3 commits (DONE: 43261fe)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`
 **What:** Phase 8 says "`git log --oneline -3`" which is insufficient for large merges. Change to "`git log --oneline -10`" or `git log integration..main`.
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 178. Tech Lead prompt — Explain tool name distinction
+#### [x] 178. Tech Lead prompt — Explain tool name distinction (DONE: 43261fe)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`
 **What:** The tool list mentions `mcp__golem__run_qa` (tech lead's tool) vs `mcp__golem-writer__run_qa` (writer's tool). Add a note clarifying the tech lead should use `mcp__golem__*` tools only.
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 179. Worker prompt — Add `update_ticket` on QA failure
+#### [x] 179. Worker prompt — Add `update_ticket` on QA failure (DONE: 43261fe)
 **Size:** Small | **Files:** `src/golem/prompts/worker.md`
 **What:** After 3 QA failures, the worker reports failure but doesn't update the ticket. Add: "Call `mcp__golem-writer__update_ticket` with status `needs_work` and the failure details."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 180. Worker prompt — Reiterate "no git commit" rule in implementation steps
+#### [x] 180. Worker prompt — Reiterate "no git commit" rule in implementation steps (DONE: 43261fe)
 **Size:** Small | **Files:** `src/golem/prompts/worker.md`
 **What:** The "no git commit" rule is only at the bottom. Add a reminder in Step 2: "Do NOT run `git commit` or `git push` — the Tech Lead handles all git operations."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 181. Worker prompt — Explain "wait for review" mechanism
+#### [x] 181. Worker prompt — Explain "wait for review" mechanism (DONE: 43261fe)
 **Size:** Small | **Files:** `src/golem/prompts/worker.md`
 **What:** Step 7 says "Stay alive. Do not exit." but doesn't explain how. Add: "After updating ticket to `ready_for_review`, call `mcp__golem-writer__read_ticket` in a polling loop (every 30s) to check for status changes."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 182. Planner prompt — Add encoding reminder for file writes
+#### [S] 182. Planner prompt — Add encoding reminder for file writes (SKIP: already exists at line 169 of planner.md)
 **Size:** Small | **Files:** `src/golem/prompts/planner.md`
 **What:** The Rules section should remind the planner to use `encoding="utf-8"` on all file writes, same as the worker prompt.
 **Done when:** Prompt updated, tests pass.
