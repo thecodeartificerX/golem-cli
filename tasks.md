@@ -755,17 +755,17 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme J: Testing Infrastructure (253–262)
 
-#### [ ] 253. Test fixtures — Shared ticket factory
+#### [x] 253. Test fixtures — Shared ticket factory (DONE: 724cfb6)
 **Size:** Small | **Files:** `tests/conftest.py`
 **What:** Multiple test files create tickets with boilerplate. Create a shared `conftest.py` fixture for creating test tickets with sensible defaults.
 **Done when:** `uv run pytest` passes, at least 2 test files use the fixture.
 
-#### [ ] 254. Test fixtures — Shared git repo factory
+#### [x] 254. Test fixtures — Shared git repo factory (DONE: 724cfb6)
 **Size:** Small | **Files:** `tests/conftest.py`
 **What:** Multiple test files call `_init_git_repo`. Move to a shared fixture in conftest.py.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 255. Test fixtures — Shared golem dir factory
+#### [x] 255. Test fixtures — Shared golem dir factory (DONE: 724cfb6)
 **Size:** Small | **Files:** `tests/conftest.py`
 **What:** Create a fixture that sets up a complete `.golem/` directory structure for CLI integration tests.
 **Done when:** `uv run pytest` passes.
