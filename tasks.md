@@ -436,6 +436,30 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 13: Overnight Queue (final)
+
+### [ ] 66. Test `create_writer_mcp_server` — Verify both tools present
+**Size:** Small | **Files:** `tests/test_tools.py`
+**What:** The existing test only checks the server is not None. Verify it has both run_qa and update_ticket tools by name.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 67. Test `save_config` — Verify sorted keys in output
+**Size:** Small | **Files:** `tests/test_config.py`
+**What:** Task 24 added sort_keys=True but no test verifies key ordering.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 68. `golem clean` — Show what was cleaned
+**Size:** Small | **Files:** `cli.py`
+**What:** After cleaning, show counts: N ticket files, N research files, N branches deleted.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 69. Update overnight-log.md final stats
+**Size:** Small
+**What:** Final cumulative stats for the entire overnight session.
+**Done when:** Log updated.
+
+---
+
 ### Agent Observability / Live Streaming (EXPANDED)
 Beyond basic stderr streaming (task 1), we eventually want:
 - A TUI dashboard showing all active agents and their current activity

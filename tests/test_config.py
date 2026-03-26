@@ -166,6 +166,16 @@ def test_validate_known_models_no_warnings() -> None:
     assert config.validate() == []
 
 
+def test_save_config_sorted_keys() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        save_config(GolemConfig(), golem_dir)
+        raw = (golem_dir / "config.json").read_text(encoding="utf-8")
+        data = json.loads(raw)
+        keys = list(data.keys())
+        assert keys == sorted(keys)
+
+
 def test_load_config_ignores_unknown_fields() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         golem_dir = Path(tmpdir)

@@ -96,5 +96,8 @@ def test_create_writer_mcp_server_has_both_tools() -> None:
         golem_dir = Path(tmpdir)
         (golem_dir / "tickets").mkdir()
         server = create_writer_mcp_server(golem_dir)
-        # McpSdkServerConfig is a dict-like object; verify it was created successfully
         assert server is not None
+        assert server["name"] == "golem-writer"
+        assert server["type"] == "sdk"
+        # The server instance should have a call_tool method (MCP server)
+        assert hasattr(server["instance"], "call_tool")

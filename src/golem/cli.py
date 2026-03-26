@@ -530,12 +530,22 @@ def clean(
     if not force:
         typer.confirm("This will delete all .golem/ state and golem/* branches. Continue?", abort=True)
 
+    # Count files before deleting
+    tickets_dir = golem_dir / "tickets"
+    ticket_count = len(list(tickets_dir.glob("*.json"))) if tickets_dir.exists() else 0
+    research_dir = golem_dir / "research"
+    research_count = len(list(research_dir.glob("*.md"))) if research_dir.exists() else 0
+    plans_dir = golem_dir / "plans"
+    plan_count = len(list(plans_dir.glob("*.md"))) if plans_dir.exists() else 0
+
     # Remove worktrees via git
     worktrees_dir = golem_dir / "worktrees"
+    wt_count = 0
     if worktrees_dir.exists():
         for wt in worktrees_dir.iterdir():
             if wt.is_dir():
                 subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
+                wt_count += 1
 
     shutil.rmtree(golem_dir, ignore_errors=True)
 
@@ -551,5 +561,9 @@ def clean(
             cwd=project_root, capture_output=True, text=True, encoding="utf-8",
         )
 
-    branch_msg = f" Deleted {len(golem_branches)} golem branch(es)." if golem_branches else ""
-    console.print(f"[bold green]Cleaned .golem/ directory.{branch_msg}[/bold green]")
+    console.print("[bold green]Cleaned:[/bold green]")
+    console.print(f"  {ticket_count} ticket(s), {plan_count} plan(s), {research_count} research file(s)")
+    if wt_count:
+        console.print(f"  {wt_count} worktree(s)")
+    if golem_branches:
+        console.print(f"  {len(golem_branches)} golem branch(es)")
