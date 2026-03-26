@@ -682,7 +682,7 @@ Tasks are organized by theme. Each task should be:
 **What:** If the working tree has uncommitted changes, `git stash` before running and `git stash pop` on failure.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 240. Pipeline — Auto-detect project type for QA defaults
+#### [x] 240. Pipeline — Auto-detect project type for QA defaults (DONE: 865cbcc)
 **Size:** Small | **Files:** `src/golem/qa.py`
 **What:** Expand `detect_infrastructure_checks` to detect: mypy from pyproject.toml, jest from package.json, cargo test from Cargo.toml.
 **Done when:** `uv run pytest` passes.
