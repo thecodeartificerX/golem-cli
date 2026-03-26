@@ -414,7 +414,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create a log file, start `tail_progress_log` in a task, write new lines, verify they appear in `log_buffer`.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 188. Test `stream_subprocess_output()` — Verify stdout capture
+#### [x] 188. Test `stream_subprocess_output()` — Verify stdout capture (DONE: fee1629)
 **Size:** Small | **Files:** `tests/test_ui.py`
 **What:** Run a simple subprocess via `stream_subprocess_output`, verify stdout lines captured.
 **Done when:** `uv run pytest` passes.
