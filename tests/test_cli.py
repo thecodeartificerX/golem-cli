@@ -84,6 +84,17 @@ def test_detect_infrastructure_checks_empty_project() -> None:
         assert checks == []
 
 
+def test_run_cli_nonexistent_spec_exits() -> None:
+    """Running golem run with a nonexistent spec should exit with error."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "/nonexistent/spec.md"])
+    assert result.exit_code != 0
+
+
 def test_resolve_spec_project_root_finds_git() -> None:
     import subprocess
 

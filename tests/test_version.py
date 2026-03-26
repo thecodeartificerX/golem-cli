@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from golem import __version__
 from golem.version import get_version_info
 
 
@@ -20,3 +21,8 @@ def test_get_version_info_python_version_format() -> None:
     info = get_version_info()
     parts = info["python"].split(".")
     assert len(parts) == 3  # major.minor.patch
+
+
+def test_get_version_info_matches_init() -> None:
+    info = get_version_info()
+    assert info["version"] == __version__
