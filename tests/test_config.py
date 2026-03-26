@@ -126,6 +126,34 @@ def test_save_and_load_roundtrip_setting_sources() -> None:
         assert restored.setting_sources == ["project", "local"]
 
 
+def test_validate_defaults_no_warnings() -> None:
+    config = GolemConfig()
+    assert config.validate() == []
+
+
+def test_validate_unknown_model_warns() -> None:
+    config = GolemConfig(planner_model="gpt-4o")
+    warnings = config.validate()
+    assert any("planner_model" in w for w in warnings)
+    assert any("gpt-4o" in w for w in warnings)
+
+
+def test_validate_bad_max_parallel_warns() -> None:
+    config = GolemConfig(max_parallel=0)
+    warnings = config.validate()
+    assert any("max_parallel" in w for w in warnings)
+
+
+def test_validate_known_models_no_warnings() -> None:
+    config = GolemConfig(
+        planner_model="claude-opus-4-6",
+        worker_model="claude-sonnet-4-6",
+        validator_model="claude-haiku-4-5-20251001",
+        tech_lead_model="claude-opus-4-6",
+    )
+    assert config.validate() == []
+
+
 def test_load_config_ignores_unknown_fields() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         golem_dir = Path(tmpdir)
