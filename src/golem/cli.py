@@ -127,6 +127,15 @@ def run(
         progress.log_planner_complete(ticket_id)
         console.print(f"  Planner created ticket: {ticket_id}")
 
+        # Show ticket summary before handing off
+        store = TicketStore(golem_dir / "tickets")
+        ticket = await store.read(ticket_id)
+        console.print(f"  Title:     {ticket.title[:70]}")
+        if ticket.context.plan_file:
+            console.print(f"  Plan file: {ticket.context.plan_file}")
+        if ticket.context.references:
+            console.print(f"  References: {len(ticket.context.references)} file(s)")
+
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)
         await run_tech_lead(ticket_id, golem_dir, config, project_root)
