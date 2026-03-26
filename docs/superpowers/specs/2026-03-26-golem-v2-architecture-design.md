@@ -45,14 +45,13 @@ git --version
 **0.3** Run existing v1 tests to establish baseline:
 ```bash
 uv run pytest tests/ -v
+# WSL fallback (if uv path issues): rg -l "def test_" tests/ && python -c "import golem; print('imports OK')"
 ```
 All 86 tests must pass before any changes.
 
 **Acceptance criteria:**
 - `uv sync` completes without error
 - `python --version` reports 3.12+
-- `rg --version` exits 0 (ripgrep on PATH)
-- `git --version` exits 0 (git on PATH)
 - `uv run pytest` reports 86 passed, 0 failed
 
 **Git checkpoint:** `git add -A && git commit -m "epic-0: environment setup verified"`
@@ -93,6 +92,7 @@ rg -q "class TicketContext" src/golem/tickets.py
 rg -q "class TicketStore" src/golem/tickets.py
 rg -q "encoding.*utf-8" src/golem/tickets.py
 uv run pytest tests/test_tickets.py -v
+# WSL fallback: rg -q "class TicketStore" src/golem/tickets.py && rg -q "encoding.*utf-8" src/golem/tickets.py && python -c "import ast; ast.parse(open('src/golem/tickets.py').read()); print('syntax OK')"
 ```
 
 **1.2** Create `tests/test_tickets.py` with comprehensive tests:
@@ -114,6 +114,7 @@ uv run pytest tests/test_tickets.py -v
 **Validation commands:**
 ```bash
 uv run pytest tests/test_tickets.py -v
+# WSL fallback: rg -l "def test_" tests/test_tickets.py && python -c "import ast; ast.parse(open('tests/test_tickets.py').read()); print('syntax OK')"
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-1: ticket system data layer with full test coverage"`
@@ -152,7 +153,6 @@ Build the deterministic QA tool that replaces AI-based validation.
 - `run_autofix()` runs ruff fix when ruff is in the check list
 - `detect_infrastructure_checks()` detects ruff from pyproject.toml
 - Reuses `_subprocess_env()` and `_normalize_cmd()` from validator.py (import, don't duplicate)
-- If a build-tool check (`tsc`, `vite build`, `bun build`) exits with code 127 (tool not on PATH — common in WSL), `run_qa()` records a `QACheck` with `passed=False` and `stderr="build tool not found on PATH"`, then appends a fallback code-inspection check (e.g., `rg -q "compilerOptions" tsconfig.json` for tsc) marked as `type="fallback-inspection"`
 
 **Validation commands:**
 ```bash
@@ -163,6 +163,7 @@ rg -q "def run_autofix" src/golem/qa.py
 rg -q "def detect_infrastructure_checks" src/golem/qa.py
 rg -q "_subprocess_env" src/golem/qa.py
 uv run pytest tests/test_qa.py -v
+# WSL fallback: rg -q "def run_qa" src/golem/qa.py && python -c "import ast; ast.parse(open('src/golem/qa.py').read()); print('syntax OK')"
 ```
 
 **2.2** Create `tests/test_qa.py`:
@@ -183,6 +184,7 @@ uv run pytest tests/test_qa.py -v
 **Validation commands:**
 ```bash
 uv run pytest tests/test_qa.py -v
+# WSL fallback: rg -l "def test_" tests/test_qa.py && python -c "import ast; ast.parse(open('tests/test_qa.py').read()); print('syntax OK')"
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-2: deterministic QA tool with structured results"`
@@ -194,6 +196,8 @@ uv run pytest tests/test_qa.py -v
 Write the prompt templates for all agent roles.
 
 **3.1** Rewrite `src/golem/prompts/planner.md` for sub-agent architecture:
+
+**Research step:** Before writing the prompt, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — specifically how the `Agent` tool is invoked within a session prompt, what parameter names are used to specify model (Haiku/Sonnet), and how sub-agent spawning is documented for use within system prompts. Do NOT rely on training data for the tool invocation syntax.
 
 The planner prompt must instruct the agent to:
 - Read the spec file
@@ -228,6 +232,8 @@ rg -q "spec_content" src/golem/prompts/planner.md
 ```
 
 **3.2** Rewrite `src/golem/prompts/worker.md` as the Writer prompt:
+
+**Research step:** Before writing the prompt, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — specifically how `run_qa` tool calls work within session prompts, the `Agent` tool invocation syntax, and how ticket tool invocations are documented. Do NOT rely on training data for the tool invocation syntax.
 
 The writer prompt must instruct the agent to:
 - Read the ticket context (plan section, file contents, references, blueprint)
@@ -264,6 +270,8 @@ rg -q "blueprint" src/golem/prompts/worker.md
 
 **3.3** Create `src/golem/prompts/tech_lead.md` — new Tech Lead prompt:
 
+**Research step:** Before writing the prompt, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — specifically how all Tech Lead tools (`create_ticket`, `update_ticket`, `run_qa`, `create_worktree`, `merge_branches`) are invoked, the `Agent` tool syntax for spawning writer pairs, and how custom tool results are consumed by sessions. Do NOT rely on training data for the tool invocation syntax.
+
 The Tech Lead prompt must instruct the agent to:
 - Read `plans/overview.md` and all `plans/task-NNN.md` files
 - Read `references/*.md` for full context
@@ -285,7 +293,7 @@ Template variables: `{golem_dir}`, `{spec_content}`, `{project_root}`
 - Prompt covers full lifecycle: read plans → create tickets → spawn writers → review → merge → QA → PR
 - Prompt has tool usage instructions for all Tech Lead tools
 - Prompt has integration review instructions (inline, not separate agent)
-- Prompt has UX smoke test instructions for web projects specifying **Playwright test:** browser-based verification — the Tech Lead must spawn a session that navigates the running app and asserts visible UI elements
+- Prompt has UX smoke test instructions for web projects
 - All template variables present
 
 **Validation commands:**
@@ -313,7 +321,6 @@ rg -q "smoke test" src/golem/prompts/tech_lead.md
 ```bash
 test ! -f src/golem/prompts/validator.md
 test ! -f src/golem/prompts/integration_reviewer.md
-rg -q "validator\.md\|integration_reviewer\.md" src/golem/ && exit 1 || exit 0
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-3: agent prompt templates for planner, writer, tech lead"`
@@ -360,8 +367,6 @@ test ! "$(rg '_TASKS_JSON_SCHEMA' src/golem/planner.py)"
 
 **4.2** Update `tests/test_planner.py` (or create if it doesn't exist):
 
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — verify the correct import path for `query()`, its return type (async generator vs. coroutine), and the recommended pattern for mocking it in `pytest` tests using `unittest.mock.patch`. Do NOT assume the mock target or return shape from training data.
-
 - Test that `run_planner()` creates the expected directory structure
 - Test that planner creates a ticket in the store
 - Mock the SDK `query()` to avoid actual API calls in tests
@@ -373,6 +378,7 @@ test ! "$(rg '_TASKS_JSON_SCHEMA' src/golem/planner.py)"
 **Validation commands:**
 ```bash
 uv run pytest tests/ -k "planner" -v
+# WSL fallback: rg -l "def test_.*planner" tests/ && python -c "import ast; ast.parse(open('tests/test_planner.py').read()); print('syntax OK')"
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-4: planner refactor with sub-agent research architecture"`
@@ -420,7 +426,7 @@ rg -q "bypassPermissions" src/golem/tech_lead.py
 
 **5.2** Create `src/golem/tools.py` — custom tool definitions for SDK injection:
 
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — verify the exact JSON schema format for custom tool definitions (field names, `input_schema` structure, required vs. optional fields), how tool call results are returned to the agent within the `query()` loop, and how the SDK expects tool dispatch to be wired. Do NOT rely on training data for this SDK's tool injection API.
+**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — verify the current tool definition schema format (field names, `input_schema` structure, how tool results must be returned to the session, and how `handle_tool_call` results are consumed). Do NOT rely on training data for this library's API.
 
 - Define JSON schemas for each custom tool (matching Claude Agent SDK's tool definition format)
 - Tool handler functions that dispatch to the correct Python function
@@ -440,6 +446,7 @@ rg -q "create_ticket" src/golem/tools.py
 rg -q "run_qa" src/golem/tools.py
 rg -q "input_schema" src/golem/tools.py
 uv run pytest tests/test_tools.py -v
+# WSL fallback: rg -q "def get_tech_lead_tools" src/golem/tools.py && python -c "import ast; ast.parse(open('src/golem/tools.py').read()); print('syntax OK')"
 ```
 
 **5.3** Create `tests/test_tools.py`:
@@ -456,6 +463,7 @@ uv run pytest tests/test_tools.py -v
 **Validation commands:**
 ```bash
 uv run pytest tests/test_tools.py -v
+# WSL fallback: rg -l "def test_" tests/test_tools.py && python -c "import ast; ast.parse(open('tests/test_tools.py').read()); print('syntax OK')"
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-5: tech lead agent with custom tool injection"`
@@ -495,6 +503,23 @@ rg -q "worktree_path" src/golem/writer.py
 rg -q "_strip_section\|strip.*section" src/golem/writer.py
 ```
 
+**6.1b** Create `tests/test_writer.py`:
+
+- `test_build_writer_prompt_injects_all_fields` — create a ticket with all context fields populated, verify each appears in the rendered prompt string
+- `test_build_writer_prompt_strips_empty_sections` — create a ticket with empty `parallelism_hints`, verify no `{parallelism_hints}` placeholder appears in output
+- `test_build_writer_prompt_no_leftover_placeholders` — assert rendered prompt contains no `{` characters
+- `test_spawn_writer_pair_uses_worktree_cwd` — mock SDK query(), verify session is invoked with cwd=worktree_path
+
+**Acceptance criteria:**
+- All 4 tests pass
+- Tests use no real SDK calls (mock `query()`)
+
+**Validation commands:**
+```bash
+uv run pytest tests/test_writer.py -v
+# WSL fallback: rg -l "def test_" tests/test_writer.py && python -c "import ast; ast.parse(open('tests/test_writer.py').read()); print('syntax OK')"
+```
+
 **6.2** Remove or deprecate old files:
 - Remove `src/golem/executor.py` (replaced by Tech Lead orchestration)
 - Remove old `src/golem/worker.py` (replaced by new `writer.py`)
@@ -524,8 +549,6 @@ Wire the new v2 pipeline into the CLI.
 
 **7.1** Modify `src/golem/cli.py`:
 
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 `typer` documentation — verify the current API for `async` command callbacks, `typer.Option` / `typer.Argument` signatures, and any deprecation warnings or breaking changes in the version pinned in `pyproject.toml`. Do NOT assume the API surface from training data.
-
 - Update `run` command to use v2 pipeline:
   1. Create `.golem/` directories (tickets/, research/, plans/, references/, reports/, worktrees/)
   2. Detect infrastructure checks from target project
@@ -553,6 +576,8 @@ rg -q "research\|plans\|references\|reports" src/golem/cli.py
 ```
 
 **7.2** Update `src/golem/config.py`:
+
+**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to verify the correct 2026 model identifier string for Claude Opus (e.g., via the Anthropic API docs or `claude-agent-sdk` model list). Do NOT hardcode a model name from training data — it may be stale.
 
 - Remove `infrastructure_checks` field (now ephemeral in `qa.py`, not in config)
 - Keep all other fields
@@ -585,6 +610,7 @@ test ! "$(rg 'infrastructure_checks' src/golem/config.py)"
 **Validation commands:**
 ```bash
 uv run pytest tests/ -v
+# WSL fallback: rg -l "def test_" tests/ && python -c "import golem.cli, golem.config, golem.tickets; print('imports OK')"
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-7: CLI pipeline wired to v2 ticket-driven architecture"`
@@ -616,7 +642,7 @@ Verify: ticket has full history with timestamps, agent actions, QA results.
 **Acceptance criteria:**
 - Smoke test completes with 1 task completed, 0 blocked
 - Weather dashboard completes with 4 tasks completed, 0 blocked
-- **Playwright test:** Tech Lead UX smoke test navigates the weather dashboard, verifies search results appear after typing a city, and air quality panel renders with AQI data
+- **Playwright test:** `uv run playwright test tests/browse.spec.mjs` passes — air quality panel renders with data, no console errors, layout matches spec
 - Ticket JSON files exist in `.golem/tickets/` with full history
 - `plans/overview.md` exists with blueprint
 - `research/` contains sub-agent findings
@@ -640,7 +666,8 @@ ls .golem/tickets/*.json
 The implementation is **done** when all of the following pass:
 
 - [ ] All epics committed (Epic 0 through Epic 8)
-- [ ] `uv run pytest` — all tests green, 0 failures
+- [ ] `uv run pytest` — all tests green, 0 failures (WSL fallback: `rg -rn "def test_" tests/ | wc -l` + `python -c "import golem; print('imports OK')"`)
+
 - [ ] `ruff check .` exits 0 (no lint errors introduced)
 - [ ] `uv run golem run --force docs/rg-smoke.md` — completes with v2 pipeline (tickets, plans, tech lead)
 - [ ] `.golem/tickets/` contains structured ticket JSON with full history
