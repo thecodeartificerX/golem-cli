@@ -366,8 +366,8 @@ def history() -> None:
     tickets_dir = golem_dir / "tickets"
 
     if not tickets_dir.exists():
-        console.print("[red]No tickets found. Run 'golem run <spec>' first.[/red]")
-        raise typer.Exit(1)
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
 
     async def _history_async() -> None:
         store = TicketStore(tickets_dir)
@@ -416,8 +416,8 @@ def inspect(
     tickets_dir = golem_dir / "tickets"
 
     if not tickets_dir.exists():
-        console.print("[red]No tickets found.[/red]")
-        raise typer.Exit(1)
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
 
     async def _inspect_async() -> None:
         store = TicketStore(tickets_dir)
