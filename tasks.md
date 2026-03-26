@@ -703,15 +703,15 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 27: Final
 
-### [ ] 110. Test `_detect_infrastructure_checks` — npm typecheck detection
+### [x] 110. (DONE: 3e8a59d) Test `_detect_infrastructure_checks` — npm typecheck detection
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 111. Test QA — `run_autofix` noop when no matching checks
+### [x] 111. (DONE: 3e8a59d) Test QA — `run_autofix` noop when no matching checks
 **Size:** Small | **Files:** `tests/test_qa.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 112. Final overnight session wrap-up
+### [x] 112. (DONE: this commit) Final overnight session wrap-up
 **Size:** Small
 **Done when:** Stats, memory updated, committed.
 

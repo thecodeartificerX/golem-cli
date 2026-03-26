@@ -4,15 +4,15 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 109 tasks, 26 batches, 183 tests, 124 commits
+**Status:** COMPLETE — 112 tasks, 27 batches, 185 tests, 127 commits
 
 ### Final Stats
-- **Tasks completed:** 109
-- **Batches:** 26
-- **Tests:** 183 (up from 106 at start — +73%)
-- **Commits:** 124
+- **Tasks completed:** 112
+- **Batches:** 27
+- **Tests:** 185 (up from 106 at start — +75%)
+- **Commits:** 127
 - **Files changed:** 28
-- **Lines added:** ~2,800
+- **Lines added:** ~2,900
 - **Lines removed:** ~145
 
 ### Batch 1 (tasks 1-10) — Core improvements
@@ -210,7 +210,14 @@ Batch 25 complete. 180 tests passing.
 - [x] Task 108: No-args help test (05dc2ba)
 - [x] Task 109: ruff.toml detection test (05dc2ba)
 
-Batch 26 complete. 183 tests passing. 109 tasks shipped overnight.
+Batch 26 complete. 183 tests passing.
+
+### Batch 27 (tasks 110-112) — Final
+- [x] Task 110: npm typecheck test (3e8a59d)
+- [x] Task 111: Autofix noop test (3e8a59d)
+- [x] Task 112: Final wrap-up (this commit)
+
+Batch 27 complete. 185 tests. 112 tasks. Overnight session complete.
 
 ### Key Feature Highlights for Morning Review
 1. **SDK streaming** — `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` stderr output shows what agents are doing
