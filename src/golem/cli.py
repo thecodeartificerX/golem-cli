@@ -114,9 +114,14 @@ def run(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR."""
     from golem import __version__
+
+    if verbose:
+        import os
+        os.environ["GOLEM_DEBUG"] = "1"
 
     console.print(f"[bold cyan]Golem[/bold cyan] v{__version__} (v2 ticket-driven)")
     _validate_spec(spec)
