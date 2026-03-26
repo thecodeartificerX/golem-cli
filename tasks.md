@@ -84,7 +84,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 2: Overnight Queue (continued)
 
-### [ ] 11. Writer Gets Ticket Tools — Combined MCP server for writers
+### [x] 11. Writer Gets Ticket Tools — Combined MCP server for writers (DONE: 7a09659)
 **Size:** Small | **Files:** `tools.py`, `writer.py`
 **What:** Give writers MCP access to `update_ticket` so they can self-report status to `ready_for_review`.
 **How:** Create `create_writer_mcp_server()` in tools.py that includes both `run_qa` and `update_ticket`. Update writer.py to use it.
