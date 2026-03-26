@@ -685,16 +685,16 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 26: Post-milestone
 
-### [ ] 107. Test planner — verify project context injection
+### [x] 107. (DONE: 05dc2ba) Test planner — verify project context injection
 **Size:** Small | **Files:** `tests/test_planner.py`
 **What:** run_planner reads CLAUDE.md/README.md for context. Test that context is gathered.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 108. Test `golem` no-args — shows help
+### [x] 108. (DONE: 05dc2ba) Test `golem` no-args — shows help
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 109. Test QA — detect_infrastructure_checks with ruff.toml
+### [x] 109. (DONE: 05dc2ba) Test QA — detect_infrastructure_checks with ruff.toml
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** _detect_infrastructure_checks should also find ruff from ruff.toml (not just pyproject.toml).
 **Done when:** `uv run pytest` passes.
