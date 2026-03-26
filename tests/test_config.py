@@ -144,6 +144,18 @@ def test_validate_bad_max_parallel_warns() -> None:
     assert any("max_parallel" in w for w in warnings)
 
 
+def test_validate_negative_max_retries_warns() -> None:
+    config = GolemConfig(max_retries=-1)
+    warnings = config.validate()
+    assert any("max_retries" in w for w in warnings)
+
+
+def test_validate_bad_max_worker_turns_warns() -> None:
+    config = GolemConfig(max_worker_turns=0)
+    warnings = config.validate()
+    assert any("max_worker_turns" in w for w in warnings)
+
+
 def test_validate_known_models_no_warnings() -> None:
     config = GolemConfig(
         planner_model="claude-opus-4-6",
