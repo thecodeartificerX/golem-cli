@@ -280,6 +280,58 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_run_stale_state_blocks_without_force(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run exits with warning when stale .golem/tickets/ exist and no --force."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    # Create a valid spec
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n", encoding="utf-8")
+
+    # Create stale .golem/ state
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+    _write_ticket_json(tickets_dir, "TICKET-001", "Old task", "done")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec)])
+
+    assert result.exit_code != 0
+    assert "existing tickets" in result.output.lower() or "previous run" in result.output.lower()
+
+
+def test_run_stale_state_force_proceeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run --force overwrites stale state (fails on planner, not stale check)."""
+    from unittest.mock import AsyncMock
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n", encoding="utf-8")
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+    _write_ticket_json(tickets_dir, "TICKET-001", "Old task", "done")
+
+    # Mock the planner so it doesn't try to start the SDK
+    mock_planner = AsyncMock(side_effect=RuntimeError("mock planner"))
+    monkeypatch.setattr("golem.cli.run_planner", mock_planner)
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--force"])
+
+    # Should NOT fail on stale state — should print overwriting message then fail on planner
+    assert "overwriting" in result.output.lower()
+    # Old .golem/tickets/ should have been removed
+    assert not (tmp_path / ".golem" / "tickets" / "TICKET-001.json").exists()
+
+
 def test_logs_with_existing_progress_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem logs prints progress.log entries."""
     from typer.testing import CliRunner
