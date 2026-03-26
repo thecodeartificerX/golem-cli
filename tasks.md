@@ -49,7 +49,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create a `progress.log` with entries, invoke `golem logs` (non-follow mode), verify log lines appear in output.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 119. Test `golem run` stale state detection — Verify warning and `--force` override
+#### [x] 119. Test `golem run` stale state detection — Verify warning and `--force` override (DONE: 3971398)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create `.golem/tickets/` with files, invoke `golem run spec.md` without `--force`, verify it exits with warning. Then with `--force`, verify it proceeds (and fails on missing planner, not on stale state).
 **Done when:** `uv run pytest` passes.
