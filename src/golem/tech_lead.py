@@ -58,6 +58,12 @@ def _ensure_merged_to_main(project_root: Path) -> None:
         if merge_check.returncode == 0:
             continue  # Already merged
 
+        # Skip branches with no actual changes (diff against HEAD which is now on main/master)
+        diff_stat = _git("diff", "--stat", f"HEAD...{branch}")
+        if not diff_stat.stdout.strip():
+            print(f"[TECH LEAD] Skipping {branch} — no changes", file=sys.stderr)
+            continue
+
         print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
         merge_result = _git("merge", branch, "--ff-only")
         if merge_result.returncode != 0:
