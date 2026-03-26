@@ -153,7 +153,7 @@ Tasks are organized by theme. Each task should be:
 **What:** All `subprocess.run` calls in worktree.py have no timeout. A hung git operation blocks indefinitely. Add `timeout=60` to all `_run()` calls.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 139. `create_worktree()` — Clean up parent dir on failure
+#### [x] 139. `create_worktree()` — Clean up parent dir on failure (DONE: ccc46b8)
 **Size:** Small | **Files:** `src/golem/worktree.py`
 **What:** If `git worktree add` fails after `path.parent.mkdir()`, the empty directory is left behind. Add cleanup in except block.
 **Done when:** `uv run pytest` passes with test for failure case.
