@@ -74,4 +74,13 @@
 - [x] Task 42: Config validate edge cases (5719590)
 - [x] Task 43: Run artifact counts (1e8edfe)
 - [x] Task 44: CLAUDE.md logs command (633cc86)
-- [x] Task 45: Final overnight summary (this commit)
+- [x] Task 45: Final overnight summary (3b6b863)
+
+### Batch 9 (tasks 46-50) — Hardening
+- [x] Task 46: _cleanup_golem_worktrees tests (e52b0f7)
+- [x] Task 47: Log spec/project at run start (3882fcf)
+- [x] Task 48: Writer file size guidance (b5a687a)
+- [x] Task 49: Friendly status when no run (6f9cae3)
+- [x] Task 50: Writer prompt all-fields test (380dad3)
+
+Batch 9 complete. 137 tests passing. 50 tasks shipped overnight.
