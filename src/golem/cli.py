@@ -113,6 +113,7 @@ def _validate_spec(spec: Path) -> None:
 def run(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR."""
     from golem import __version__
@@ -167,6 +168,10 @@ def run(
             console.print(f"  Plan file: {ticket.context.plan_file}")
         if ticket.context.references:
             console.print(f"  References: {len(ticket.context.references)} file(s)")
+
+        if dry_run:
+            console.print("[bold yellow]--dry-run: stopping after planner. Tech Lead not dispatched.[/bold yellow]")
+            return
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)

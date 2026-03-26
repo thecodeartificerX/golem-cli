@@ -523,7 +523,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Allow `cat spec.md | golem run -` to read spec from stdin. Write to a temp file before proceeding.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 209. CLI — Colored output for ticket statuses
+#### [S] 209. CLI — Colored output for ticket statuses (SKIP: already implemented in status command with status_styles dict)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Use rich markup for ticket statuses: green=done/approved, yellow=in_progress, red=needs_work, blue=pending.
 **Done when:** Visual inspection confirms colors.
