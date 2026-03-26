@@ -52,7 +52,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing progress tests should still pass.
 **Done when:** `uv run pytest` passes and progress.log gets written during runs.
 
-### [ ] 7. Better Error Messages — Wrap SDK errors with context
+### [x] 7. Better Error Messages — Wrap SDK errors with context (DONE: 78f2d26)
 **Size:** Small | **Files:** `planner.py`, `tech_lead.py`, `writer.py`
 **What:** When the SDK fails (timeout, auth, etc.), the raw traceback is unhelpful. Wrap with context about what was happening.
 **How:** Add try/except around `query()` calls with descriptive error messages that include the agent role, what it was doing, and suggestions (e.g., "check claude login").

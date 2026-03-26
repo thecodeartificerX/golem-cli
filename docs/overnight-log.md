@@ -14,7 +14,7 @@
 - [x] Task 4: CLI golem status table (591bcd0)
 - [x] Task 5: Config Validation (f8967e2)
 - [x] Task 6: Progress Events (7c002bf)
-- [ ] Task 7: Better Error Messages
+- [x] Task 7: Better Error Messages (78f2d26)
 - [ ] Task 8: golem clean branches
 - [ ] Task 9: Retry Logic
 - [ ] Task 10: golem version v2 info
