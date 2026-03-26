@@ -17,7 +17,12 @@ from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
 from golem.tickets import TicketStore
 
-app = typer.Typer(name="golem", help="Autonomous spec executor with ticket-driven agent hierarchy.")
+app = typer.Typer(
+    name="golem",
+    help="Autonomous spec executor with ticket-driven agent hierarchy.",
+    invoke_without_command=True,
+    no_args_is_help=True,
+)
 console = Console()
 
 _GOLEM_DIR_NAME = ".golem"
