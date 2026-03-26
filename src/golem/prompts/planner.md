@@ -33,7 +33,7 @@ Read the spec carefully. Identify:
 
 ---
 
-## Step 2: Spawn Explorer Sub-Agents (Haiku model, single message)
+## Step 2: Spawn Explorer Sub-Agents (model: claude-haiku-4-5-20251001, single message)
 
 Spawn multiple Explorer sub-agents **in a single message** to discover the codebase in parallel. Each explorer writes its findings to a separate `.golem/research/<topic>.md` file. Do not wait for summaries — each explorer writes to disk.
 
@@ -51,7 +51,7 @@ Haiku model is preferred for explorers due to its larger context window. Use mod
 
 ---
 
-## Step 3: Spawn Researcher Sub-Agents (Sonnet model, single message)
+## Step 3: Spawn Researcher Sub-Agents (model: claude-sonnet-4-6, single message)
 
 Spawn multiple Researcher sub-agents **in a single message** to research online documentation in parallel. Each researcher writes findings to a `.golem/research/<topic>-docs.md` file.
 
@@ -68,7 +68,7 @@ Use model: claude-sonnet-4-6 for researcher sub-agents.
 
 ---
 
-## Step 4: (Optional) Spawn Analyst Sub-Agent (Sonnet model)
+## Step 4: (Optional) Spawn Analyst Sub-Agent (model: claude-sonnet-4-6)
 
 If the spec involves complex data flows, state machines, or architectural changes, spawn one Analyst sub-agent to trace data flow and write findings to `{golem_dir}/research/data-flow.md`.
 
