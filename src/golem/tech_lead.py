@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
@@ -40,7 +41,7 @@ async def run_tech_lead(
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
 
-    async for _message in query(
+    async for message in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
             model=config.tech_lead_model,
@@ -52,4 +53,13 @@ async def run_tech_lead(
             env=sdk_env(),
         ),
     ):
-        pass  # SDK routes tool calls to MCP server automatically
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    preview = block.text[:120].replace("\n", " ")
+                    print(f"[TECH LEAD] {preview}", file=sys.stderr)
+                elif isinstance(block, ToolUseBlock):
+                    print(f"[TECH LEAD] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+        elif isinstance(message, ResultMessage) and message.result:
+            preview = message.result[:120].replace("\n", " ")
+            print(f"[TECH LEAD] result: {preview}", file=sys.stderr)

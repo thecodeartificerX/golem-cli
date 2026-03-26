@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
@@ -57,7 +58,7 @@ async def run_planner(
     # Build in-process MCP server with ticket tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
 
-    async for _message in query(
+    async for message in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
             model=config.planner_model,
@@ -69,7 +70,16 @@ async def run_planner(
             env=sdk_env(),
         ),
     ):
-        pass  # SDK routes tool calls to MCP server automatically
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    preview = block.text[:120].replace("\n", " ")
+                    print(f"[PLANNER] {preview}", file=sys.stderr)
+                elif isinstance(block, ToolUseBlock):
+                    print(f"[PLANNER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+        elif isinstance(message, ResultMessage) and message.result:
+            preview = message.result[:120].replace("\n", " ")
+            print(f"[PLANNER] result: {preview}", file=sys.stderr)
 
     # Verify plans/overview.md was created
     overview_path = golem_dir / "plans" / "overview.md"
@@ -83,8 +93,6 @@ async def run_planner(
     store = TicketStore(golem_dir / "tickets")
     all_tickets = await store.list_tickets()
     if not all_tickets:
-        import sys
-
         print("[PLANNER] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
         # Self-heal: create the ticket the planner should have created
         overview = golem_dir / "plans" / "overview.md"

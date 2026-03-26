@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import Ticket
@@ -86,13 +87,18 @@ async def spawn_writer_pair(
             env=sdk_env(),
         ),
     ):
-        if isinstance(message, ResultMessage):
-            if message.result:
-                result_text = message.result
-        elif isinstance(message, AssistantMessage):
-            # Fallback: capture text blocks when ResultMessage.result is empty
+        if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
                     result_text = block.text
+                    preview = block.text[:120].replace("\n", " ")
+                    print(f"[WRITER] {preview}", file=sys.stderr)
+                elif isinstance(block, ToolUseBlock):
+                    print(f"[WRITER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+        elif isinstance(message, ResultMessage):
+            if message.result:
+                result_text = message.result
+                preview = message.result[:120].replace("\n", " ")
+                print(f"[WRITER] result: {preview}", file=sys.stderr)
 
     return result_text
