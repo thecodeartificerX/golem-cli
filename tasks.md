@@ -780,7 +780,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Test that the FastAPI app starts, serves the HTML template at `/`, and shuts down cleanly.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 258. Test — `golem ui` browse endpoints with mock dialogs
+#### [S] 258. Test — `golem ui` browse endpoints with mock dialogs (SKIP: already covered by 9 existing browse tests in test_ui.py)
 **Size:** Small | **Files:** `tests/test_ui.py`
 **What:** Mock `dialogs.open_file_dialog` and `open_folder_dialog`, call `/api/browse/spec` and `/api/browse/root`, verify responses.
 **Done when:** `uv run pytest` passes.
