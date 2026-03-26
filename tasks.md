@@ -493,7 +493,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Bundle `.golem/` contents (tickets, plans, research, progress.log) into a zip for sharing/archival.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 203. `golem stats` — Show cumulative run statistics
+#### [x] 203. `golem stats` — Show cumulative run statistics (DONE: 4ab904f)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** New command showing: total runs, total tickets, average duration, pass rate. Stored in `.golem/stats.json`.
 **Done when:** `uv run pytest` passes.
