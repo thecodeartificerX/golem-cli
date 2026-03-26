@@ -87,8 +87,8 @@ class TicketStore:
     async def create(self, ticket: Ticket) -> str:
         async with self._lock:
             self._dir.mkdir(parents=True, exist_ok=True)
-            # Find next ID
-            existing = sorted(self._dir.glob("TICKET-*.json"))
+            # Find next ID (case-insensitive count to handle mixed-case files)
+            existing = sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-"))
             next_num = len(existing) + 1
             ticket_id = f"TICKET-{next_num:03d}"
             ticket.id = ticket_id
