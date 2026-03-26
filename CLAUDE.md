@@ -27,9 +27,12 @@ uv run pytest                    # Run tests
 
 ## Runtime State (`.golem/`)
 Created by `golem run` in the project root (gitignored):
-- `tasks.json` — shared task graph (source of truth)
-- `progress.log` — timestamped execution log
 - `config.json` — run configuration snapshot
+- `tickets/` — structured JSON tickets (communication backbone)
+- `plans/` — overview.md + per-task plan files from planner
+- `research/` — sub-agent findings (explorer, researcher)
+- `references/` — curated external docs for writers
+- `progress.log` — timestamped execution events
 - `worktrees/` — git worktrees per parallel group
 
 ## The Spec
@@ -82,7 +85,7 @@ src/
     validator.py        ← Subprocess env helpers (_subprocess_env, _normalize_cmd)
     dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
     worktree.py         ← Git worktree creation/management/merge
-    tasks.py            ← tasks.json read/write/state machine
+    tasks.py            ← v1 legacy (unused by v2, kept for test compat)
     config.py           ← Settings, defaults, model configuration
     progress.py         ← Human-readable progress.log writer
     tui.py              ← Pre-run settings screen + live dashboard
@@ -112,7 +115,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (150+ tests)
+- **Run:** `uv run pytest` (185 tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
@@ -132,6 +135,8 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with 10s delay
 - **Worktree cleanup on error** — Tech Lead cleans orphaned worktrees in `finally` block on session failure
 - **Verbose SDK streaming** — `planner.py`, `tech_lead.py`, `writer.py` print `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
+- **`uv run` in worktrees fails if parent `VIRTUAL_ENV` set** — delete `.venv` and `unset VIRTUAL_ENV` before `uv sync` in worktrees
+- **`typer.Exit` raises `click.exceptions.Exit`** — tests must catch `ClickExit` from click, not `SystemExit`
 
 ### FastAPI / UI Gotchas
 - **Pydantic models must be module-level** — defining `BaseModel` subclasses inside `create_app()` breaks FastAPI's annotation resolution; requests get 422 instead of binding to the body
@@ -150,13 +155,13 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
-## Overnight Improvements (feat/overnight-improvements branch)
-100+ tasks shipped overnight (2026-03-27), including:
+## Overnight Improvements (merged to main 2026-03-27)
+112 tasks shipped overnight, including:
 - SDK stderr streaming, retry logic, error wrapping for all agents
 - Self-healing: planner ticket fallback, tech lead merge-to-main, worktree cleanup
 - New CLI commands: `history`, `inspect`, `logs`, enhanced `status`/`clean`/`version`
 - Config validation, spec validation, progress event logging
-- 180+ tests (up from 106), all passing
+- 185 tests (up from 106), all passing
 - Version bumped to 0.2.0
 
 See `docs/overnight-log.md` for the full task list and commit hashes.
