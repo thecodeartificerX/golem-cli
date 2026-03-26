@@ -1,7 +1,7 @@
 # Golem — Autonomous Spec Executor
 
 ## What This Is
-A standalone CLI tool that autonomously executes markdown design specs. Parses specs into structured task graphs, runs parallel workers in git worktrees, validates with two-tier checks (deterministic + AI), and creates PRs with completed work.
+A standalone CLI tool that autonomously executes markdown design specs. Uses a ticket-driven agent hierarchy (Planner → Tech Lead → Writer pairs) with deterministic QA validation and parallel git worktree execution.
 
 ## Quick Start
 ```bash
@@ -36,7 +36,7 @@ Created by `golem run` in the project root (gitignored):
 - `worktrees/` — git worktrees per parallel group
 
 ## The Spec
-The original design spec has been implemented and removed. For architecture and design context, read this `CLAUDE.md` and the source code directly. For a minimal test spec, see `docs/rg-smoke.md`.
+The original design spec has been implemented and removed. For architecture and design context, read this `CLAUDE.md` and the source code directly.
 
 ## Coding Conventions
 
@@ -109,6 +109,7 @@ tests/
   test_config.py        ← GolemConfig, setting_sources, validation
   test_cli.py           ← Spec validation, infra check detection
   test_progress.py      ← Progress event logging (v2 milestones)
+  test_version.py       ← Version info and architecture string
   test_ui.py            ← UI server endpoints, SSE, helpers
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 ```
@@ -155,16 +156,9 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
-## Overnight Improvements (merged to main 2026-03-27)
-112 tasks shipped overnight, including:
-- SDK stderr streaming, retry logic, error wrapping for all agents
-- Self-healing: planner ticket fallback, tech lead merge-to-main, worktree cleanup
-- New CLI commands: `history`, `inspect`, `logs`, enhanced `status`/`clean`/`version`
-- Config validation, spec validation, progress event logging
-- 185 tests (up from 106), all passing
-- Version bumped to 0.2.0
-
-See `docs/overnight-log.md` for the full task list and commit hashes.
+## Version History
+- **v0.2.0** (2026-03-27) — v2 ticket-driven architecture, 185 tests, 112 overnight improvements. See `docs/overnight-log.md` for details.
+- **v0.1.0** (2026-03-25) — v1 flat task graph with executor loop.
 
 ## Do NOT
 - Use `pip` directly — use `uv` for everything
@@ -172,5 +166,3 @@ See `docs/overnight-log.md` for the full task list and commit hashes.
 - Use `threading` — the SDK is async-native, use `asyncio`
 - Create files outside the project structure defined above
 - Use `Any` type — always use explicit types
-
-
