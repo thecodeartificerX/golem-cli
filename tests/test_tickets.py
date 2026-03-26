@@ -137,3 +137,16 @@ async def test_read_case_insensitive() -> None:
         # ticket_id is uppercase (TICKET-001), try reading with lowercase
         loaded = await store.read(ticket_id.lower())
         assert loaded.title == "Case Test"
+
+
+@pytest.mark.asyncio
+async def test_update_case_insensitive() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Update Test"))
+        # Update using lowercase ID
+        await store.update(ticket_id.lower(), "in_progress", "Started work", agent="writer")
+        loaded = await store.read(ticket_id)
+        assert loaded.status == "in_progress"
+        assert len(loaded.history) == 2  # created + status_changed
+        assert loaded.history[-1].action == "status_changed_to_in_progress"
