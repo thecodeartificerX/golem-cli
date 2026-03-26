@@ -237,6 +237,7 @@ def version() -> None:
 
     info = get_version_info()
     console.print(f"[bold cyan]Golem[/bold cyan] v{info['version']}")
+    console.print(f"Architecture {info['architecture']}")
     console.print(f"Python {info['python']}")
     console.print(f"Platform {info['platform']}")
 
