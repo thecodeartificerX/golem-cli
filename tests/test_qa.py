@@ -80,6 +80,14 @@ def test_run_autofix_runs_prettier() -> None:
             assert any("prettier --write" in c for c in calls)
 
 
+def test_run_autofix_noop_no_matching_checks() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("subprocess.run") as mock_run:
+            run_autofix(tmpdir, ["echo hello"])
+            # Should not call subprocess at all — no ruff or prettier
+            mock_run.assert_not_called()
+
+
 def test_detect_infrastructure_checks_finds_ruff() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         pyproject = Path(tmpdir) / "pyproject.toml"

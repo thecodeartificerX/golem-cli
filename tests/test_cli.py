@@ -70,6 +70,14 @@ def test_detect_infrastructure_checks_finds_npm_lint() -> None:
         assert "npm run lint" in checks
 
 
+def test_detect_infrastructure_checks_finds_npm_typecheck() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pkg = Path(tmpdir) / "package.json"
+        pkg.write_text(json.dumps({"scripts": {"typecheck": "tsc --noEmit"}}), encoding="utf-8")
+        checks = _detect_infrastructure_checks(Path(tmpdir))
+        assert "npm run typecheck" in checks
+
+
 def test_detect_infrastructure_checks_finds_tsc() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tsconfig = Path(tmpdir) / "tsconfig.json"
