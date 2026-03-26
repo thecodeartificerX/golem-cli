@@ -341,6 +341,66 @@ def history() -> None:
 
 
 @app.command()
+def inspect(
+    ticket_id: str = typer.Argument(..., help="Ticket ID to inspect (e.g. TICKET-001)"),
+) -> None:
+    """Show full details of a single ticket."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[red]No tickets found.[/red]")
+        raise typer.Exit(1)
+
+    async def _inspect_async() -> None:
+        store = TicketStore(tickets_dir)
+        try:
+            ticket = await store.read(ticket_id)
+        except (FileNotFoundError, KeyError):
+            console.print(f"[red]Ticket {ticket_id} not found.[/red]")
+            raise typer.Exit(1)
+
+        # Header
+        console.print(f"\n[bold cyan]{ticket.id}[/bold cyan] -- {ticket.title}")
+        console.print(f"  Type: {ticket.type}  |  Status: {ticket.status}  |  Priority: {ticket.priority}")
+        console.print(f"  Created by: {ticket.created_by}  |  Assigned to: {ticket.assigned_to}")
+
+        # Context
+        ctx = ticket.context
+        if ctx.plan_file:
+            console.print(f"\n[bold]Plan file:[/bold] {ctx.plan_file}")
+        if ctx.blueprint:
+            console.print(f"\n[bold]Blueprint:[/bold]\n  {ctx.blueprint[:300]}")
+        if ctx.acceptance:
+            console.print("\n[bold]Acceptance criteria:[/bold]")
+            for a in ctx.acceptance:
+                console.print(f"  - {a}")
+        if ctx.qa_checks:
+            console.print("\n[bold]QA checks:[/bold]")
+            for q in ctx.qa_checks:
+                console.print(f"  - {q}")
+        if ctx.references:
+            console.print("\n[bold]References:[/bold]")
+            for r in ctx.references:
+                console.print(f"  - {r}")
+        if ctx.files:
+            console.print(f"\n[bold]Pre-loaded files:[/bold] {', '.join(ctx.files.keys())}")
+
+        # History
+        if ticket.history:
+            console.print("\n[bold]Event history:[/bold]")
+            for event in ticket.history:
+                note_preview = event.note[:80] + "..." if len(event.note) > 80 else event.note
+                console.print(f"  [{event.ts[:19]}] {event.agent}: {event.action} -- {note_preview}")
+        else:
+            console.print("\n[dim]No events recorded.[/dim]")
+        console.print()
+
+    asyncio.run(_inspect_async())
+
+
+@app.command()
 def clean() -> None:
     """Remove .golem/ state, worktrees, and branches."""
     project_root = _get_project_root()
