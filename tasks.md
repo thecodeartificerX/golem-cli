@@ -602,7 +602,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Log which writers are dispatched in parallel, track which finish first, which fail.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 224. Tech Lead — Verify worktree has changes before merge
+#### [x] 224. Tech Lead — Verify worktree has changes before merge (DONE: 6d8d833)
 **Size:** Small | **Files:** `src/golem/tech_lead.py`
 **What:** Before merging a writer's worktree, check `git diff --stat` is non-empty. Skip empty worktrees.
 **Done when:** `uv run pytest` passes.
