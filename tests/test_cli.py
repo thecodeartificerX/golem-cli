@@ -280,6 +280,32 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_logs_with_existing_progress_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem logs prints progress.log entries."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    log_path = golem_dir / "progress.log"
+    log_path.write_text(
+        "2026-03-27 10:00:00 | PLANNER_START | spec=test.md\n"
+        "2026-03-27 10:05:00 | PLANNER_COMPLETE | tickets=3\n"
+        "2026-03-27 10:06:00 | TECH_LEAD_START | ticket=TICKET-001\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["logs"])
+
+    assert result.exit_code == 0
+    assert "PLANNER_START" in result.output
+    assert "PLANNER_COMPLETE" in result.output
+    assert "TECH_LEAD_START" in result.output
+
+
 def test_clean_with_real_golem_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem clean --force removes .golem/ directory and golem/* branches."""
     import subprocess
