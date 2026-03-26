@@ -140,6 +140,24 @@ async def test_read_case_insensitive() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_tickets_combined_filters() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        t1 = _make_ticket("Task 1", assigned_to="writer")
+        t2 = _make_ticket("Task 2", assigned_to="writer")
+        t3 = _make_ticket("Task 3", assigned_to="tech_lead")
+        await store.create(t1)
+        tid2 = await store.create(t2)
+        await store.create(t3)
+        # Update t2 to in_progress
+        await store.update(tid2, "in_progress", "started", agent="writer")
+        # Filter: status=in_progress AND assigned_to=writer
+        result = await store.list_tickets(status_filter="in_progress", assigned_to_filter="writer")
+        assert len(result) == 1
+        assert result[0].title == "Task 2"
+
+
+@pytest.mark.asyncio
 async def test_update_case_insensitive() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         store = TicketStore(Path(tmpdir) / "tickets")

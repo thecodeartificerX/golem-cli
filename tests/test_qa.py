@@ -63,6 +63,15 @@ def test_run_autofix_runs_ruff() -> None:
             assert any("ruff format" in c for c in calls)
 
 
+def test_run_autofix_runs_prettier() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            run_autofix(tmpdir, ["npx prettier --check ."])
+            calls = [str(c.args[0]) for c in mock_run.call_args_list]
+            assert any("prettier --write" in c for c in calls)
+
+
 def test_detect_infrastructure_checks_finds_ruff() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         pyproject = Path(tmpdir) / "pyproject.toml"

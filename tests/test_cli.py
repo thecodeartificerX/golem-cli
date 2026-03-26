@@ -8,7 +8,7 @@ import pytest
 
 from click.exceptions import Exit as ClickExit
 
-from golem.cli import _detect_infrastructure_checks, _validate_spec
+from golem.cli import _detect_infrastructure_checks, _resolve_spec_project_root, _validate_spec
 
 
 def test_validate_spec_nonexistent_exits() -> None:
@@ -82,3 +82,26 @@ def test_detect_infrastructure_checks_empty_project() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         checks = _detect_infrastructure_checks(Path(tmpdir))
         assert checks == []
+
+
+def test_resolve_spec_project_root_finds_git() -> None:
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir) / "project"
+        project.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=project, check=True, capture_output=True)
+        docs = project / "docs"
+        docs.mkdir()
+        spec = docs / "spec.md"
+        spec.write_text("# Spec", encoding="utf-8")
+        result = _resolve_spec_project_root(spec)
+        assert result == project.resolve()
+
+
+def test_resolve_spec_project_root_no_git_uses_parent() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        spec = Path(tmpdir) / "spec.md"
+        spec.write_text("# Spec", encoding="utf-8")
+        result = _resolve_spec_project_root(spec)
+        assert result == spec.resolve().parent
