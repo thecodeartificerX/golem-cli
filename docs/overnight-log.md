@@ -4,15 +4,15 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 60 tasks, 11 batches, 143 tests, 82 commits
+**Status:** COMPLETE — 69 tasks, 13 batches, 151 tests, 88 commits
 
 ### Final Stats
-- **Tasks completed:** 60
-- **Batches:** 11
-- **Tests:** 143 (up from 106 at start — +35% coverage)
-- **Commits:** 82
-- **Files changed:** 24
-- **Lines added:** 1,722
+- **Tasks completed:** 69
+- **Batches:** 13
+- **Tests:** 151 (up from 106 at start — +42% coverage)
+- **Commits:** 88
+- **Files changed:** 25
+- **Lines added:** 1,901
 - **Lines removed:** 132
 
 ### Batch 1 (tasks 1-10) — Core improvements
@@ -110,4 +110,12 @@ Batch 11 complete. 143 tests passing.
 - [x] Task 64: _resolve_spec_project_root tests (f12b88c)
 - [x] Task 65: Version shows test count (ece8067)
 
-Batch 12 complete. 150 tests passing. 65 tasks shipped overnight.
+Batch 12 complete. 150 tests passing.
+
+### Batch 13 (tasks 66-69) — Final
+- [x] Task 66: Writer MCP server test (58d5696)
+- [x] Task 67: Config sorted keys test (58d5696)
+- [x] Task 68: Clean shows counts (58d5696)
+- [x] Task 69: Final stats (this commit)
+
+Batch 13 complete. 151 tests passing. 69 tasks shipped overnight.
