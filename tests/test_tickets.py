@@ -127,3 +127,13 @@ async def test_concurrent_creates_no_corruption() -> None:
         # Verify all files exist
         for ticket_id in ids:
             assert (Path(tmpdir) / "tickets" / f"{ticket_id}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_read_case_insensitive() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Case Test"))
+        # ticket_id is uppercase (TICKET-001), try reading with lowercase
+        loaded = await store.read(ticket_id.lower())
+        assert loaded.title == "Case Test"

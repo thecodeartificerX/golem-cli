@@ -106,9 +106,18 @@ class TicketStore:
             return ticket_id
 
     async def read(self, ticket_id: str) -> Ticket:
-        path = self._dir / f"{ticket_id}.json"
+        path = self._resolve_path(ticket_id)
         data = json.loads(path.read_text(encoding="utf-8"))
         return _ticket_from_dict(data)
+
+    def _resolve_path(self, ticket_id: str) -> Path:
+        """Resolve ticket file path with case-insensitive fallback."""
+        path = self._dir / f"{ticket_id}.json"
+        if not path.exists():
+            for candidate in self._dir.glob("*.json"):
+                if candidate.stem.upper() == ticket_id.upper():
+                    return candidate
+        return path
 
     async def update(
         self,
@@ -119,7 +128,7 @@ class TicketStore:
         agent: str = "system",
     ) -> None:
         async with self._lock:
-            path = self._dir / f"{ticket_id}.json"
+            path = self._resolve_path(ticket_id)
             data = json.loads(path.read_text(encoding="utf-8"))
             ticket = _ticket_from_dict(data)
             ticket.status = status
