@@ -8,7 +8,7 @@ import pytest
 
 from click.exceptions import Exit as ClickExit
 
-from golem.cli import _detect_infrastructure_checks, _resolve_spec_project_root, _validate_spec
+from golem.cli import _create_golem_dirs, _detect_infrastructure_checks, _get_golem_dir, _get_project_root, _resolve_spec_project_root, _validate_spec
 
 
 def test_validate_spec_nonexistent_exits() -> None:
@@ -278,6 +278,29 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     (tickets_dir / f"{ticket_id}.json").write_text(
         json.dumps(data, indent=2), encoding="utf-8"
     )
+
+
+def test_create_golem_dirs_all_subdirs(tmp_path: Path) -> None:
+    """_create_golem_dirs creates all 6 expected subdirectories."""
+    golem_dir = tmp_path / ".golem"
+    _create_golem_dirs(golem_dir)
+
+    expected = {"tickets", "research", "plans", "references", "reports", "worktrees"}
+    actual = {d.name for d in golem_dir.iterdir() if d.is_dir()}
+    assert actual == expected
+
+
+def test_get_golem_dir_returns_dotgolem(tmp_path: Path) -> None:
+    """_get_golem_dir returns <project_root>/.golem."""
+    result = _get_golem_dir(tmp_path)
+    assert result == tmp_path / ".golem"
+
+
+def test_get_project_root_returns_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """_get_project_root returns Path.cwd()."""
+    monkeypatch.chdir(tmp_path)
+    result = _get_project_root()
+    assert result == Path.cwd()
 
 
 def test_run_stale_state_blocks_without_force(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
