@@ -87,3 +87,11 @@ def test_infrastructure_checks_run_first() -> None:
         # infra check should appear before spec check in results
         assert result.checks[0].tool == infra[0]
         assert result.checks[1].tool == spec[0]
+
+
+def test_run_qa_empty_checks() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, [], [])
+        assert result.passed is True
+        assert result.checks == []
+        assert "0/0" in result.summary or result.summary == ""
