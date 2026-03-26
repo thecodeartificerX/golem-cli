@@ -86,7 +86,13 @@ After all sub-agents complete, read every file in `{golem_dir}/research/`. Synth
 
 Write `{golem_dir}/plans/overview.md` with:
 - **Blueprint**: 2-4 paragraph architectural narrative describing what will be built and how
-- **Task Graph**: table listing all tasks with IDs (task-001, task-002, etc.), titles, dependencies, and assigned groups
+- **Task Graph**: table listing all tasks with IDs, titles, dependencies, and groups. Example format:
+
+| ID | Title | Deps | Group |
+|----|-------|------|-------|
+| task-001 | Set up database models | — | A |
+| task-002 | Implement auth endpoints | task-001 | A |
+| task-003 | Add unit tests | task-002 | B |
 - **Parallelism Strategy**: which tasks can run in parallel (same group) vs must be sequential (different groups)
 - **Risk Areas**: known gotchas and mitigation approaches
 
@@ -138,6 +144,8 @@ These checks were auto-detected from the project and MUST be included in every t
 
 Writers will run these automatically via `run_qa`. Include them in acceptance criteria.
 
+If no infrastructure checks are listed above (shows "(none detected)" or is empty), use an empty `qa_checks` list in tickets and rely on spec-defined acceptance criteria instead.
+
 ---
 
 ## Output Requirements
@@ -149,6 +157,10 @@ By the time you finish, these files MUST exist on disk:
 - A ticket in the ticket store (via `mcp__golem__create_ticket` tool call)
 
 Do not write a summary. Write the files and call the tool. That is your output.
+
+If the spec is pure prose with no clear task breakdown, create a single task covering the entire scope rather than refusing to proceed.
+
+If `mcp__golem__create_ticket` returns an error, retry once. If it still fails, log the error to stderr and continue — the pipeline has a fallback ticket mechanism.
 
 ## Rules
 

@@ -102,7 +102,9 @@ If integration QA fails:
 
 ### Phase 7: UX Smoke Test (web projects only)
 
-If the project is a web project (contains index.html, package.json with a dev server, or similar), spawn a UX smoke test session to verify the UI renders correctly and there are no console errors.
+If the project is a web project, spawn a UX smoke test session to verify the UI renders correctly and there are no console errors.
+
+A project is a web project if it has an `index.html`, a `dev` or `start` script in `package.json`, or a frontend framework (React, Vue, Svelte, Angular, Next.js) in its dependencies.
 
 The smoke test session should:
 - Start the dev server
@@ -154,5 +156,5 @@ All tools use the `mcp__golem__` prefix:
 - Do not approve work that doesn't meet the acceptance criteria
 - Do integration review inline — you have full context
 - Spawn UX smoke test only for web projects
-- If a writer fails or times out, create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
+- If a writer fails or times out (no ticket update within 15 minutes), create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
 - Never leave the pipeline in an incomplete state — if something fails, either fix it or report exactly what failed and what remains
