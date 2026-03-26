@@ -100,9 +100,12 @@ tests/
   test_tools.py         ← Tech Lead tool dispatch
   test_qa.py            ← QA checks, autofix, infra detection
   test_writer.py        ← Writer prompt building and spawning
-  test_worktree.py      ← Git worktree operations
+  test_worktree.py      ← Git worktree operations + merge conflict handling
+  test_tech_lead.py     ← Self-healing merge + worktree cleanup
   test_validator.py     ← Subprocess env helpers
-  test_config.py        ← GolemConfig, setting_sources, sdk_env
+  test_config.py        ← GolemConfig, setting_sources, validation
+  test_cli.py           ← Spec validation, infra check detection
+  test_progress.py      ← Progress event logging (v2 milestones)
   test_ui.py            ← UI server endpoints, SSE, helpers
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 ```
