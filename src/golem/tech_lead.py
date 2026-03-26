@@ -18,7 +18,7 @@ from claude_agent_sdk import (
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
-from golem.worktree import merge_group_branches
+from golem.worktree import delete_worktree, merge_group_branches
 
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
@@ -58,6 +58,20 @@ def _ensure_merged_to_main(project_root: Path) -> None:
                 _git("merge", "--abort")
 
 
+def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
+    """Remove any golem worktrees created during a failed Tech Lead session."""
+    worktrees_dir = golem_dir / "worktrees"
+    if not worktrees_dir.exists():
+        return
+    for wt in worktrees_dir.iterdir():
+        if wt.is_dir():
+            try:
+                delete_worktree(wt, project_root)
+                print(f"[TECH LEAD] Cleaned up worktree: {wt.name}", file=sys.stderr)
+            except Exception as cleanup_err:
+                print(f"[TECH LEAD] Warning: could not clean worktree {wt.name}: {cleanup_err}", file=sys.stderr)
+
+
 async def run_tech_lead(
     ticket_id: str,
     golem_dir: Path,
@@ -86,6 +100,7 @@ async def run_tech_lead(
 
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
+    _session_failed = False
 
     try:
         async for message in query(
@@ -111,15 +126,21 @@ async def run_tech_lead(
                 preview = message.result[:120].replace("\n", " ")
                 print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
     except CLINotFoundError:
+        _session_failed = True
         raise RuntimeError(
             "Tech Lead failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
         ) from None
     except CLIConnectionError as e:
+        _session_failed = True
         raise RuntimeError(
             f"Tech Lead failed: could not connect to Claude CLI. Check your auth with 'claude login'. Detail: {e}"
         ) from None
     except ClaudeSDKError as e:
+        _session_failed = True
         raise RuntimeError(f"Tech Lead failed: SDK error during orchestration session. Detail: {e}") from None
+    finally:
+        if _session_failed:
+            _cleanup_golem_worktrees(golem_dir, project_root)
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     _ensure_merged_to_main(project_root)
