@@ -474,7 +474,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Dashboard should be usable on mobile screens. Add responsive CSS breakpoints.
 **Done when:** Visual inspection on mobile viewport confirms usability.
 
-#### [ ] 200. UI — Favicon and page title
+#### [x] 200. UI — Favicon and page title (DONE: f37720c)
 **Size:** Small | **Files:** `src/golem/ui_template.html`
 **What:** Add a simple favicon (inline SVG) and dynamic page title showing run status (e.g. "Golem - Running" / "Golem - Idle").
 **Done when:** Visual inspection confirms favicon and title.
