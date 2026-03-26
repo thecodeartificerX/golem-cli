@@ -38,7 +38,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Add a test that creates tickets in a temp dir and verifies the status output.
 **Done when:** `uv run pytest` passes and `golem status` shows a formatted table.
 
-### [ ] 5. Config Validation — Warn on invalid model names
+### [x] 5. Config Validation — Warn on invalid model names (DONE: f8967e2)
 **Size:** Small | **Files:** `config.py`
 **What:** If someone sets an invalid model name in config.json, golem silently fails deep in the SDK. Validate model names on load.
 **How:** Add a `validate()` method to `GolemConfig` that checks known model patterns. Print a warning (not error) for unknown models.
