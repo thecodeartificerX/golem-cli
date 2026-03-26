@@ -151,3 +151,25 @@ def test_status_cli_no_golem_dir_exits_cleanly() -> None:
     # Should exit 0 with friendly message, not crash
     assert result.exit_code == 0
     assert "No active run" in result.output or "no active" in result.output.lower()
+
+
+def test_history_cli_no_golem_dir_exits_cleanly() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["history"])
+    assert result.exit_code == 0
+    assert "no active" in result.output.lower()
+
+
+def test_clean_cli_no_golem_dir_exits_cleanly() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["clean", "--force"])
+    assert result.exit_code == 0
+    assert "nothing to clean" in result.output.lower()

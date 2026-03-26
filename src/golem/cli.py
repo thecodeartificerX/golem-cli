@@ -144,9 +144,12 @@ def run(
     async def _run_async() -> None:
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
+        t_plan = time.monotonic()
         ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        plan_elapsed = time.monotonic() - t_plan
+        plan_m, plan_s = divmod(int(plan_elapsed), 60)
         progress.log_planner_complete(ticket_id)
-        console.print(f"  Planner created ticket: {ticket_id}")
+        console.print(f"  Planner completed in {plan_m}m {plan_s}s — ticket: {ticket_id}")
 
         # Show ticket summary before handing off
         store = TicketStore(golem_dir / "tickets")
