@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
     query,
 )
+
+_MAX_RETRIES = 2
+_RETRY_DELAY_S = 10
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
@@ -68,39 +72,48 @@ async def run_planner(
     # Build in-process MCP server with ticket tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
 
-    try:
-        async for message in query(
-            prompt=prompt,
-            options=ClaudeAgentOptions(
-                model=config.planner_model,
-                cwd=str(cwd),
-                tools={"type": "preset", "preset": "claude_code"},
-                mcp_servers={"golem": mcp_server},
-                max_turns=50,
-                permission_mode="bypassPermissions",
-                env=sdk_env(),
-            ),
-        ):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        preview = block.text[:120].replace("\n", " ")
-                        print(f"[PLANNER] {preview}", file=sys.stderr)
-                    elif isinstance(block, ToolUseBlock):
-                        print(f"[PLANNER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-            elif isinstance(message, ResultMessage) and message.result:
-                preview = message.result[:120].replace("\n", " ")
-                print(f"[PLANNER] result: {preview}", file=sys.stderr)
-    except CLINotFoundError:
-        raise RuntimeError(
-            "Planner failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
-        ) from None
-    except CLIConnectionError as e:
-        raise RuntimeError(
-            f"Planner failed: could not connect to Claude CLI. Check your auth with 'claude login'. Detail: {e}"
-        ) from None
-    except ClaudeSDKError as e:
-        raise RuntimeError(f"Planner failed: SDK error during planning session. Detail: {e}") from None
+    last_error: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            async for message in query(
+                prompt=prompt,
+                options=ClaudeAgentOptions(
+                    model=config.planner_model,
+                    cwd=str(cwd),
+                    tools={"type": "preset", "preset": "claude_code"},
+                    mcp_servers={"golem": mcp_server},
+                    max_turns=50,
+                    permission_mode="bypassPermissions",
+                    env=sdk_env(),
+                ),
+            ):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            preview = block.text[:120].replace("\n", " ")
+                            print(f"[PLANNER] {preview}", file=sys.stderr)
+                        elif isinstance(block, ToolUseBlock):
+                            print(f"[PLANNER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+                elif isinstance(message, ResultMessage) and message.result:
+                    preview = message.result[:120].replace("\n", " ")
+                    print(f"[PLANNER] result: {preview}", file=sys.stderr)
+            break  # Success — exit retry loop
+        except CLINotFoundError:
+            raise RuntimeError(
+                "Planner failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
+            ) from None
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            last_error = e
+            if attempt < _MAX_RETRIES:
+                print(
+                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(_RETRY_DELAY_S)
+            else:
+                raise RuntimeError(
+                    f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
+                ) from None
 
     # Verify plans/overview.md was created
     overview_path = golem_dir / "plans" / "overview.md"
