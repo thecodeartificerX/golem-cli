@@ -329,6 +329,41 @@ def test_config_reset_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert "defaults" in result.output.lower()
 
 
+def test_config_set_int_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem config set max_parallel 5 updates config."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["config", "set", "max_parallel", "5"])
+
+    assert result.exit_code == 0
+    assert "5" in result.output
+
+    # Verify it persisted
+    config_data = json.loads((golem_dir / "config.json").read_text(encoding="utf-8"))
+    assert config_data["max_parallel"] == 5
+
+
+def test_config_set_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem config set with unknown key shows error."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["config", "set", "nonexistent", "val"])
+
+    assert result.exit_code != 0
+    assert "unknown" in result.output.lower() or "Unknown" in result.output
+
+
 def test_inspect_invalid_ticket_id_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem inspect with invalid ID format shows format error."""
     from typer.testing import CliRunner

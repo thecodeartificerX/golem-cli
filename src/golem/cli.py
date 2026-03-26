@@ -630,3 +630,43 @@ def config_reset(
         typer.confirm("This will delete .golem/config.json and reset to defaults. Continue?", abort=True)
     config_path.unlink()
     console.print("[green]Config reset to defaults.[/green]")
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key (e.g. max_parallel, planner_model)"),
+    value: str = typer.Argument(..., help="New value"),
+) -> None:
+    """Set a config value. Creates .golem/config.json if needed."""
+    from dataclasses import fields as dataclass_fields
+
+    from golem.config import GolemConfig
+
+    valid_keys = {f.name for f in dataclass_fields(GolemConfig)}
+    if key not in valid_keys:
+        console.print(f"[red]Unknown config key: {key}[/red]")
+        console.print(f"  Valid keys: {', '.join(sorted(valid_keys))}")
+        raise typer.Exit(1)
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+
+    # Type coercion based on the field type
+    field_type = type(getattr(config, key))
+    try:
+        if field_type is int:
+            typed_value = int(value)
+        elif field_type is bool:
+            typed_value = value.lower() in ("true", "1", "yes")
+        elif field_type is list:
+            typed_value = [v.strip() for v in value.split(",")]
+        else:
+            typed_value = value
+    except ValueError:
+        console.print(f"[red]Invalid value for {key}: expected {field_type.__name__}, got {value!r}[/red]")
+        raise typer.Exit(1)
+
+    setattr(config, key, typed_value)
+    save_config(config, golem_dir)
+    console.print(f"[green]Set {key} = {typed_value!r}[/green]")
