@@ -99,7 +99,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Verify `_get_golem_dir()` returns `<cwd>/.golem` and `_get_project_root()` returns `<cwd>`.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 129. Test `golem version` — Test count logic accuracy
+#### [x] 129. Test `golem version` — Test count logic accuracy (DONE: 7ec7e9f)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Invoke `golem version`, verify the test count matches actual `uv run pytest --co -q` count.
 **Done when:** `uv run pytest` passes.
