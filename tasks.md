@@ -291,27 +291,27 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 8: Overnight Queue (testing + polish)
 
-### [ ] 41. Test `_ensure_merged_to_main` — Verify self-healing merge logic
+### [x] 41. (DONE: d63adfd) Test `_ensure_merged_to_main` — Verify self-healing merge logic
 **Size:** Small | **Files:** `tests/test_tech_lead.py` (new)
 **What:** _ensure_merged_to_main has no tests. Cover: no branches (noop), branch already merged (skip), branch needs merge (merges).
 **Done when:** `uv run pytest` passes with new tests.
 
-### [ ] 42. Test `GolemConfig.validate` — Edge cases
+### [x] 42. (DONE: 5719590) Test `GolemConfig.validate` — Edge cases
 **Size:** Small | **Files:** `tests/test_config.py`
 **What:** Test negative max_retries and max_worker_turns < 1.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 43. `golem run` summary — Include plan file counts
+### [x] 43. (DONE: 1e8edfe) `golem run` summary — Include plan file counts
 **Size:** Small | **Files:** `cli.py`
 **What:** After run completes, also show how many plan/research/reference files were created.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 44. CLAUDE.md — Add new CLI commands to Quick Start
+### [x] 44. (DONE: 633cc86) CLAUDE.md — Add new CLI commands to Quick Start
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** Quick Start section is missing `golem logs` and `golem inspect` commands.
 **Done when:** CLAUDE.md updated.
 
-### [ ] 45. Final overnight summary commit
+### [x] 45. (DONE: this commit) Final overnight summary commit
 **Size:** Small
 **What:** Update overnight-log.md with final stats, commit count, test count. Git log summary.
 **Done when:** Log updated and committed.
