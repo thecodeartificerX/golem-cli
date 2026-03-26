@@ -3,7 +3,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
+from claude_agent_sdk import (
+    AssistantMessage,
+    CLIConnectionError,
+    CLINotFoundError,
+    ClaudeAgentOptions,
+    ClaudeSDKError,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    query,
+)
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
@@ -77,28 +87,39 @@ async def run_tech_lead(
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
 
-    async for message in query(
-        prompt=prompt,
-        options=ClaudeAgentOptions(
-            model=config.tech_lead_model,
-            cwd=str(project_root),
-            tools={"type": "preset", "preset": "claude_code"},
-            mcp_servers={"golem": mcp_server},
-            max_turns=100,
-            permission_mode="bypassPermissions",
-            env=sdk_env(),
-        ),
-    ):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    preview = block.text[:120].replace("\n", " ")
-                    print(f"[TECH LEAD] {preview}", file=sys.stderr)
-                elif isinstance(block, ToolUseBlock):
-                    print(f"[TECH LEAD] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-        elif isinstance(message, ResultMessage) and message.result:
-            preview = message.result[:120].replace("\n", " ")
-            print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
+    try:
+        async for message in query(
+            prompt=prompt,
+            options=ClaudeAgentOptions(
+                model=config.tech_lead_model,
+                cwd=str(project_root),
+                tools={"type": "preset", "preset": "claude_code"},
+                mcp_servers={"golem": mcp_server},
+                max_turns=100,
+                permission_mode="bypassPermissions",
+                env=sdk_env(),
+            ),
+        ):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        preview = block.text[:120].replace("\n", " ")
+                        print(f"[TECH LEAD] {preview}", file=sys.stderr)
+                    elif isinstance(block, ToolUseBlock):
+                        print(f"[TECH LEAD] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+            elif isinstance(message, ResultMessage) and message.result:
+                preview = message.result[:120].replace("\n", " ")
+                print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
+    except CLINotFoundError:
+        raise RuntimeError(
+            "Tech Lead failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
+        ) from None
+    except CLIConnectionError as e:
+        raise RuntimeError(
+            f"Tech Lead failed: could not connect to Claude CLI. Check your auth with 'claude login'. Detail: {e}"
+        ) from None
+    except ClaudeSDKError as e:
+        raise RuntimeError(f"Tech Lead failed: SDK error during orchestration session. Detail: {e}") from None
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     _ensure_merged_to_main(project_root)
