@@ -24,6 +24,34 @@ def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, re
             path.rmdir()
         raise
 
+    # Auto-install dependencies in the new worktree
+    _post_create_install(path)
+
+
+def _post_create_install(worktree_path: Path) -> None:
+    """Run dependency installation in a new worktree if project files are detected."""
+    import os
+
+    # Clear inherited VIRTUAL_ENV to avoid uv conflicts
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+
+    if (worktree_path / "pyproject.toml").exists():
+        subprocess.run(
+            ["uv", "sync"], cwd=worktree_path, capture_output=True, env=env, timeout=120,
+        )
+    elif (worktree_path / "package.json").exists():
+        # Prefer bun if available, fallback to npm
+        bun_result = subprocess.run(["bun", "--version"], capture_output=True)
+        if bun_result.returncode == 0:
+            subprocess.run(
+                ["bun", "install"], cwd=worktree_path, capture_output=True, timeout=120,
+            )
+        else:
+            subprocess.run(
+                ["npm", "install"], cwd=worktree_path, capture_output=True, timeout=120,
+            )
+
 
 def delete_worktree(path: Path, repo_root: Path) -> None:
     """Remove a git worktree."""
