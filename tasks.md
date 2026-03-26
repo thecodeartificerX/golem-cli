@@ -533,7 +533,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Use rich Progress/Spinner to show activity during the planner phase instead of just streaming to stderr.
 **Done when:** Visual inspection confirms spinner.
 
-#### [ ] 211. CLI — `golem tickets` as alias for `golem status`
+#### [x] 211. CLI — `golem tickets` as alias for `golem status` (DONE: dd88b7c)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Add `tickets` as a command alias for `status` since that's more intuitive.
 **Done when:** `uv run pytest` passes.
