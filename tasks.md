@@ -528,17 +528,17 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 17: Overnight Queue
 
-### [ ] 81. `golem resume` — Also catch RuntimeError cleanly
+### [x] 81. (DONE: f6b18c7) `golem resume` — Also catch RuntimeError cleanly
 **Size:** Small | **Files:** `cli.py`
 **What:** Same pattern as run/plan — catch RuntimeError in resume.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 82. Test TicketStore.create — ID format is TICKET-NNN
+### [x] 82. (DONE: f6b18c7) Test TicketStore.create — ID format is TICKET-NNN
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** Verify the ID format: uppercase, zero-padded to 3 digits.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 83. `__init__.py` — Bump version to 0.2.0 for v2 architecture
+### [x] 83. (DONE: f6b18c7) `__init__.py` — Bump version to 0.2.0 for v2 architecture
 **Size:** Small | **Files:** `src/golem/__init__.py`
 **What:** The version is still 0.1.0 from v1. Bump to 0.2.0 to reflect the v2 ticket-driven architecture.
 **Done when:** `golem version` shows 0.2.0.

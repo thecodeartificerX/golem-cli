@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 80 tasks, 16 batches, 157 tests, 94 commits
+**Status:** COMPLETE — 83 tasks, 17 batches, 158 tests, 97 commits
 
 ### Final Stats
-- **Tasks completed:** 80
-- **Batches:** 16
-- **Tests:** 157 (up from 106 at start — +48%)
-- **Commits:** 94
+- **Tasks completed:** 83
+- **Batches:** 17
+- **Tests:** 158 (up from 106 at start — +49%)
+- **Commits:** 97
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -141,4 +141,11 @@ Batch 15 complete. 156 tests passing.
 - [x] Task 79: plan error catch (df6d44b)
 - [x] Task 80: Full context roundtrip test (df6d44b)
 
-Batch 16 complete. 157 tests passing. 80 tasks shipped overnight.
+Batch 16 complete. 157 tests passing.
+
+### Batch 17 (tasks 81-83)
+- [x] Task 81: Resume error catch (f6b18c7)
+- [x] Task 82: Ticket ID format test (f6b18c7)
+- [x] Task 83: Version bump to 0.2.0 (f6b18c7)
+
+Batch 17 complete. 158 tests passing. 83 tasks shipped overnight.
