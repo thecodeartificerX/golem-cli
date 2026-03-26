@@ -83,6 +83,47 @@ def test_log_merge_complete() -> None:
         assert "golem/spec/integration" in content
 
 
+def test_log_task_start() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_task_start("task-001")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "START task-001" in content
+
+
+def test_log_task_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_task_complete("task-001")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "COMPLETE task-001" in content
+
+
+def test_log_task_retry() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_task_retry("task-001", 2, "lint failed")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "RETRY task-001" in content
+        assert "attempt=2" in content
+
+
+def test_log_task_blocked() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_task_blocked("task-002", "dependency failed")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "BLOCKED task-002" in content
+
+
+def test_log_group_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_group_complete("group-1")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "GROUP_COMPLETE group-1" in content
+
+
 def test_multiple_events_appended() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         logger = ProgressLogger(Path(tmpdir))

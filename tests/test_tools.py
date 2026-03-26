@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from golem.config import GolemConfig
-from golem.tools import create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
+from golem.tools import create_golem_mcp_server, create_qa_mcp_server, create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
 
 _EXPECTED_TOOL_NAMES = {
     "create_ticket",
@@ -122,3 +122,21 @@ def test_create_writer_mcp_server_has_both_tools() -> None:
         assert server["type"] == "sdk"
         # The server instance should have a call_tool method (MCP server)
         assert hasattr(server["instance"], "call_tool")
+
+
+def test_create_golem_mcp_server_name() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        (golem_dir / "tickets").mkdir()
+        config = GolemConfig()
+        server = create_golem_mcp_server(golem_dir, config, Path(tmpdir))
+        assert server["name"] == "golem"
+        assert server["type"] == "sdk"
+        assert hasattr(server["instance"], "call_tool")
+
+
+def test_create_qa_mcp_server_name() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        server = create_qa_mcp_server(Path(tmpdir))
+        assert server["name"] == "golem-qa"
+        assert server["type"] == "sdk"
