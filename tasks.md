@@ -617,7 +617,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Currently checks run sequentially. Use `asyncio.gather` or `subprocess` parallelism for independent checks.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 227. QA — Check timeout
+#### [x] 227. QA — Check timeout (DONE: cfd8c87)
 **Size:** Small | **Files:** `src/golem/qa.py`
 **What:** Add `timeout=120` to `subprocess.run` in `run_qa`. A hung check blocks the entire pipeline.
 **Done when:** `uv run pytest` passes.
@@ -691,12 +691,12 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme I: Documentation & Developer Experience (241–252)
 
-#### [ ] 241. Docstrings — `tools.py` module and all handlers
+#### [x] 241. Docstrings — `tools.py` module and all handlers (DONE: cfd8c87)
 **Size:** Small | **Files:** `src/golem/tools.py`
 **What:** Add module docstring explaining MCP architecture. Add docstrings to all `_handle_*` functions with input/output docs.
 **Done when:** All public and handler functions documented.
 
-#### [ ] 242. Docstrings — `worktree.py:create_pr()`
+#### [x] 242. Docstrings — `worktree.py:create_pr()` (DONE: cfd8c87)
 **Size:** Small | **Files:** `src/golem/worktree.py`
 **What:** Add docstring: purpose, parameters (especially `draft`), return value, error conditions.
 **Done when:** Documented.
