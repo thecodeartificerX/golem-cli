@@ -39,7 +39,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create tickets with multiple status updates, invoke history, verify events appear chronologically in output.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 117. Test `golem clean` with real `.golem/` state — Verify cleanup
+#### [x] 117. Test `golem clean` with real `.golem/` state — Verify cleanup (DONE: f983c95)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create `.golem/` with tickets and branches, invoke `clean --force`, verify directory removed and branches deleted.
 **Done when:** `uv run pytest` passes.
