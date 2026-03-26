@@ -95,6 +95,17 @@ def test_run_cli_nonexistent_spec_exits() -> None:
     assert result.exit_code != 0
 
 
+def test_no_command_shows_help() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, [])
+    assert result.exit_code in (0, 2)  # typer may return 2 for help display
+    assert "Usage" in result.output or "golem" in result.output
+
+
 def test_run_cli_shows_version_banner() -> None:
     """golem run should print version banner even on error."""
     from typer.testing import CliRunner
@@ -116,6 +127,14 @@ def test_plan_cli_nonexistent_spec_exits() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["plan", "/nonexistent/spec.md"])
     assert result.exit_code != 0
+
+
+def test_detect_infrastructure_checks_finds_ruff_toml() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ruff_toml = Path(tmpdir) / "ruff.toml"
+        ruff_toml.write_text('line-length = 100\n', encoding="utf-8")
+        checks = _detect_infrastructure_checks(Path(tmpdir))
+        assert "ruff check ." in checks
 
 
 def test_resolve_spec_project_root_finds_git() -> None:
