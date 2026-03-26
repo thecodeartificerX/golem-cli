@@ -82,6 +82,45 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 2: Overnight Queue (continued)
+
+### [ ] 11. Writer Gets Ticket Tools — Combined MCP server for writers
+**Size:** Small | **Files:** `tools.py`, `writer.py`
+**What:** Give writers MCP access to `update_ticket` so they can self-report status to `ready_for_review`.
+**How:** Create `create_writer_mcp_server()` in tools.py that includes both `run_qa` and `update_ticket`. Update writer.py to use it.
+**Test:** Existing tests pass. Add test that `create_writer_mcp_server` returns both tools.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 12. `golem resume` — Re-spawn Tech Lead from existing tickets
+**Size:** Small | **Files:** `cli.py`
+**What:** The resume command should find the last planner ticket and re-spawn the Tech Lead.
+**How:** Read tickets from store, find the tech_lead ticket, call `run_tech_lead()`.
+**Test:** Existing tests pass.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 13. Spec Validation — Check spec has required sections before running
+**Size:** Small | **Files:** `cli.py`
+**What:** Before running the planner, validate the spec has tasks/sections. Catch empty or malformed specs early.
+**How:** Read spec, check it has at least one `###` or `**` section. Print warning if spec looks empty.
+**Test:** Add test for the validation function.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 14. `golem history` — Show ticket event timeline
+**Size:** Small | **Files:** `cli.py`
+**What:** New CLI command that shows the full event history across all tickets in chronological order.
+**How:** Read all tickets, flatten all TicketEvents, sort by timestamp, print as a timeline.
+**Test:** Existing tests pass.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 15. Worktree Cleanup on Error — Don't leave orphaned worktrees
+**Size:** Small | **Files:** `tech_lead.py`
+**What:** If the Tech Lead session fails, clean up any worktrees it created so they don't block future runs.
+**How:** Wrap `run_tech_lead` in a try/finally that lists and removes golem worktrees on failure.
+**Test:** Existing tests pass.
+**Done when:** `uv run pytest` passes.
+
+---
+
 ## Ideas & Future Work (Not Yet Scheduled)
 
 ### Agent Observability / Live Streaming (EXPANDED)
@@ -89,9 +128,6 @@ Beyond basic stderr streaming (task 1), we eventually want:
 - A TUI dashboard showing all active agents and their current activity
 - The web UI (`golem ui`) to show real-time agent activity via SSE
 - Structured event format that both TUI and web UI can consume
-
-### Writer Gets Ticket Tools
-Give the writer MCP access to `update_ticket` so it can self-report status. Requires creating a combined MCP server with both QA and ticket tools for writer sessions.
 
 ### Parallel Writer Verification
 After Tech Lead dispatches multiple writers in parallel, verify all worktrees have changes before merging. Currently no validation that writers actually wrote code.

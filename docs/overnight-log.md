@@ -21,5 +21,10 @@
 
 ### Notes
 
-All 10 tasks completed. 110 tests passing. Branch has 20 commits ahead of main.
-Waiting for user to review and merge.
+Batch 1 (tasks 1-10) complete. 110 tests passing. Starting batch 2.
+
+- [ ] Task 11: Writer Gets Ticket Tools
+- [ ] Task 12: golem resume
+- [ ] Task 13: Spec Validation
+- [ ] Task 14: golem history
+- [ ] Task 15: Worktree Cleanup on Error
