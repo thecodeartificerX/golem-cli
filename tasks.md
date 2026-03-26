@@ -257,7 +257,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Defined but never used in any SDK session. No separate validator agent in v2. Remove or repurpose.
 **Done when:** Field removed or used. Tests pass.
 
-#### [ ] 159. Audit `GolemConfig.pr_target` — Wire it to tech lead or remove
+#### [S] 159. Audit `GolemConfig.pr_target` — Wire it to tech lead or remove (SKIP: requires prompt template changes and SDK testing)
 **Size:** Small | **Files:** `src/golem/config.py`, `src/golem/prompts/tech_lead.md`
 **What:** `pr_target` exists in config but is never passed to the tech lead. The prompt hardcodes `main`. Either inject `{pr_target}` into the prompt or remove the field.
 **Done when:** Field is functional or removed. Tests pass.
