@@ -163,17 +163,17 @@ Tasks are organized by theme. Each task should be:
 **What:** If a ticket JSON is corrupt, `json.loads` raises `JSONDecodeError` that propagates unhandled. Catch it and raise `ValueError(f"Ticket {ticket_id} file is corrupt")`.
 **Done when:** `uv run pytest` passes (pairs with test 134).
 
-#### [ ] 141. `_ensure_merged_to_main()` — Catch CalledProcessError from `git checkout main`
+#### [x] 141. `_ensure_merged_to_main()` — Catch CalledProcessError from `git checkout main` (DONE: 564b453)
 **Size:** Small | **Files:** `src/golem/tech_lead.py`
 **What:** If the repo uses `master` instead of `main`, `git checkout main` fails. Catch the error and try `master` as fallback, or detect default branch from `git symbolic-ref`.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 142. `ui.py:api_run()` — Handle missing `uv` on PATH
+#### [x] 142. `ui.py:api_run()` — Handle missing `uv` on PATH (DONE: 12b4df9)
 **Size:** Small | **Files:** `src/golem/ui.py`
 **What:** If `uv` is not on PATH, `asyncio.create_subprocess_exec` raises `FileNotFoundError`. Catch and return 500 with user-friendly message.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 143. `planner.py` — Handle unreadable spec file gracefully
+#### [x] 143. `planner.py` — Handle unreadable spec file gracefully (DONE: 12b4df9)
 **Size:** Small | **Files:** `src/golem/planner.py`
 **What:** `spec_path.read_text()` raises `PermissionError` if unreadable. Catch before retry logic and raise descriptive error.
 **Done when:** `uv run pytest` passes.
@@ -208,7 +208,7 @@ Tasks are organized by theme. Each task should be:
 **What:** If `create_worktree` or `commit_task` raises `CalledProcessError`, the MCP handler should return `{"error": "..."}` instead of letting the exception propagate.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 150. `golem inspect` — Validate ticket ID format before lookup
+#### [x] 150. `golem inspect` — Validate ticket ID format before lookup (DONE: 12b4df9)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** If user passes `golem inspect foo`, print "Invalid ticket ID format. Expected TICKET-NNN" instead of a generic "not found".
 **Done when:** `uv run pytest` passes.
