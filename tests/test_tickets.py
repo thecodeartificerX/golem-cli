@@ -187,6 +187,18 @@ async def test_concurrent_updates_no_corruption() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ticket_id_format() -> None:
+    """Ticket IDs must be uppercase TICKET-NNN format."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        tid = await store.create(_make_ticket("Format Test"))
+        assert tid.startswith("TICKET-")
+        num_part = tid.split("-")[1]
+        assert len(num_part) == 3
+        assert num_part.isdigit()
+
+
+@pytest.mark.asyncio
 async def test_full_context_roundtrip() -> None:
     """All TicketContext fields survive create → read roundtrip."""
     with tempfile.TemporaryDirectory() as tmpdir:

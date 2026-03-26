@@ -335,7 +335,11 @@ def resume() -> None:
         progress.log_tech_lead_complete()
         console.print("[bold]Resume complete.[/bold]")
 
-    asyncio.run(_resume_async())
+    try:
+        asyncio.run(_resume_async())
+    except RuntimeError as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
