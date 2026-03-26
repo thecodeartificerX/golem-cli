@@ -9,9 +9,19 @@ from typing import Callable
 from golem.config import GolemConfig
 from golem.progress import ProgressLogger
 from golem.tasks import Group, Task, TasksFile, write_tasks
-from golem.validator import run_validation
+from golem.validator import run_infrastructure_checks, run_integration_reviewer, run_validation
 from golem.worker import run_worker
 from golem.worktree import commit_task, create_worktree, delete_worktree
+
+
+def _run_autofix(worktree_path: str, infrastructure_checks: list[str]) -> None:
+    """Run known autofix commands when infrastructure checks fail."""
+    check_str = " ".join(infrastructure_checks)
+    if "ruff" in check_str:
+        subprocess.run(["ruff", "check", "--fix", "."], cwd=worktree_path, capture_output=True, check=False)
+        subprocess.run(["ruff", "format", "."], cwd=worktree_path, capture_output=True, check=False)
+    if "prettier" in check_str:
+        subprocess.run(["npx", "prettier", "--write", "."], cwd=worktree_path, capture_output=True, check=False)
 
 
 def _now_iso() -> str:
@@ -63,11 +73,31 @@ async def execute_group(
                 worktree_path=str(worktree_path),
                 feedback=feedback,
                 config=config,
+                blueprint=tasks_file.blueprint,
                 dashboard_cb=lambda tid, text: (dashboard_cb(group.id, tid, "running", text[:60]) if dashboard_cb else None),
             )
 
-            # Validation
-            val_passed, val_feedback = await run_validation(task, str(worktree_path), config)
+            # Tier 1a: Infrastructure checks (always-on, agent cannot skip)
+            infra_passed, infra_feedback = run_infrastructure_checks(
+                config.infrastructure_checks, str(worktree_path)
+            )
+            if not infra_passed:
+                # Attempt autofix before counting as a retry
+                _run_autofix(str(worktree_path), config.infrastructure_checks)
+                infra_passed, infra_feedback = run_infrastructure_checks(
+                    config.infrastructure_checks, str(worktree_path)
+                )
+            if not infra_passed:
+                task.retries = attempt
+                task.last_feedback = infra_feedback
+                await write_tasks(tasks_file, tasks_path)
+                progress.log_task_retry(task.id, attempt, infra_feedback)
+                continue
+
+            # Tier 1b: Task validation commands + AI validator
+            val_passed, val_feedback = await run_validation(
+                task, str(worktree_path), config, blueprint=tasks_file.blueprint
+            )
             if val_passed:
                 passed = True
                 break
@@ -144,18 +174,61 @@ async def execute_all_groups(
     await asyncio.gather(*coroutines)
 
 
-def run_final_validation(tasks_file: TasksFile, merged_branch_path: Path) -> tuple[bool, list[str]]:
-    """Run final_validation.commands on the merged branch path. Returns (passed, results)."""
+def run_final_validation(
+    tasks_file: TasksFile,
+    merged_branch_path: Path,
+    infrastructure_checks: list[str] | None = None,
+) -> tuple[bool, list[str]]:
+    """Run infrastructure checks then final_validation.commands on the merged branch. Returns (passed, results)."""
     results: list[str] = []
     all_passed = True
+
+    # Tier 3a: infrastructure checks (always-on)
+    for cmd in infrastructure_checks or []:
+        result = subprocess.run(
+            cmd, shell=True, cwd=merged_branch_path,
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        marker = "PASS" if result.returncode == 0 else "FAIL"
+        results.append(f"[infra] {marker}: {cmd}")
+        if result.returncode != 0:
+            results.append(f"  {result.stderr.strip()}")
+            all_passed = False
+
+    # Tier 3b: spec-defined final_validation commands
     for cmd in tasks_file.final_validation.commands:
         result = subprocess.run(
             cmd, shell=True, cwd=merged_branch_path,
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8",
         )
-        if result.returncode == 0:
-            results.append(f"✓ {cmd}")
-        else:
-            results.append(f"✗ {cmd}\n  {result.stderr.strip()}")
+        marker = "PASS" if result.returncode == 0 else "FAIL"
+        results.append(f"[spec] {marker}: {cmd}")
+        if result.returncode != 0:
+            results.append(f"  {result.stderr.strip()}")
             all_passed = False
+
     return all_passed, results
+
+
+async def run_integration_review(
+    tasks_file: TasksFile,
+    merged_path: Path,
+    spec_content: str,
+    config: GolemConfig,
+    progress: "ProgressLogger",
+) -> tuple[bool, str]:
+    """Post-merge integration review (Tier 2): infra checks + AI reviewer."""
+    # Infrastructure checks on merged code
+    infra_passed, infra_feedback = run_infrastructure_checks(
+        config.infrastructure_checks, str(merged_path)
+    )
+    if not infra_passed:
+        return False, f"Infrastructure checks failed on merged code:\n{infra_feedback}"
+
+    # AI integration reviewer
+    return await run_integration_reviewer(
+        tasks_file=tasks_file,
+        merged_path=str(merged_path),
+        spec_content=spec_content,
+        config=config,
+    )

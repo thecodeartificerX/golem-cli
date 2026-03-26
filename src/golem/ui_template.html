@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Golem</title>
+  <style>
+    /* -----------------------------------------------------------------------
+       CSS Custom Properties
+    ----------------------------------------------------------------------- */
+    :root {
+      --bg:            #0a0a0f;
+      --panel:         #12121a;
+      --panel-hover:   #16161f;
+      --border:        #1e1e2e;
+      --border-bright: #2a2a3e;
+      --muted:         #555;
+      --muted-light:   #666;
+      --label:         #c8a2ff;
+      --body-text:     #8b8b9e;
+      --dim-text:      #4a4a5e;
+      --success:       #22c55e;
+      --warning:       #eab308;
+      --error:         #ef4444;
+      --info:          #3b82f6;
+      --accent-start:  #7c3aed;
+      --accent-end:    #a855f7;
+      --font-mono:     'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --scanline-opacity: 0.025;
+    }
+
+    /* -----------------------------------------------------------------------
+       Reset & Base
+    ----------------------------------------------------------------------- */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--body-text);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      /* subtle scanline overlay */
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(0, 0, 0, var(--scanline-opacity)) 2px,
+          rgba(0, 0, 0, var(--scanline-opacity)) 4px
+        );
+    }
+
+    /* -----------------------------------------------------------------------
+       Layout: full-height flexbox column
+    ----------------------------------------------------------------------- */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-width: 900px;
+    }
+
+    /* -----------------------------------------------------------------------
+       Control Bar
+    ----------------------------------------------------------------------- */
+    #control-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 50;
+    }
+
+    /* faint gradient sweep on the right */
+    #control-bar::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 200px;
+      background: linear-gradient(to left, rgba(124, 58, 237, 0.06), transparent);
+      pointer-events: none;
+    }
+
+    #brand {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.35em;
+      color: var(--label);
+      text-transform: uppercase;
+      user-select: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+      /* subtle text glow */
+      text-shadow: 0 0 20px rgba(200, 162, 255, 0.35);
+    }
+
+    .brand-sep {
+      width: 1px;
+      height: 24px;
+      background: var(--border-bright);
+      flex-shrink: 0;
+    }
+
+    #input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--label);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 36px;
+      text-align: right;
+      user-select: none;
+    }
+
+    .path-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--body-text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 10px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      min-width: 0;
+    }
+
+    .path-input::placeholder {
+      color: var(--dim-text);
+    }
+
+    .path-input:focus {
+      border-color: var(--accent-end);
+      box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+    }
+
+    .path-input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .ctrl-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding: 6px 14px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+
+    .ctrl-btn:hover:not(:disabled) {
+      border-color: var(--muted);
+      color: var(--body-text);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .ctrl-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    #run-btn {
+      background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 7px 22px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #run-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.08), transparent);
+      pointer-events: none;
+    }
+
+    #run-btn:hover:not(:disabled) {
+      box-shadow: 0 0 16px rgba(168, 85, 247, 0.45);
+    }
+
+    #run-btn:active:not(:disabled) {
+      opacity: 0.85;
+    }
+
+    #run-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    #run-btn.running {
+      animation: pulse-btn 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pulse-btn {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.65; }
+    }
+
+    /* connection indicator */
+    #conn-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      flex-shrink: 0;
+    }
+
+    #conn-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+      flex-shrink: 0;
+    }
+
+    #conn-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    }
+
+    #conn-dot.reconnecting {
+      background: var(--warning);
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    /* -----------------------------------------------------------------------
+       Error banner
+    ----------------------------------------------------------------------- */
+    #error-banner {
+      display: none;
+      background: rgba(239, 68, 68, 0.12);
+      border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+      color: var(--error);
+      font-size: 11px;
+      padding: 7px 16px;
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+
+    #error-banner.visible {
+      display: block;
+    }
+
+    /* -----------------------------------------------------------------------
+       Main content: two-panel split
+    ----------------------------------------------------------------------- */
+    #main-content {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      flex: 1;
+      min-height: 0;
+      gap: 0;
+    }
+
+    /* -----------------------------------------------------------------------
+       Panel shared styles
+    ----------------------------------------------------------------------- */
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      height: 36px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .panel-header-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+    }
+
+    .panel-header-count {
+      font-size: 10px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+
+    /* custom scrollbars */
+    .panel-body::-webkit-scrollbar {
+      width: 5px;
+    }
+    .panel-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .panel-body::-webkit-scrollbar-thumb {
+      background: var(--border-bright);
+      border-radius: 3px;
+    }
+    .panel-body::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+    }
+
+    /* -----------------------------------------------------------------------
+       Timeline panel
+    ----------------------------------------------------------------------- */
+    #timeline-panel {
+      border-right: 1px solid var(--border);
+    }
+
+    #timeline-body {
+      padding: 16px 0;
+      position: relative;
+    }
+
+    /* vertical connecting line */
+    #timeline-body::before {
+      content: '';
+      position: absolute;
+      left: 27px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--border-bright);
+    }
+
+    .timeline-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--dim-text);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      line-height: 1.8;
+    }
+
+    .timeline-empty .empty-icon {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 10px;
+      color: var(--border-bright);
+      letter-spacing: 0;
+    }
+
+    /* task item */
+    .task-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 14px 8px 16px;
+      position: relative;
+      transition: background 0.15s ease;
+    }
+
+    .task-item:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* status dot */
+    .task-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid;
+      flex-shrink: 0;
+      margin-top: 3px;
+      position: relative;
+      z-index: 1;
+      transition: box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .task-dot.pending {
+      background: var(--bg);
+      border-color: var(--muted);
+    }
+
+    .task-dot.in_progress {
+      background: var(--warning);
+      border-color: var(--warning);
+      box-shadow: 0 0 8px rgba(234, 179, 8, 0.7), 0 0 16px rgba(234, 179, 8, 0.3);
+      animation: dot-pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes dot-pulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(234, 179, 8, 0.7), 0 0 16px rgba(234, 179, 8, 0.3); }
+      50%       { box-shadow: 0 0 14px rgba(234, 179, 8, 0.9), 0 0 28px rgba(234, 179, 8, 0.5); }
+    }
+
+    .task-dot.completed {
+      background: var(--success);
+      border-color: var(--success);
+    }
+
+    .task-dot.failed {
+      background: var(--error);
+      border-color: var(--error);
+    }
+
+    .task-dot.blocked {
+      background: transparent;
+      border-color: var(--error);
+    }
+
+    /* task info */
+    .task-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .task-name {
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.3s ease;
+    }
+
+    .task-name.pending    { color: var(--muted-light); }
+    .task-name.in_progress { color: var(--warning); }
+    .task-name.completed  { color: var(--success); }
+    .task-name.failed     { color: var(--error); }
+    .task-name.blocked    { color: var(--error); opacity: 0.75; }
+
+    .task-subtitle {
+      font-size: 10px;
+      color: var(--dim-text);
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.03em;
+    }
+
+    .task-group-tag {
+      display: inline-block;
+      background: rgba(124, 58, 237, 0.18);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: 3px;
+      color: var(--label);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      padding: 1px 5px;
+      margin-top: 3px;
+      opacity: 0.85;
+    }
+
+    /* -----------------------------------------------------------------------
+       Console panel
+    ----------------------------------------------------------------------- */
+    #console-panel {
+      background: var(--bg);
+    }
+
+    #console-body {
+      padding: 12px 0;
+      background: var(--panel);
+    }
+
+    .console-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--dim-text);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    /* log line */
+    .log-line {
+      display: flex;
+      gap: 0;
+      padding: 1px 14px;
+      font-size: 11px;
+      line-height: 1.7;
+      transition: background 0.1s ease;
+    }
+
+    .log-line:hover {
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .log-ts {
+      color: var(--dim-text);
+      flex-shrink: 0;
+      margin-right: 10px;
+      user-select: none;
+      min-width: 60px;
+    }
+
+    .log-msg {
+      flex: 1;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+
+    /* verb color classes */
+    .log-line.verb-complete .log-msg  { color: var(--success); }
+    .log-line.verb-start .log-msg     { color: var(--warning); }
+    .log-line.verb-info .log-msg      { color: var(--info); }
+    .log-line.verb-error .log-msg     { color: var(--error); }
+    .log-line.verb-gray .log-msg      { color: var(--muted); }
+
+    /* animate new lines sliding in */
+    .log-line {
+      animation: line-in 0.12s ease-out;
+    }
+
+    @keyframes line-in {
+      from { opacity: 0; transform: translateX(-4px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* -----------------------------------------------------------------------
+       Progress bar
+    ----------------------------------------------------------------------- */
+    #progress-bar-container {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+      height: 40px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #progress-bar-container.visible {
+      display: flex;
+    }
+
+    #progress-counter {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    #progress-track {
+      flex: 1;
+      height: 4px;
+      background: var(--border-bright);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-start), var(--accent-end));
+      border-radius: 2px;
+      transition: width 0.5s ease;
+    }
+
+    #progress-pct {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--body-text);
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* -----------------------------------------------------------------------
+       Status bar (very bottom, thin)
+    ----------------------------------------------------------------------- */
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      height: 24px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #status-text {
+      font-size: 10px;
+      color: var(--dim-text);
+      letter-spacing: 0.05em;
+      flex: 1;
+    }
+
+    .status-sep {
+      width: 1px;
+      height: 12px;
+      background: var(--border);
+    }
+
+    #run-state-badge {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--dim-text);
+      transition: color 0.3s ease;
+    }
+
+    #run-state-badge.idle     { color: var(--dim-text); }
+    #run-state-badge.ready    { color: var(--muted-light); }
+    #run-state-badge.running  { color: var(--warning); animation: pulse-btn 1.8s ease-in-out infinite; }
+    #run-state-badge.done     { color: var(--success); }
+    #run-state-badge.error    { color: var(--error); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- =====================================================================
+       CONTROL BAR
+  ====================================================================== -->
+  <div id="control-bar">
+    <span id="brand">GOLEM</span>
+    <div class="brand-sep"></div>
+
+    <div id="input-group">
+      <div class="input-row">
+        <label class="field-label">SPEC</label>
+        <input
+          type="text"
+          id="spec-path-input"
+          class="path-input"
+          placeholder="Path to spec .md file"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="ctrl-btn" id="browse-spec-btn">BROWSE</button>
+      </div>
+      <div class="input-row">
+        <label class="field-label">ROOT</label>
+        <input
+          type="text"
+          id="root-path-input"
+          class="path-input"
+          placeholder="Project root directory (auto-filled from spec)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="ctrl-btn" id="browse-root-btn">BROWSE</button>
+      </div>
+    </div>
+
+    <button id="run-btn" disabled>CONSTRUCT</button>
+
+    <div class="brand-sep"></div>
+    <div id="conn-indicator">
+      <div id="conn-dot"></div>
+      <span id="conn-label">CONNECTING</span>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       ERROR BANNER
+  ====================================================================== -->
+  <div id="error-banner"></div>
+
+  <!-- =====================================================================
+       MAIN CONTENT
+  ====================================================================== -->
+  <div id="main-content">
+
+    <!-- Task Timeline -------------------------------------------------- -->
+    <div class="panel" id="timeline-panel">
+      <div class="panel-header">
+        <span class="panel-header-label">Task Timeline</span>
+        <span class="panel-header-count" id="task-count-label"></span>
+      </div>
+      <div class="panel-body" id="timeline-body">
+        <div class="timeline-empty" id="timeline-empty">
+          <span class="empty-icon">---</span>
+          Select a spec to begin
+        </div>
+      </div>
+    </div>
+
+    <!-- Console -------------------------------------------------------- -->
+    <div class="panel" id="console-panel">
+      <div class="panel-header">
+        <span class="panel-header-label">Console</span>
+        <span class="panel-header-count" id="log-count-label"></span>
+      </div>
+      <div class="panel-body" id="console-body">
+        <div class="console-empty" id="console-empty">
+          No output yet
+        </div>
+      </div>
+    </div>
+
+  </div><!-- #main-content -->
+
+  <!-- =====================================================================
+       PROGRESS BAR
+  ====================================================================== -->
+  <div id="progress-bar-container">
+    <span id="progress-counter">0 / 0 TASKS</span>
+    <div id="progress-track">
+      <div id="progress-fill"></div>
+    </div>
+    <span id="progress-pct">0%</span>
+  </div>
+
+  <!-- =====================================================================
+       STATUS BAR
+  ====================================================================== -->
+  <div id="status-bar">
+    <span id="status-text">Ready</span>
+    <div class="status-sep"></div>
+    <span id="run-state-badge" class="idle">IDLE</span>
+  </div>
+
+</div><!-- #app -->
+
+
+<script>
+(function () {
+  'use strict';
+
+  // -------------------------------------------------------------------------
+  // DOM refs
+  // -------------------------------------------------------------------------
+  const specInput      = document.getElementById('spec-path-input');
+  const rootInput      = document.getElementById('root-path-input');
+  const browseSpecBtn  = document.getElementById('browse-spec-btn');
+  const browseRootBtn  = document.getElementById('browse-root-btn');
+  const runBtn         = document.getElementById('run-btn');
+  const connDot        = document.getElementById('conn-dot');
+  const connLabel      = document.getElementById('conn-label');
+  const errorBanner    = document.getElementById('error-banner');
+  const timelineBody   = document.getElementById('timeline-body');
+  const timelineEmpty  = document.getElementById('timeline-empty');
+  const taskCountLabel = document.getElementById('task-count-label');
+  const consoleBody    = document.getElementById('console-body');
+  const consoleEmpty   = document.getElementById('console-empty');
+  const logCountLabel  = document.getElementById('log-count-label');
+  const progressCont   = document.getElementById('progress-bar-container');
+  const progressFill   = document.getElementById('progress-fill');
+  const progressCtr    = document.getElementById('progress-counter');
+  const progressPct    = document.getElementById('progress-pct');
+  const statusText     = document.getElementById('status-text');
+  const runStateBadge  = document.getElementById('run-state-badge');
+
+  // -------------------------------------------------------------------------
+  // State
+  // -------------------------------------------------------------------------
+  let currentState = 'idle';   // idle | ready | running | done | error
+  let logLineCount = 0;
+  let taskMap = {};             // id -> { element, lastStatus }
+  let evtSource = null;
+
+  // -------------------------------------------------------------------------
+  // Utility: is console scrolled near bottom?
+  // -------------------------------------------------------------------------
+  function isAtBottom(el) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  }
+
+  // -------------------------------------------------------------------------
+  // Error banner
+  // -------------------------------------------------------------------------
+  function showError(msg) {
+    errorBanner.textContent = '  [!]  ' + msg;
+    errorBanner.classList.add('visible');
+    setTimeout(() => errorBanner.classList.remove('visible'), 6000);
+  }
+
+  function clearError() {
+    errorBanner.classList.remove('visible');
+  }
+
+  // -------------------------------------------------------------------------
+  // State machine transitions
+  // -------------------------------------------------------------------------
+  function setState(state, detail) {
+    currentState = state;
+    runStateBadge.className = state;
+    runStateBadge.textContent = state.toUpperCase();
+
+    switch (state) {
+      case 'idle':
+        specInput.disabled     = false;
+        rootInput.disabled     = false;
+        browseSpecBtn.disabled = false;
+        browseRootBtn.disabled = false;
+        runBtn.disabled        = true;
+        runBtn.textContent     = 'CONSTRUCT';
+        runBtn.classList.remove('running');
+        statusText.textContent = 'Ready';
+        break;
+
+      case 'ready':
+        specInput.disabled     = false;
+        rootInput.disabled     = false;
+        browseSpecBtn.disabled = false;
+        browseRootBtn.disabled = false;
+        runBtn.disabled        = false;
+        runBtn.textContent     = 'CONSTRUCT';
+        runBtn.classList.remove('running');
+        statusText.textContent = 'Spec loaded — ready to run';
+        break;
+
+      case 'running':
+        specInput.disabled     = true;
+        rootInput.disabled     = true;
+        browseSpecBtn.disabled = true;
+        browseRootBtn.disabled = true;
+        runBtn.disabled        = true;
+        runBtn.textContent     = 'RUNNING...';
+        runBtn.classList.add('running');
+        progressCont.classList.add('visible');
+        statusText.textContent = detail
+          ? ('Running: ' + (detail.spec || detail.cwd || ''))
+          : 'Run in progress';
+        break;
+
+      case 'done':
+        specInput.disabled     = false;
+        rootInput.disabled     = false;
+        browseSpecBtn.disabled = false;
+        browseRootBtn.disabled = false;
+        runBtn.disabled        = (specInput.value.trim() === '');
+        runBtn.textContent     = 'CONSTRUCT';
+        runBtn.classList.remove('running');
+        statusText.textContent = 'Run complete';
+        break;
+
+      case 'error':
+        specInput.disabled     = false;
+        rootInput.disabled     = false;
+        browseSpecBtn.disabled = false;
+        browseRootBtn.disabled = false;
+        runBtn.disabled        = (specInput.value.trim() === '');
+        runBtn.textContent     = 'CONSTRUCT';
+        runBtn.classList.remove('running');
+        statusText.textContent = detail
+          ? ('Error: ' + (detail.message || 'process exited with code ' + detail.exit_code))
+          : 'Run failed';
+        break;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE: handleStatus
+  // -------------------------------------------------------------------------
+  function handleStatus(e) {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    switch (data.state) {
+      case 'idle':
+        setState('idle');
+        break;
+      case 'running':
+        setState('running', data);
+        break;
+      case 'done':
+        setState('done', data);
+        break;
+      case 'error':
+        setState('error', data);
+        break;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE: handleLog
+  // -------------------------------------------------------------------------
+  const GREEN_VERBS  = new Set(['COMPLETE', 'GROUP_COMPLETE']);
+  const YELLOW_VERBS = new Set(['START', 'WORKING']);
+  const RED_VERBS    = new Set(['BLOCKED', 'RETRY', 'FAILED', 'STDERR']);
+  const GRAY_VERBS   = new Set(['STDOUT']);
+
+  function getLogClass(verb, message) {
+    if (!verb) return 'verb-info';
+    const v = verb.toUpperCase();
+    if (GREEN_VERBS.has(v)) return 'verb-complete';
+    if (v === 'FINAL_VALIDATION') {
+      const m = (message || '').toUpperCase();
+      return m.includes('PASS') ? 'verb-complete' : 'verb-error';
+    }
+    if (YELLOW_VERBS.has(v)) return 'verb-start';
+    if (RED_VERBS.has(v))    return 'verb-error';
+    if (GRAY_VERBS.has(v))  return 'verb-gray';
+    return 'verb-info';
+  }
+
+  function handleLog(e) {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    const wasAtBottom = isAtBottom(consoleBody);
+
+    // Remove empty placeholder
+    if (consoleEmpty.parentNode) {
+      consoleEmpty.remove();
+    }
+
+    const cls   = getLogClass(data.verb, data.message);
+    const ts    = data.timestamp || '';
+    const msg   = data.message   || data.raw || '';
+
+    const line  = document.createElement('div');
+    line.className = 'log-line ' + cls;
+
+    const tsEl  = document.createElement('span');
+    tsEl.className = 'log-ts';
+    tsEl.textContent = ts ? ('[' + ts + ']') : '';
+
+    const msgEl = document.createElement('span');
+    msgEl.className = 'log-msg';
+    msgEl.textContent = msg;
+
+    line.appendChild(tsEl);
+    line.appendChild(msgEl);
+    consoleBody.appendChild(line);
+
+    logLineCount++;
+    logCountLabel.textContent = logLineCount + ' lines';
+
+    if (wasAtBottom) {
+      consoleBody.scrollTop = consoleBody.scrollHeight;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE: handleTasks
+  // -------------------------------------------------------------------------
+  function getTaskSubtitle(task) {
+    const status = task.status;
+    if (status === 'completed') {
+      return 'completed';
+    }
+    if (status === 'in_progress') {
+      return (task.group ? task.group + ' \u00b7 ' : '') + 'running...';
+    }
+    if (status === 'blocked') {
+      const deps = (task.depends_on || []).join(', ');
+      return deps ? 'blocked by ' + deps : 'blocked';
+    }
+    if (status === 'failed') {
+      return 'failed';
+    }
+    return 'pending';
+  }
+
+  function createTaskElement(task) {
+    const item = document.createElement('div');
+    item.className = 'task-item';
+    item.dataset.taskId = task.id;
+
+    const dot = document.createElement('div');
+    dot.className = 'task-dot ' + (task.status || 'pending');
+
+    const info = document.createElement('div');
+    info.className = 'task-info';
+
+    const name = document.createElement('div');
+    name.className = 'task-name ' + (task.status || 'pending');
+    name.textContent = task.description || task.id;
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'task-subtitle';
+    subtitle.textContent = getTaskSubtitle(task);
+
+    info.appendChild(name);
+    info.appendChild(subtitle);
+
+    if (task.group) {
+      const tag = document.createElement('span');
+      tag.className = 'task-group-tag';
+      tag.textContent = task.group;
+      info.appendChild(tag);
+    }
+
+    item.appendChild(dot);
+    item.appendChild(info);
+    return item;
+  }
+
+  function updateTaskElement(el, task) {
+    const status = task.status || 'pending';
+    const dot    = el.querySelector('.task-dot');
+    const name   = el.querySelector('.task-name');
+    const sub    = el.querySelector('.task-subtitle');
+
+    dot.className     = 'task-dot ' + status;
+    name.className    = 'task-name ' + status;
+    name.textContent  = task.description || task.id;
+    sub.textContent   = getTaskSubtitle(task);
+
+    let tag = el.querySelector('.task-group-tag');
+    if (task.group) {
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'task-group-tag';
+        el.querySelector('.task-info').appendChild(tag);
+      }
+      tag.textContent = task.group;
+    } else if (tag) {
+      tag.remove();
+    }
+  }
+
+  function handleTasks(e) {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    const tasks     = data.tasks     || [];
+    const completed = data.completed || 0;
+    const total     = data.total     || 0;
+
+    // Remove empty placeholder
+    if (timelineEmpty.parentNode) {
+      timelineEmpty.remove();
+    }
+
+    // Track which task IDs exist in this update
+    const seen = new Set();
+
+    tasks.forEach(function (task, idx) {
+      seen.add(task.id);
+      if (taskMap[task.id]) {
+        // Update existing element in-place
+        updateTaskElement(taskMap[task.id].el, task);
+      } else {
+        // Create new element
+        const el = createTaskElement(task);
+        // Insert in order: find correct position
+        const siblings = timelineBody.querySelectorAll('.task-item');
+        if (idx < siblings.length) {
+          timelineBody.insertBefore(el, siblings[idx]);
+        } else {
+          timelineBody.appendChild(el);
+        }
+        taskMap[task.id] = { el: el };
+      }
+    });
+
+    // Remove task elements no longer in the list
+    Object.keys(taskMap).forEach(function (id) {
+      if (!seen.has(id)) {
+        taskMap[id].el.remove();
+        delete taskMap[id];
+      }
+    });
+
+    // Update count label
+    taskCountLabel.textContent = total > 0 ? (completed + ' / ' + total) : '';
+
+    // Update progress bar
+    progressCont.classList.add('visible');
+    progressCtr.textContent  = completed + ' / ' + total + ' TASKS';
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressPct.textContent  = pct + '%';
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE connection management
+  // -------------------------------------------------------------------------
+  function setConnState(state) {
+    connDot.className = state;
+    if (state === 'connected') {
+      connLabel.textContent = 'LIVE';
+    } else if (state === 'reconnecting') {
+      connLabel.textContent = 'RECONNECTING';
+    } else {
+      connLabel.textContent = 'CONNECTING';
+    }
+  }
+
+  function connectSSE() {
+    if (evtSource) {
+      evtSource.close();
+      evtSource = null;
+    }
+
+    setConnState('');
+    evtSource = new EventSource('/api/events');
+
+    evtSource.addEventListener('open', function () {
+      setConnState('connected');
+    });
+
+    evtSource.addEventListener('status', handleStatus);
+    evtSource.addEventListener('log',    handleLog);
+    evtSource.addEventListener('tasks',  handleTasks);
+
+    evtSource.addEventListener('error', function () {
+      setConnState('reconnecting');
+      // Browser will auto-reconnect; we just reflect the state
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Path input change -> ready/idle
+  // -------------------------------------------------------------------------
+  specInput.addEventListener('input', function () {
+    const val = specInput.value.trim();
+    if (currentState === 'running') return;  // ignore changes while running
+    if (val) {
+      setState('ready');
+    } else {
+      setState('idle');
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Native file/folder browse dialogs
+  // -------------------------------------------------------------------------
+
+  browseSpecBtn.addEventListener('click', async function () {
+    if (currentState === 'running') return;
+
+    // Open native file dialog; pass current spec's parent as initial dir
+    var currentSpec = specInput.value.trim();
+    var initDir = currentSpec ? currentSpec.replace(/\/[^/]+$/, '') : '';
+    var qs = initDir ? '?initial_dir=' + encodeURIComponent(initDir) : '';
+
+    var resp;
+    try {
+      resp = await fetch('/api/browse/file' + qs);
+    } catch (err) {
+      showError('Could not reach server: ' + err.message);
+      return;
+    }
+    if (!resp.ok) {
+      showError('File dialog failed (' + resp.status + ')');
+      return;
+    }
+    var data = await resp.json();
+    if (data.path) {
+      specInput.value = data.path;
+      specInput.dispatchEvent(new Event('input'));
+      // Auto-fill ROOT with spec's parent directory (only if root is empty)
+      var parentDir = data.path.replace(/\/[^/]+$/, '');
+      if (rootInput.value.trim() === '') {
+        rootInput.value = parentDir;
+      }
+    }
+  });
+
+  browseRootBtn.addEventListener('click', async function () {
+    if (currentState === 'running') return;
+
+    // Open native folder dialog; pass current root as initial dir
+    var currentRoot = rootInput.value.trim();
+    var qs = currentRoot ? '?initial_dir=' + encodeURIComponent(currentRoot) : '';
+
+    var resp;
+    try {
+      resp = await fetch('/api/browse/folder' + qs);
+    } catch (err) {
+      showError('Could not reach server: ' + err.message);
+      return;
+    }
+    if (!resp.ok) {
+      showError('Folder dialog failed (' + resp.status + ')');
+      return;
+    }
+    var data = await resp.json();
+    if (data.path) {
+      rootInput.value = data.path;
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // CONSTRUCT button
+  // -------------------------------------------------------------------------
+  runBtn.addEventListener('click', async function () {
+    const path = specInput.value.trim();
+    if (!path) return;
+
+    clearError();
+
+    // Optimistically enter running state
+    setState('running', { spec: path });
+
+    // Clear previous run data
+    logLineCount = 0;
+    logCountLabel.textContent = '';
+    consoleBody.innerHTML = '';
+    consoleBody.appendChild(consoleEmpty);
+    consoleEmpty.style.display = '';
+
+    timelineBody.innerHTML = '';
+    timelineBody.appendChild(timelineEmpty);
+    timelineEmpty.style.display = '';
+    taskMap = {};
+
+    progressFill.style.width = '0%';
+    progressPct.textContent  = '0%';
+    progressCtr.textContent  = '0 / 0 TASKS';
+
+    let resp;
+    try {
+      resp = await fetch('/api/run', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ spec_path: path, project_root: rootInput.value.trim() }),
+      });
+    } catch (err) {
+      setState('error', { message: 'Network error: ' + err.message });
+      showError('Could not reach server: ' + err.message);
+      return;
+    }
+
+    if (resp.ok) {
+      // Server accepted the run; SSE status event will confirm
+      return;
+    }
+
+    let errMsg = 'Request failed (' + resp.status + ')';
+    try {
+      const body = await resp.json();
+      if (body && body.detail) errMsg = body.detail;
+    } catch { /* ignore */ }
+
+    if (resp.status === 409) {
+      setState('running', { spec: path });
+      showError('A run is already in progress.');
+    } else {
+      setState('error', { message: errMsg });
+      showError(errMsg);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Boot
+  // -------------------------------------------------------------------------
+  setState('idle');
+  connectSSE();
+
+})();
+</script>
+</body>
+</html>

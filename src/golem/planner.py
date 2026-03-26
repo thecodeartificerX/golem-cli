@@ -2,12 +2,29 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    query,
+)
+from claude_agent_sdk._internal.query import Query as _Query  # noqa: PLC2701
 
 from golem.config import GolemConfig, sdk_env
+
+# The SDK hardcodes a 60s initialize timeout with no public API to override it.
+# Claude CLI can take longer when loading MCP servers, hooks, etc. Bump to 180s.
+# Defaults tuple is (None, None, None, 60.0, None) — index 3 is initialize_timeout.
+_defaults = list(_Query.__init__.__defaults__ or ())  # type: ignore[attr-defined]
+_defaults[3] = 180.0
+_Query.__init__.__defaults__ = tuple(_defaults)  # type: ignore[attr-defined]
 from golem.tasks import TasksFile, write_tasks
 
 _PLANNER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "planner.md"
@@ -24,11 +41,12 @@ _TASKS_JSON_SCHEMA = """
     "validator": "sonnet model id"
   },
   "config": {
-    "max_retries": 3,
+    "max_retries": 2,
     "max_parallel": 3,
     "max_worker_turns": 50,
     "max_validator_turns": 20
   },
+  "blueprint": "Multi-line string with ALL cross-cutting contracts: DOM IDs, CSS classes, API signatures, data schemas, naming conventions. Injected into every worker and validator prompt. Empty string if no cross-cutting concerns.",
   "groups": [
     {
       "id": "group-slug",
@@ -103,7 +121,8 @@ async def run_planner(spec_path: Path, golem_dir: Path, config: GolemConfig, rep
         options=ClaudeAgentOptions(
             model=config.planner_model,
             cwd=str(cwd),
-            allowed_tools=["Read", "Glob", "Grep", "Bash"],
+            tools={"type": "preset", "preset": "claude_code"},
+            setting_sources=config.setting_sources,
             max_turns=30,
             permission_mode="bypassPermissions",
             env=sdk_env(),
@@ -111,15 +130,27 @@ async def run_planner(spec_path: Path, golem_dir: Path, config: GolemConfig, rep
     ):
         if isinstance(message, ResultMessage):
             result_text = message.result or ""
+            print(f"[PLANNER] result: {result_text[:200]}...", file=sys.stderr, flush=True)
         elif isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
                     all_text_chunks.append(block.text)
+                    print(f"[PLANNER] {block.text[:300]}", file=sys.stderr, flush=True)
+                elif isinstance(block, ToolUseBlock):
+                    input_preview = json.dumps(block.input, default=str)[:200]
+                    print(f"[PLANNER] tool: {block.name}({input_preview})", file=sys.stderr, flush=True)
+                elif isinstance(block, ToolResultBlock):
+                    content_str = str(block.content or "")[:200]
+                    err = " ERROR" if block.is_error else ""
+                    print(f"[PLANNER] result{err}: {content_str}", file=sys.stderr, flush=True)
 
     # Prefer ResultMessage, fall back to concatenated assistant text
     output = result_text if result_text.strip() else "\n".join(all_text_chunks)
     raw_json = _extract_json(output)
     data = json.loads(raw_json)
+
+    if not data.get("blueprint"):
+        print("[PLANNER] WARNING: blueprint field missing or empty — cross-cutting checks may be weaker", file=sys.stderr, flush=True)
 
     # Inject runtime metadata
     spec_slug = spec_path.stem.lower().replace("_", "-").replace(" ", "-")

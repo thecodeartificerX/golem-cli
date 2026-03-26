@@ -30,6 +30,10 @@ class ProgressLogger:
     def log_group_complete(self, group_id: str) -> None:
         self._write(f"GROUP_COMPLETE {group_id}")
 
+    def log_integration_review(self, passed: bool) -> None:
+        result = "PASSED" if passed else "FAILED"
+        self._write(f"INTEGRATION_REVIEW {result}")
+
     def log_final_validation(self, passed: bool) -> None:
         result = "PASSED" if passed else "FAILED"
         self._write(f"FINAL_VALIDATION {result}")

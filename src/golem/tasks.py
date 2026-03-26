@@ -112,7 +112,8 @@ class TasksFile:
     branch: str
     models: dict[str, str]
     config: dict[str, object]
-    groups: list[Group]
+    blueprint: str = ""
+    groups: list[Group] = field(default_factory=list)
     final_validation: FinalValidation = field(default_factory=lambda: FinalValidation(depends_on_all=True, commands=[]))
 
     @classmethod
@@ -124,6 +125,7 @@ class TasksFile:
             branch=d["branch"],
             models=d.get("models", {}),
             config=d.get("config", {}),
+            blueprint=d.get("blueprint", ""),
             groups=[Group.from_dict(g) for g in d.get("groups", [])],
             final_validation=FinalValidation.from_dict(d.get("final_validation", {"depends_on_all": True, "commands": []})),
         )
@@ -136,6 +138,7 @@ class TasksFile:
             "branch": self.branch,
             "models": self.models,
             "config": self.config,
+            "blueprint": self.blueprint,
             "groups": [g.to_dict() for g in self.groups],
             "final_validation": self.final_validation.to_dict(),
         }

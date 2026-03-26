@@ -75,7 +75,7 @@ async def test_retry_loop_pass_on_third() -> None:
 
     call_count = 0
 
-    async def _mock_validate(t: Task, wt: str, cfg: GolemConfig) -> tuple[bool, str]:
+    async def _mock_validate(t: Task, wt: str, cfg: GolemConfig, **kwargs: object) -> tuple[bool, str]:
         nonlocal call_count
         call_count += 1
         if call_count < 3:
@@ -114,7 +114,7 @@ async def test_blocked_propagation() -> None:
 
         validate_call_count = 0
 
-        async def _mock_validate(t: Task, wt: str, cfg: GolemConfig) -> tuple[bool, str]:
+        async def _mock_validate(t: Task, wt: str, cfg: GolemConfig, **kwargs: object) -> tuple[bool, str]:
             nonlocal validate_call_count
             validate_call_count += 1
             if t.id == "task-001":
