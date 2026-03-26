@@ -46,6 +46,11 @@ async def run_planner(
 ) -> str:
     """Spawn Opus planner session that writes plans/ + references/ and creates a ticket.
 
+    Retries up to 2 times on CLIConnectionError/ClaudeSDKError with configurable delay.
+    SDK initialize timeout is monkey-patched from 60s to config.sdk_timeout at import time.
+    If the planner doesn't call create_ticket via MCP, a self-healing fallback creates
+    a ticket programmatically from AssistantMessage text blocks.
+
     Returns the ticket_id string created by the planner.
     """
     try:

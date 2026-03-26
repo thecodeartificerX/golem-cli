@@ -93,6 +93,11 @@ async def run_tech_lead(
     The Tech Lead reads plans, creates worktrees, spawns writer pairs, reviews work,
     merges branches, runs integration QA, and creates a PR. Blocks until complete.
     The SDK automatically routes all tool calls to the registered MCP server.
+
+    Self-healing: _ensure_merged_to_main() runs after the session to merge any
+    integration branches the Tech Lead didn't merge. _cleanup_golem_worktrees()
+    removes orphaned worktrees on session failure. Retries up to 2 times on
+    CLIConnectionError/ClaudeSDKError with configurable delay.
     """
     store = TicketStore(golem_dir / "tickets")
     ticket = await store.read(ticket_id)

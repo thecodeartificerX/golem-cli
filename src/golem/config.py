@@ -66,6 +66,10 @@ def load_config(golem_dir: Path) -> GolemConfig:
 def sdk_env() -> dict[str, str]:
     """Environment overrides for Claude Agent SDK subprocess.
 
+    Returns a *partial* dict (not a full env copy). The SDK merges these
+    overrides into the inherited environment. Only keys that need to be
+    changed are included.
+
     Clears ANTHROPIC_API_KEY so the spawned claude CLI uses its own
     OAuth auth instead of treating the env var as an external API key.
     """

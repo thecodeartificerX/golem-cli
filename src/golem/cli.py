@@ -29,7 +29,10 @@ _GOLEM_DIR_NAME = ".golem"
 
 
 def _resolve_spec_project_root(spec: Path) -> Path:
-    """Walk up from the spec file to find the git root of the target project."""
+    """Walk up from the spec file to find the git root of the target project.
+
+    Falls back to the spec file's parent directory if no .git directory is found.
+    """
     candidate = spec.resolve().parent
     while candidate != candidate.parent:
         if (candidate / ".git").exists():

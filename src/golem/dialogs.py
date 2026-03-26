@@ -171,9 +171,10 @@ def open_folder_dialog(initial_dir: str | None = None) -> str | None:
     Returns the selected directory path (forward slashes) or None if cancelled.
     Blocks until the user picks or cancels — call via ``asyncio.to_thread()``.
 
-    Note: ``initial_dir`` is accepted for API symmetry but the legacy
-    SHBrowseForFolderW API does not support setting an initial directory
-    without a callback. The parameter is reserved for future use.
+    Note: ``initial_dir`` is accepted for API symmetry but silently ignored.
+    The legacy SHBrowseForFolderW API does not support setting an initial
+    directory without a BrowseCallbackProc callback, which ctypes cannot
+    easily provide.
     """
     if sys.platform != "win32":
         raise NotImplementedError("Folder dialogs require Windows")

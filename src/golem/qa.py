@@ -104,7 +104,14 @@ def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[st
 
 
 def run_autofix(worktree_path: str, infrastructure_checks: list[str]) -> None:
-    """Run autofix tools (ruff, prettier) before counting a retry."""
+    """Run autofix tools (ruff, prettier) before counting a QA retry.
+
+    Scans infrastructure_checks for known tool names and runs their fix commands:
+    - ruff: runs `ruff check --fix .` then `ruff format .`
+    - prettier: runs `npx prettier --write .`
+
+    No-op if no matching tools are found in the checks list.
+    """
     env = _subprocess_env()
     all_checks = infrastructure_checks
 
