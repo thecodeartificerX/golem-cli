@@ -256,6 +256,39 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 7: Overnight Queue (continued)
+
+### [ ] 36. CLI tests — Test `_validate_spec` and `_detect_infrastructure_checks`
+**Size:** Small | **Files:** `tests/test_cli.py` (new)
+**What:** _validate_spec and _detect_infrastructure_checks have no tests. Add coverage.
+**How:** Test: empty spec exits, non-.md exits, valid spec passes, ruff detected from pyproject.toml, npm lint detected from package.json.
+**Done when:** `uv run pytest` passes with new tests.
+
+### [ ] 37. Worktree tests — Test `merge_group_branches` conflict handling
+**Size:** Small | **Files:** `tests/test_worktree.py`
+**What:** merge_group_branches conflict path has no test coverage.
+**How:** Create two branches that conflict, verify merge returns (False, conflict_info).
+**Done when:** `uv run pytest` passes.
+
+### [ ] 38. QA test — Test `detect_infrastructure_checks` for tsconfig
+**Size:** Small | **Files:** `tests/test_qa.py`
+**What:** tsconfig.json detection path in _detect_infrastructure_checks untested.
+**How:** Create temp tsconfig.json, verify "tsc --noEmit" detected.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 39. Tech Lead prompt — Add timeout guidance
+**Size:** Small | **Files:** `prompts/tech_lead.md`
+**What:** Tech Lead has no guidance on what to do if a writer times out. Add instructions.
+**How:** Add section: if writer fails/times out, create a new ticket for the remaining work and dispatch fresh writer.
+**Done when:** Prompt updated, tests pass.
+
+### [ ] 40. Update memory files — Record overnight session learnings
+**Size:** Small | **Files:** memory files
+**What:** Update project status memory with overnight results. Record MCP naming gotcha.
+**Done when:** Memory files updated.
+
+---
+
 ## Ideas & Future Work (Not Yet Scheduled)
 
 ### Agent Observability / Live Streaming (EXPANDED)
