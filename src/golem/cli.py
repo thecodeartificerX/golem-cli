@@ -469,14 +469,19 @@ def logs(
 
 
 @app.command()
-def clean() -> None:
+def clean(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+) -> None:
     """Remove .golem/ state, worktrees, and branches."""
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
 
     if not golem_dir.exists():
-        console.print("[yellow].golem/ does not exist — nothing to clean.[/yellow]")
+        console.print("[yellow].golem/ does not exist -- nothing to clean.[/yellow]")
         return
+
+    if not force:
+        typer.confirm("This will delete all .golem/ state and golem/* branches. Continue?", abort=True)
 
     # Remove worktrees via git
     worktrees_dir = golem_dir / "worktrees"
