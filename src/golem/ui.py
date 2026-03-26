@@ -356,12 +356,15 @@ def create_app() -> FastAPI:
             pass  # uv not on PATH would be caught later on the run command
 
         # Spawn the golem run subprocess
-        process = await asyncio.create_subprocess_exec(
-            "uv", "run", "golem", "run", spec_filename, "--force",
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "uv", "run", "golem", "run", spec_filename, "--force",
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail="'uv' not found on PATH. Install uv: pip install uv")
 
         current_process = process
         current_cwd = cwd

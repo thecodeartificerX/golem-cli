@@ -48,7 +48,12 @@ async def run_planner(
 
     Returns the ticket_id string created by the planner.
     """
-    spec_content = spec_path.read_text(encoding="utf-8")
+    try:
+        spec_content = spec_path.read_text(encoding="utf-8")
+    except PermissionError:
+        raise RuntimeError(f"Cannot read spec file (permission denied): {spec_path}") from None
+    except OSError as e:
+        raise RuntimeError(f"Cannot read spec file: {spec_path} ({e})") from None
 
     # Gather project context
     project_context = ""

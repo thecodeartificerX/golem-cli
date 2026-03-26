@@ -280,6 +280,23 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_inspect_invalid_ticket_id_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem inspect with invalid ID format shows format error."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["inspect", "foo"])
+
+    assert result.exit_code != 0
+    assert "invalid ticket id" in result.output.lower() or "TICKET-NNN" in result.output
+
+
 def test_inspect_corrupt_json_exits_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem inspect with corrupt ticket JSON shows error, not raw traceback."""
     from typer.testing import CliRunner

@@ -444,6 +444,11 @@ def inspect(
         console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
         return
 
+    import re
+    if not re.match(r"^TICKET-\d+$", ticket_id, re.IGNORECASE):
+        console.print(f"[red]Invalid ticket ID format: {ticket_id}. Expected TICKET-NNN.[/red]")
+        raise typer.Exit(1)
+
     async def _inspect_async() -> None:
         store = TicketStore(tickets_dir)
         try:
