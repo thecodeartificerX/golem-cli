@@ -27,4 +27,6 @@ Batch 1 (tasks 1-10) complete. 110 tests passing. Starting batch 2.
 - [x] Task 12: golem resume (aa446b2)
 - [x] Task 13: Spec Validation (d56c596)
 - [x] Task 14: golem history (1e9e4bf)
-- [ ] Task 15: Worktree Cleanup on Error
+- [x] Task 15: Worktree Cleanup on Error (292a48b)
+
+Batch 2 (tasks 11-15) complete. 111 tests passing. Generating batch 3.

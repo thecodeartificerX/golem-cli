@@ -112,11 +112,44 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 15. Worktree Cleanup on Error — Don't leave orphaned worktrees
+### [x] 15. Worktree Cleanup on Error — Don't leave orphaned worktrees (DONE: 292a48b)
 **Size:** Small | **Files:** `tech_lead.py`
 **What:** If the Tech Lead session fails, clean up any worktrees it created so they don't block future runs.
 **How:** Wrap `run_tech_lead` in a try/finally that lists and removes golem worktrees on failure.
 **Test:** Existing tests pass.
+**Done when:** `uv run pytest` passes.
+
+---
+
+## Batch 3: Overnight Queue (continued)
+
+### [ ] 16. `golem inspect <ticket-id>` — Show full ticket details
+**Size:** Small | **Files:** `cli.py`
+**What:** New CLI command to show full details of a single ticket: all fields, full context, complete event history.
+**How:** Read ticket by ID, print formatted output with all sections.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 17. Planner Prompt — Inject infra checks into planner context
+**Size:** Small | **Files:** `planner.py`
+**What:** The planner doesn't know about detected infrastructure checks. Pass them so it can include them in QA check lists for writers.
+**How:** Add `{infrastructure_checks}` template variable to planner.md and inject in run_planner().
+**Done when:** `uv run pytest` passes.
+
+### [ ] 18. CLAUDE.md Update — Reflect overnight changes
+**Size:** Small | **Files:** `CLAUDE.md`
+**What:** CLAUDE.md project structure and CLI commands are stale. Update to reflect all new commands (history, inspect) and new modules (qa.py, tools.py, tech_lead.py, writer.py).
+**Done when:** CLAUDE.md matches reality.
+
+### [ ] 19. TicketStore.list_tickets — Add assigned_to filter
+**Size:** Small | **Files:** `tickets.py`, `tests/test_tickets.py`
+**What:** list_tickets accepts status_filter but not assigned_to_filter, even though the spec defined it.
+**How:** Add assigned_to parameter to list_tickets(). Add test.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 20. Tech Lead Retry — Same retry pattern as planner
+**Size:** Small | **Files:** `tech_lead.py`
+**What:** Tech Lead should retry on transient SDK errors, same as the planner (task 9).
+**How:** Wrap query() in retry loop with same _MAX_RETRIES/_RETRY_DELAY_S pattern.
 **Done when:** `uv run pytest` passes.
 
 ---
