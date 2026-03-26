@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -34,7 +35,12 @@ def test_run_qa_one_fails() -> None:
 
 def test_run_qa_captures_stdout_stderr() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        result = run_qa(tmpdir, ["echo hello_stdout; echo hello_stderr >&2; exit 1"], [])
+        # Use a command that fails and produces output on Windows and Unix
+        if sys.platform == "win32":
+            cmd = 'cmd /c "echo hello_stdout && echo hello_stderr 1>&2 && exit 1"'
+        else:
+            cmd = "echo hello_stdout; echo hello_stderr >&2; exit 1"
+        result = run_qa(tmpdir, [cmd], [])
         check = result.checks[0]
         assert check.passed is False
         assert "hello_stdout" in check.stdout or "hello_stderr" in check.stderr
