@@ -59,16 +59,21 @@ def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[st
 
     for cmd in infrastructure_checks + checks:
         normalized = _normalize_cmd(cmd)
-        result = subprocess.run(
-            normalized,
-            shell=True,
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=env,
-        )
-        passed = result.returncode == 0
+        try:
+            result = subprocess.run(
+                normalized,
+                shell=True,
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+                timeout=120,
+            )
+            passed = result.returncode == 0
+        except subprocess.TimeoutExpired:
+            passed = False
+            result = type("R", (), {"returncode": -1, "stdout": "", "stderr": f"Timed out after 120s: {cmd}"})()  # type: ignore[assignment]
         # Determine check type from command
         if "ruff" in cmd or "lint" in cmd or "eslint" in cmd:
             check_type = "lint"

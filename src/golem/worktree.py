@@ -86,7 +86,11 @@ def merge_group_branches(group_branches: list[str], target_branch: str, repo_roo
 
 
 def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, pr_target: str = "main") -> str:
-    """Create a GitHub PR using gh CLI. Returns the PR URL."""
+    """Create a GitHub PR using gh CLI. Returns the PR URL.
+
+    Requires `gh` (GitHub CLI) to be installed and authenticated.
+    Raises RuntimeError if gh fails (e.g. not authenticated, repo not a GitHub remote).
+    """
     cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", pr_target, "--head", branch]
     if draft:
         cmd.append("--draft")

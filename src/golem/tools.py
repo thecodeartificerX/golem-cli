@@ -1,3 +1,10 @@
+"""MCP tool definitions and handlers for Golem orchestration.
+
+Provides SdkMcpTool instances for ticket CRUD, QA, worktree operations,
+and branch merging. Tools are injected into SDK sessions via in-process
+MCP servers (golem, golem-qa, golem-writer).
+"""
+
 from __future__ import annotations
 
 import json
