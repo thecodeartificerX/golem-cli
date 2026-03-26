@@ -596,6 +596,25 @@ def clean(
         console.print(f"  {len(golem_branches)} golem branch(es)")
 
 
+@app.command()
+def diff(
+    base: str = typer.Option("main", "--base", "-b", help="Base branch to diff against"),
+) -> None:
+    """Show git diff of changes from the last golem run."""
+    project_root = _get_project_root()
+    result = subprocess.run(
+        ["git", "diff", base],
+        cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        console.print(f"[red]git diff failed: {result.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+    if not result.stdout.strip():
+        console.print("[dim]No differences from {base}.[/dim]")
+        return
+    console.print(result.stdout)
+
+
 # --------------------------------------------------------------------------
 # config subcommand group
 # --------------------------------------------------------------------------
