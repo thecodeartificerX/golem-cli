@@ -12,6 +12,7 @@ class GolemConfig:
     planner_model: str = "claude-opus-4-6"
     worker_model: str = "claude-opus-4-6"
     validator_model: str = "claude-sonnet-4-6"
+    tech_lead_model: str = "claude-opus-4-6"
     max_worker_turns: int = 50
     max_validator_turns: int = 20
     auto_pr: bool = True

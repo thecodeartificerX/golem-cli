@@ -7,10 +7,37 @@ from pathlib import Path
 from golem.config import GolemConfig, load_config, save_config, sdk_env
 
 
+def test_golem_config_defaults() -> None:
+    config = GolemConfig()
+    assert config.max_parallel == 3
+    assert config.max_retries == 2
+    assert config.planner_model == "claude-opus-4-6"
+    assert config.worker_model == "claude-opus-4-6"
+    assert config.validator_model == "claude-sonnet-4-6"
+    assert config.tech_lead_model == "claude-opus-4-6"
+    assert config.max_worker_turns == 50
+    assert config.max_validator_turns == 20
+    assert config.auto_pr is True
+    assert config.pr_target == "main"
+
+
 def test_default_setting_sources() -> None:
     """GolemConfig() must default setting_sources to ["project"] (no user hooks in SDK sessions)."""
     config = GolemConfig()
     assert config.setting_sources == ["project"]
+
+
+def test_load_config_roundtrip() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config = GolemConfig(
+            max_parallel=5, planner_model="claude-haiku-4-5-20251001", tech_lead_model="claude-opus-4-6"
+        )
+        save_config(config, golem_dir)
+        loaded = load_config(golem_dir)
+        assert loaded.max_parallel == 5
+        assert loaded.planner_model == "claude-haiku-4-5-20251001"
+        assert loaded.tech_lead_model == "claude-opus-4-6"
 
 
 def test_load_config_overrides_setting_sources() -> None:
@@ -55,11 +82,11 @@ def test_save_config_includes_setting_sources() -> None:
         assert raw["setting_sources"] == ["user", "local"]
 
 
-def test_sdk_env_clears_anthropic_api_key() -> None:
+def test_sdk_env_clears_api_key() -> None:
     """sdk_env must return a dict that clears ANTHROPIC_API_KEY to prevent OAuth bypass."""
     env = sdk_env()
-    assert "ANTHROPIC_API_KEY" in env
-    assert env["ANTHROPIC_API_KEY"] == ""
+    assert isinstance(env, dict)
+    assert env.get("ANTHROPIC_API_KEY") == ""
 
 
 def test_load_config_no_file_returns_defaults() -> None:
@@ -88,7 +115,7 @@ def test_load_config_empty_setting_sources() -> None:
 
 
 def test_save_and_load_roundtrip_setting_sources() -> None:
-    """setting_sources must survive a full save → load round-trip unchanged."""
+    """setting_sources must survive a full save -> load round-trip unchanged."""
     with tempfile.TemporaryDirectory() as tmpdir:
         golem_dir = Path(tmpdir)
         original = GolemConfig(setting_sources=["project", "local"])
@@ -97,3 +124,16 @@ def test_save_and_load_roundtrip_setting_sources() -> None:
         restored = load_config(golem_dir)
 
         assert restored.setting_sources == ["project", "local"]
+
+
+def test_load_config_ignores_unknown_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config_path = golem_dir / "config.json"
+        config_path.write_text(
+            json.dumps({"max_parallel": 2, "unknown_future_field": "some_value"}),
+            encoding="utf-8",
+        )
+        loaded = load_config(golem_dir)
+        assert loaded.max_parallel == 2
+        assert not hasattr(loaded, "unknown_future_field")

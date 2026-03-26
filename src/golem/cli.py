@@ -3,22 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import sys
+import subprocess
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from golem.config import GolemConfig, load_config, save_config
-from golem.executor import execute_all_groups, run_final_validation, run_integration_review
+from golem.config import load_config, save_config
 from golem.planner import run_planner
-from golem.progress import ProgressLogger
-from golem.tasks import TasksFile, read_tasks, write_tasks
-from golem.tui import LiveDashboard, PreRunScreen, force_defaults
-from golem.worktree import create_pr, merge_group_branches
+from golem.tech_lead import run_tech_lead
+from golem.tickets import TicketStore
 
-app = typer.Typer(name="golem", help="Autonomous spec executor with parallel workers and validators.")
+app = typer.Typer(name="golem", help="Autonomous spec executor with ticket-driven agent hierarchy.")
 console = Console()
 
 _GOLEM_DIR_NAME = ".golem"
@@ -77,128 +74,34 @@ def _get_project_root() -> Path:
     return Path.cwd()
 
 
+def _create_golem_dirs(golem_dir: Path) -> None:
+    for subdir in ("tickets", "research", "plans", "references", "reports", "worktrees"):
+        (golem_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+
 @app.command()
 def run(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
-    force: bool = typer.Option(False, "--force", help="Skip TUI, use defaults (for CI/non-interactive)"),
+    force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
 ) -> None:
-    """Full autonomous run: plan, execute, validate, create PR."""
+    """Full autonomous run: plan, orchestrate writers, validate, create PR."""
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
-    golem_dir.mkdir(parents=True, exist_ok=True)
+    _create_golem_dirs(golem_dir)
 
     config = load_config(golem_dir)
     spec_project_root = _resolve_spec_project_root(spec)
     config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
     save_config(config, golem_dir)
-    progress = ProgressLogger(golem_dir)
 
     async def _run_async() -> None:
-        nonlocal config
-
-        # Plan phase
         console.print("[bold cyan]Golem[/bold cyan] — Planning...")
-        tasks_file = await run_planner(spec, golem_dir, config, project_root)
-        console.print(f"  Found {sum(len(g.tasks) for g in tasks_file.groups)} tasks across {len(tasks_file.groups)} groups")
+        ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        console.print(f"  Planner created ticket: {ticket_id}")
 
-        if not force:
-            groups_summary = [
-                f"Group {g.id} ({len(g.tasks)} tasks): {g.description}"
-                for g in tasks_file.groups
-            ]
-            pre_run = PreRunScreen(
-                group_count=len(tasks_file.groups),
-                task_count=sum(len(g.tasks) for g in tasks_file.groups),
-                groups_summary=groups_summary,
-            )
-            config, action = pre_run.run(config)
-            if action == "quit":
-                raise typer.Exit(0)
-            if action == "dry_run":
-                console.print(json.dumps(tasks_file.to_dict(), indent=2))
-                raise typer.Exit(0)
-            save_config(config, golem_dir)
-
-        # Execute phase
-        task_counts = {g.id: len(g.tasks) for g in tasks_file.groups}
-        group_ids = [g.id for g in tasks_file.groups]
-
-        if force:
-            await execute_all_groups(tasks_file, golem_dir, project_root, config, progress)
-        else:
-            with LiveDashboard(group_ids, task_counts) as dashboard:
-                await execute_all_groups(
-                    tasks_file, golem_dir, project_root, config, progress,
-                    dashboard_cb=dashboard.get_callback(),
-                )
-
-        # Merge phase
-        spec_slug = spec.stem.lower().replace("_", "-").replace(" ", "-")
-        target_branch = f"golem/{spec_slug}"
-        group_branches = [g.worktree_branch for g in tasks_file.groups]
-        merge_ok, conflict_info = merge_group_branches(group_branches, target_branch, project_root)
-
-        merged_path = project_root  # run validation in project root after merge
-        spec_content = spec.read_text(encoding="utf-8")
-
-        # Tier 2: Post-merge integration review
-        console.print("  Running post-merge integration review...")
-        integration_passed, integration_feedback = await run_integration_review(
-            tasks_file=tasks_file,
-            merged_path=merged_path,
-            spec_content=spec_content,
-            config=config,
-            progress=progress,
-        )
-        if integration_passed:
-            progress.log_integration_review(passed=True)
-            console.print("  Integration review PASSED")
-        else:
-            progress.log_integration_review(passed=False)
-            console.print(f"  Integration review FAILED: {integration_feedback[:200]}")
-
-        # Tier 3: Final validation (infra checks + spec-defined commands)
-        final_ok, final_results = run_final_validation(
-            tasks_file, merged_path, config.infrastructure_checks
-        )
-        progress.log_final_validation(final_ok)
-
-        # Build PR body
-        completed = [t for g in tasks_file.groups for t in g.tasks if t.status == "completed"]
-        blocked = [t for g in tasks_file.groups for t in g.tasks if t.status == "blocked"]
-
-        pr_body = f"## Golem Run Report\n\n**Spec:** `{spec}`\n"
-        pr_body += f"**Tasks:** {len(completed)}/{len(completed)+len(blocked)} completed, {len(blocked)} blocked\n\n"
-        pr_body += "### Completed Tasks\n"
-        for t in completed:
-            pr_body += f"- [x] {t.id}: {t.description[:80]}\n"
-        if blocked:
-            pr_body += "\n### Blocked Tasks\n"
-            for t in blocked:
-                pr_body += f"- [ ] {t.id}: {t.description[:80]}\n"
-                if t.last_feedback:
-                    pr_body += f"  - Last feedback: {t.last_feedback[:200]}\n"
-        pr_body += "\n### Integration Review\n"
-        pr_body += f"{'PASSED' if integration_passed else 'FAILED'}\n"
-        if not integration_passed:
-            pr_body += f"{integration_feedback[:500]}\n"
-        pr_body += "\n### Final Validation\n"
-        for line in final_results:
-            pr_body += f"- {line}\n"
-        pr_body += "\nGenerated by Golem"
-
-        if config.auto_pr:
-            try:
-                all_passed = final_ok and integration_passed
-                pr_url = create_pr(target_branch, f"golem: {spec.stem}", pr_body, not all_passed, project_root, config.pr_target)
-                console.print(f"\n[bold green]PR created:[/bold green] {pr_url}")
-            except RuntimeError as e:
-                console.print(f"\n[yellow]Could not create PR:[/yellow] {e}")
-
-        if conflict_info:
-            console.print(f"\n[yellow]Merge conflicts:[/yellow] {conflict_info}")
-
-        console.print(f"\n[bold]Done.[/bold] {len(completed)} completed, {len(blocked)} blocked.")
+        console.print("[bold cyan]Golem[/bold cyan] — Tech Lead executing...")
+        await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        console.print("[bold]Run complete.[/bold]")
 
     asyncio.run(_run_async())
 
@@ -207,81 +110,92 @@ def run(
 def plan(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
 ) -> None:
-    """Generate tasks.json only (dry run — no workers executed)."""
+    """Dry run — generate plans only, no Tech Lead execution."""
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
-    golem_dir.mkdir(parents=True, exist_ok=True)
+    _create_golem_dirs(golem_dir)
 
     config = load_config(golem_dir)
 
     async def _plan_async() -> None:
         console.print("[bold cyan]Golem[/bold cyan] — Planning (dry run)...")
-        tasks_file = await run_planner(spec, golem_dir, config, project_root)
-        tasks_path = golem_dir / "tasks.json"
-        console.print(f"[bold green]tasks.json written to:[/bold green] {tasks_path}")
-        console.print(f"Groups: {len(tasks_file.groups)}, Tasks: {sum(len(g.tasks) for g in tasks_file.groups)}")
+        ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        console.print(f"[bold green]Plan complete.[/bold green] Ticket: {ticket_id}")
+        console.print(f"Plans written to: {golem_dir / 'plans'}")
 
     asyncio.run(_plan_async())
 
 
 @app.command()
 def status() -> None:
-    """Show current run progress from tasks.json."""
+    """Show current run progress from ticket store."""
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
-    tasks_path = golem_dir / "tasks.json"
+    tickets_dir = golem_dir / "tickets"
 
-    if not tasks_path.exists():
-        console.print("[red]No tasks.json found. Run 'golem plan <spec>' first.[/red]")
+    if not tickets_dir.exists():
+        console.print("[red]No tickets found. Run 'golem plan <spec>' first.[/red]")
         raise typer.Exit(1)
 
-    tasks_file = read_tasks(tasks_path)
+    async def _status_async() -> None:
+        store = TicketStore(tickets_dir)
+        tickets = await store.list_tickets()
 
-    table = Table(title="Golem Status", show_header=True)
-    table.add_column("Task ID", style="cyan")
-    table.add_column("Group")
-    table.add_column("Status")
-    table.add_column("Retries")
-    table.add_column("Description")
+        if not tickets:
+            console.print("[yellow]No tickets found.[/yellow]")
+            return
 
-    for group in tasks_file.groups:
-        for task in group.tasks:
-            status_style = {
-                "completed": "[green]completed[/green]",
-                "blocked": "[red]blocked[/red]",
-                "in_progress": "[yellow]in_progress[/yellow]",
-                "pending": "pending",
-            }.get(task.status, task.status)
-            table.add_row(task.id, group.id, status_style, str(task.retries), task.description[:60])
+        table = Table(title="Golem Status", show_header=True)
+        table.add_column("Ticket ID", style="cyan")
+        table.add_column("Type")
+        table.add_column("Status")
+        table.add_column("Assigned To")
+        table.add_column("Title")
 
-    console.print(table)
+        status_styles = {
+            "approved": "[green]approved[/green]",
+            "done": "[green]done[/green]",
+            "blocked": "[red]blocked[/red]",
+            "needs_work": "[yellow]needs_work[/yellow]",
+            "in_progress": "[yellow]in_progress[/yellow]",
+            "ready_for_review": "[cyan]ready_for_review[/cyan]",
+            "pending": "pending",
+        }
+        for ticket in tickets:
+            style = status_styles.get(ticket.status, ticket.status)
+            table.add_row(ticket.id, ticket.type, style, ticket.assigned_to, ticket.title[:60])
+
+        console.print(table)
+
+    asyncio.run(_status_async())
 
 
 @app.command()
 def resume() -> None:
-    """Resume interrupted run from tasks.json."""
+    """Resume interrupted run from ticket store."""
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
-    tasks_path = golem_dir / "tasks.json"
+    tickets_dir = golem_dir / "tickets"
 
-    if not tasks_path.exists():
-        console.print("[red]No tasks.json found.[/red]")
+    if not tickets_dir.exists():
+        console.print("[red]No tickets found.[/red]")
         raise typer.Exit(1)
 
-    tasks_file = read_tasks(tasks_path)
-
-    # Reset in_progress → pending
-    for group in tasks_file.groups:
-        for task in group.tasks:
-            if task.status == "in_progress":
-                task.status = "pending"
-
     async def _resume_async() -> None:
-        await write_tasks(tasks_file, tasks_path)
+        store = TicketStore(tickets_dir)
+        pending = await store.list_tickets(status_filter="pending")
+        in_progress = await store.list_tickets(status_filter="in_progress")
+        candidates = pending + in_progress
+
+        if not candidates:
+            console.print("[yellow]No pending or in-progress tickets found.[/yellow]")
+            return
+
+        # Re-spawn tech lead with the first pending ticket
+        ticket_id = sorted(candidates, key=lambda t: t.id)[0].id
         config = load_config(golem_dir)
-        progress = ProgressLogger(golem_dir)
-        console.print("[bold cyan]Golem[/bold cyan] — Resuming...")
-        await execute_all_groups(tasks_file, golem_dir, project_root, config, progress)
+        console.print(f"[bold cyan]Golem[/bold cyan] — Resuming from ticket {ticket_id}...")
+        await run_tech_lead(ticket_id, golem_dir, config, project_root)
         console.print("[bold]Resume complete.[/bold]")
 
     asyncio.run(_resume_async())
@@ -329,7 +243,6 @@ def clean() -> None:
     if worktrees_dir.exists():
         for wt in worktrees_dir.iterdir():
             if wt.is_dir():
-                import subprocess
                 subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
 
     shutil.rmtree(golem_dir, ignore_errors=True)
