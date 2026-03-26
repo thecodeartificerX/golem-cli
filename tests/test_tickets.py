@@ -158,6 +158,22 @@ async def test_list_tickets_combined_filters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_corrupt_json_raises() -> None:
+    """Reading a corrupt JSON ticket file raises json.JSONDecodeError."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tickets_dir = Path(tmpdir) / "tickets"
+        tickets_dir.mkdir()
+        corrupt_file = tickets_dir / "TICKET-001.json"
+        corrupt_file.write_text("{broken json!!!", encoding="utf-8")
+
+        store = TicketStore(tickets_dir)
+        with pytest.raises(json.JSONDecodeError):
+            await store.read("TICKET-001")
+
+
+@pytest.mark.asyncio
 async def test_update_case_insensitive() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         store = TicketStore(Path(tmpdir) / "tickets")

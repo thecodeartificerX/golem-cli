@@ -357,3 +357,31 @@ async def test_handle_tool_call_commit_worktree(monkeypatch: pytest.MonkeyPatch)
         assert json.loads(result_str)["committed"] is True
         assert captured["task_id"] == "TICKET-001"
         assert captured["description"] == "Implement auth"
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_call_create_ticket_files_dict() -> None:
+    """create_ticket preserves files dict with str(k): str(v) conversion."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        config = GolemConfig()
+
+        result_str = await handle_tool_call(
+            "create_ticket",
+            {
+                "type": "task",
+                "title": "With files",
+                "assigned_to": "writer",
+                "files": {"src/main.py": "# main module", "src/utils.py": "# utils"},
+            },
+            golem_dir, config, Path(tmpdir),
+        )
+        ticket_id = json.loads(result_str)["ticket_id"]
+
+        read_str = await handle_tool_call(
+            "read_ticket",
+            {"ticket_id": ticket_id},
+            golem_dir, config, Path(tmpdir),
+        )
+        data = json.loads(read_str)
+        assert data["context"]["files"] == {"src/main.py": "# main module", "src/utils.py": "# utils"}

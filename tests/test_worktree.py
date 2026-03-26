@@ -175,6 +175,18 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         assert conflict_info == ""
 
 
+def test_merge_group_branches_empty_list() -> None:
+    """merge_group_branches with empty list returns (True, '')."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        success, conflict_info = merge_group_branches([], "integration", repo)
+        assert success is True
+        assert conflict_info == ""
+
+
 def test_create_worktree_branch_already_exists() -> None:
     """create_worktree uses existing branch when it already exists (no -b flag)."""
     with tempfile.TemporaryDirectory() as tmpdir:
