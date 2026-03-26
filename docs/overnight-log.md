@@ -16,7 +16,7 @@
 - [x] Task 6: Progress Events (7c002bf)
 - [x] Task 7: Better Error Messages (78f2d26)
 - [x] Task 8: golem clean branches (30aeddd)
-- [ ] Task 9: Retry Logic
+- [x] Task 9: Retry Logic (d9231ce)
 - [ ] Task 10: golem version v2 info
 
 ### Notes

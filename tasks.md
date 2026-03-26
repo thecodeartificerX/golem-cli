@@ -66,7 +66,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Add a test that creates golem branches, runs clean, verifies they're gone.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 9. Retry Logic — Planner retries on SDK timeout
+### [x] 9. Retry Logic — Planner retries on SDK timeout (DONE: d9231ce)
 **Size:** Small | **Files:** `planner.py`
 **What:** The planner sometimes times out on the SDK initialize (even with the 180s monkey-patch). Add a simple retry with backoff.
 **How:** Wrap the `query()` call in a retry loop (max 2 retries, 10s backoff). Log retries to stderr.
