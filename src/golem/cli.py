@@ -643,6 +643,31 @@ def diff(
 
 
 @app.command()
+def export(
+    output: Path = typer.Option(Path("golem-export.zip"), "--output", "-o", help="Output zip file path"),
+) -> None:
+    """Export .golem/ run artifacts as a zip archive."""
+    import zipfile
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+
+    if not golem_dir.exists():
+        console.print("[yellow]No .golem/ directory found -- nothing to export.[/yellow]")
+        return
+
+    count = 0
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(golem_dir.rglob("*")):
+            if f.is_file():
+                arcname = f".golem/{f.relative_to(golem_dir)}"
+                zf.write(f, arcname)
+                count += 1
+
+    console.print(f"[green]Exported {count} file(s) to {output}[/green]")
+
+
+@app.command()
 def pr(
     title: str = typer.Option("", "--title", "-t", help="PR title (auto-generated if empty)"),
     draft: bool = typer.Option(False, "--draft", help="Create as draft PR"),
