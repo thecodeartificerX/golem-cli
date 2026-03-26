@@ -54,32 +54,32 @@ Tasks are organized by theme. Each task should be:
 **What:** Create `.golem/tickets/` with files, invoke `golem run spec.md` without `--force`, verify it exits with warning. Then with `--force`, verify it proceeds (and fails on missing planner, not on stale state).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 120. Test `handle_tool_call` — `update_ticket` dispatch
+#### [x] 120. Test `handle_tool_call` — `update_ticket` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Call `handle_tool_call` with `update_ticket` tool, verify status change persists.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 121. Test `handle_tool_call` — `read_ticket` dispatch
+#### [x] 121. Test `handle_tool_call` — `read_ticket` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Create a ticket, call `handle_tool_call` with `read_ticket`, verify returned JSON has all fields.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 122. Test `handle_tool_call` — `list_tickets` dispatch
+#### [x] 122. Test `handle_tool_call` — `list_tickets` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Create multiple tickets, call `handle_tool_call` with `list_tickets` and status filter, verify correct count.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 123. Test `handle_tool_call` — `create_worktree` dispatch
+#### [x] 123. Test `handle_tool_call` — `create_worktree` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Mock `worktree.create_worktree`, call `handle_tool_call` with `create_worktree`, verify args passed correctly.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 124. Test `handle_tool_call` — `merge_branches` dispatch
+#### [x] 124. Test `handle_tool_call` — `merge_branches` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Mock `worktree.merge_group_branches`, call `handle_tool_call` with `merge_branches`, verify args and return value.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 125. Test `handle_tool_call` — `commit_worktree` dispatch
+#### [x] 125. Test `handle_tool_call` — `commit_worktree` dispatch (DONE: bdd0e6c)
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** Mock `worktree.commit_task`, call `handle_tool_call` with `commit_worktree`, verify args.
 **Done when:** `uv run pytest` passes.
