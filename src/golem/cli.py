@@ -275,4 +275,18 @@ def clean() -> None:
                 subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
 
     shutil.rmtree(golem_dir, ignore_errors=True)
-    console.print("[bold green]Cleaned .golem/ directory.[/bold green]")
+
+    # Clean up golem/* branches left behind by previous runs
+    result = subprocess.run(
+        ["git", "branch", "--list", "golem/*"],
+        cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+    )
+    golem_branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
+    for branch in golem_branches:
+        subprocess.run(
+            ["git", "branch", "-D", branch],
+            cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+        )
+
+    branch_msg = f" Deleted {len(golem_branches)} golem branch(es)." if golem_branches else ""
+    console.print(f"[bold green]Cleaned .golem/ directory.{branch_msg}[/bold green]")
