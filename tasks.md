@@ -286,17 +286,17 @@ Tasks are organized by theme. Each task should be:
 **What:** `config.setting_sources` is loaded but never passed to `ClaudeAgentOptions`. Add `setting_sources=config.setting_sources` to all three agent spawners.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 164. Add `sdk_timeout` config option — Replace hardcoded 180s
+#### [x] 164. Add `sdk_timeout` config option — Replace hardcoded 180s (DONE: df39c92)
 **Size:** Small | **Files:** `src/golem/config.py`, `src/golem/planner.py`
 **What:** The SDK timeout monkey-patch hardcodes `180`. Add `sdk_timeout: int = 180` to config so users can tune it.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 165. Add `retry_delay` config option — Replace hardcoded 10s
+#### [x] 165. Add `retry_delay` config option — Replace hardcoded 10s (DONE: df39c92)
 **Size:** Small | **Files:** `src/golem/config.py`, `src/golem/planner.py`, `src/golem/tech_lead.py`, `src/golem/writer.py`
 **What:** `_RETRY_DELAY_S = 10` is a module constant in all three. Pull from config.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 166. Add `max_tech_lead_turns` config option
+#### [x] 166. Add `max_tech_lead_turns` config option (DONE: df39c92)
 **Size:** Small | **Files:** `src/golem/config.py`, `src/golem/tech_lead.py`
 **What:** `run_tech_lead()` hardcodes `max_turns=100`. Add config field and wire it.
 **Done when:** `uv run pytest` passes.
