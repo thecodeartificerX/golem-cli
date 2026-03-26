@@ -311,7 +311,7 @@ Tasks are organized by theme. Each task should be:
 **What:** New CLI command that prints the current config as pretty JSON (from `.golem/config.json` or defaults).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 169. Config — Add `golem config set <key> <value>` subcommand
+#### [x] 169. Config — Add `golem config set <key> <value>` subcommand (DONE: c7f21e5)
 **Size:** Medium | **Files:** `src/golem/cli.py`
 **What:** Allow setting config values from CLI without editing JSON. Validate the key and value type.
 **Done when:** `uv run pytest` passes.
