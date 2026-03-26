@@ -643,6 +643,49 @@ def diff(
 
 
 @app.command()
+def stats() -> None:
+    """Show statistics from the current run's tickets."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
+
+    async def _stats_async() -> None:
+        store = TicketStore(tickets_dir)
+        tickets = await store.list_tickets()
+
+        if not tickets:
+            console.print("[yellow]No tickets found.[/yellow]")
+            return
+
+        total = len(tickets)
+        by_status: dict[str, int] = {}
+        for t in tickets:
+            by_status[t.status] = by_status.get(t.status, 0) + 1
+
+        done = by_status.get("done", 0) + by_status.get("approved", 0) + by_status.get("qa_passed", 0)
+        failed = by_status.get("needs_work", 0) + by_status.get("blocked", 0)
+        pass_rate = (done / total * 100) if total > 0 else 0
+
+        console.print("[bold]Golem Run Statistics[/bold]\n")
+        console.print(f"  Total tickets:  {total}")
+        for status, count in sorted(by_status.items()):
+            console.print(f"    {status}: {count}")
+        console.print(f"\n  Pass rate:      {pass_rate:.0f}% ({done}/{total})")
+        if failed:
+            console.print(f"  Failed/blocked: {failed}")
+
+        # Event count
+        event_count = sum(len(t.history) for t in tickets)
+        console.print(f"  Total events:   {event_count}")
+
+    asyncio.run(_stats_async())
+
+
+@app.command()
 def export(
     output: Path = typer.Option(Path("golem-export.zip"), "--output", "-o", help="Output zip file path"),
 ) -> None:
