@@ -488,7 +488,7 @@ Tasks are organized by theme. Each task should be:
 **What:** New command that runs `git diff main` (or configured base branch) to show what the last golem run changed.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 202. `golem export` — Export run artifacts as a zip
+#### [x] 202. `golem export` — Export run artifacts as a zip (DONE: ef7aef7)
 **Size:** Medium | **Files:** `src/golem/cli.py`
 **What:** Bundle `.golem/` contents (tickets, plans, research, progress.log) into a zip for sharing/archival.
 **Done when:** `uv run pytest` passes.
