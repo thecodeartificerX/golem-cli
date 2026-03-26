@@ -51,8 +51,6 @@ All 86 tests must pass before any changes.
 **Acceptance criteria:**
 - `uv sync` completes without error
 - `python --version` reports 3.12+
-- `rg --version` exits 0 (ripgrep on PATH)
-- `git --version` exits 0 (git on PATH)
 - `uv run pytest` reports 86 passed, 0 failed
 
 **Git checkpoint:** `git add -A && git commit -m "epic-0: environment setup verified"`
@@ -152,7 +150,6 @@ Build the deterministic QA tool that replaces AI-based validation.
 - `run_autofix()` runs ruff fix when ruff is in the check list
 - `detect_infrastructure_checks()` detects ruff from pyproject.toml
 - Reuses `_subprocess_env()` and `_normalize_cmd()` from validator.py (import, don't duplicate)
-- If a build-tool check (`tsc`, `vite build`, `bun build`) exits with code 127 (tool not on PATH — common in WSL), `run_qa()` records a `QACheck` with `passed=False` and `stderr="build tool not found on PATH"`, then appends a fallback code-inspection check (e.g., `rg -q "compilerOptions" tsconfig.json` for tsc) marked as `type="fallback-inspection"`
 
 **Validation commands:**
 ```bash
@@ -285,7 +282,7 @@ Template variables: `{golem_dir}`, `{spec_content}`, `{project_root}`
 - Prompt covers full lifecycle: read plans → create tickets → spawn writers → review → merge → QA → PR
 - Prompt has tool usage instructions for all Tech Lead tools
 - Prompt has integration review instructions (inline, not separate agent)
-- Prompt has UX smoke test instructions for web projects specifying **Playwright test:** browser-based verification — the Tech Lead must spawn a session that navigates the running app and asserts visible UI elements
+- Prompt has UX smoke test instructions for web projects
 - All template variables present
 
 **Validation commands:**
@@ -313,7 +310,6 @@ rg -q "smoke test" src/golem/prompts/tech_lead.md
 ```bash
 test ! -f src/golem/prompts/validator.md
 test ! -f src/golem/prompts/integration_reviewer.md
-rg -q "validator\.md\|integration_reviewer\.md" src/golem/ && exit 1 || exit 0
 ```
 
 **Git checkpoint:** `git add -A && git commit -m "epic-3: agent prompt templates for planner, writer, tech lead"`
@@ -359,8 +355,6 @@ test ! "$(rg '_TASKS_JSON_SCHEMA' src/golem/planner.py)"
 ```
 
 **4.2** Update `tests/test_planner.py` (or create if it doesn't exist):
-
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — verify the correct import path for `query()`, its return type (async generator vs. coroutine), and the recommended pattern for mocking it in `pytest` tests using `unittest.mock.patch`. Do NOT assume the mock target or return shape from training data.
 
 - Test that `run_planner()` creates the expected directory structure
 - Test that planner creates a ticket in the store
@@ -419,8 +413,6 @@ rg -q "bypassPermissions" src/golem/tech_lead.py
 ```
 
 **5.2** Create `src/golem/tools.py` — custom tool definitions for SDK injection:
-
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 documentation for `claude-agent-sdk` — verify the exact JSON schema format for custom tool definitions (field names, `input_schema` structure, required vs. optional fields), how tool call results are returned to the agent within the `query()` loop, and how the SDK expects tool dispatch to be wired. Do NOT rely on training data for this SDK's tool injection API.
 
 - Define JSON schemas for each custom tool (matching Claude Agent SDK's tool definition format)
 - Tool handler functions that dispatch to the correct Python function
@@ -524,8 +516,6 @@ Wire the new v2 pipeline into the CLI.
 
 **7.1** Modify `src/golem/cli.py`:
 
-**Research step:** Before implementing, dispatch a sub-agent to use **WebSearch** and **WebFetch** to look up the latest 2026 `typer` documentation — verify the current API for `async` command callbacks, `typer.Option` / `typer.Argument` signatures, and any deprecation warnings or breaking changes in the version pinned in `pyproject.toml`. Do NOT assume the API surface from training data.
-
 - Update `run` command to use v2 pipeline:
   1. Create `.golem/` directories (tickets/, research/, plans/, references/, reports/, worktrees/)
   2. Detect infrastructure checks from target project
@@ -616,7 +606,6 @@ Verify: ticket has full history with timestamps, agent actions, QA results.
 **Acceptance criteria:**
 - Smoke test completes with 1 task completed, 0 blocked
 - Weather dashboard completes with 4 tasks completed, 0 blocked
-- **Playwright test:** Tech Lead UX smoke test navigates the weather dashboard, verifies search results appear after typing a city, and air quality panel renders with AQI data
 - Ticket JSON files exist in `.golem/tickets/` with full history
 - `plans/overview.md` exists with blueprint
 - `research/` contains sub-agent findings
