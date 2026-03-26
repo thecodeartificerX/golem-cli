@@ -419,12 +419,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Run a simple subprocess via `stream_subprocess_output`, verify stdout lines captured.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 189. UI — Add `/api/config` endpoint
+#### [x] 189. UI — Add `/api/config` endpoint (DONE: b90c06f)
 **Size:** Small | **Files:** `src/golem/ui.py`
 **What:** GET returns current config JSON. POST updates config values. Enables UI-based config editing.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 190. UI — Add `/api/clean` endpoint
+#### [x] 190. UI — Add `/api/clean` endpoint (DONE: b90c06f)
 **Size:** Small | **Files:** `src/golem/ui.py`
 **What:** POST triggers `golem clean --force`. Returns cleanup summary.
 **Done when:** `uv run pytest` passes.
