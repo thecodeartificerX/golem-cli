@@ -642,6 +642,46 @@ def diff(
     console.print(result.stdout)
 
 
+@app.command()
+def doctor() -> None:
+    """Diagnose environment issues — check all required tools are installed."""
+    checks: list[tuple[str, bool, str]] = []
+
+    # Check git
+    result = subprocess.run(["git", "--version"], capture_output=True, text=True)
+    checks.append(("git", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check uv
+    result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
+    checks.append(("uv", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check claude CLI
+    result = subprocess.run(["claude", "--version"], capture_output=True, text=True)
+    checks.append(("claude", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check ripgrep
+    result = subprocess.run(["rg", "--version"], capture_output=True, text=True)
+    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found"
+    checks.append(("rg (ripgrep)", result.returncode == 0, version_line))
+
+    # Check gh CLI
+    result = subprocess.run(["gh", "--version"], capture_output=True, text=True)
+    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found (optional)"
+    checks.append(("gh (GitHub CLI)", result.returncode == 0, version_line))
+
+    all_pass = True
+    for name, ok, detail in checks:
+        icon = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
+        console.print(f"  {icon}  {name}: {detail}")
+        if not ok and name not in ("gh (GitHub CLI)",):
+            all_pass = False
+
+    if all_pass:
+        console.print("\n[green]All required tools found.[/green]")
+    else:
+        console.print("\n[yellow]Some required tools are missing. Install them before running golem.[/yellow]")
+
+
 @app.command(name="reset-ticket")
 def reset_ticket(
     ticket_id: str = typer.Argument(..., help="Ticket ID to reset (e.g. TICKET-001)"),
