@@ -280,6 +280,55 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_config_show_prints_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem config show prints config as JSON."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["config", "show"])
+
+    assert result.exit_code == 0
+    assert "max_parallel" in result.output
+    assert "planner_model" in result.output
+
+
+def test_config_reset_removes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem config reset --force deletes config.json."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    config_path = golem_dir / "config.json"
+    config_path.write_text('{"max_parallel": 5}', encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["config", "reset", "--force"])
+
+    assert result.exit_code == 0
+    assert "reset" in result.output.lower() or "defaults" in result.output.lower()
+    assert not config_path.exists()
+
+
+def test_config_reset_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem config reset when no config exists shows friendly message."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["config", "reset", "--force"])
+
+    assert result.exit_code == 0
+    assert "defaults" in result.output.lower()
+
+
 def test_inspect_invalid_ticket_id_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem inspect with invalid ID format shows format error."""
     from typer.testing import CliRunner

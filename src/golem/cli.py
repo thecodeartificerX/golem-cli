@@ -592,3 +592,39 @@ def clean(
         console.print(f"  {wt_count} worktree(s)")
     if golem_branches:
         console.print(f"  {len(golem_branches)} golem branch(es)")
+
+
+# --------------------------------------------------------------------------
+# config subcommand group
+# --------------------------------------------------------------------------
+
+config_app = typer.Typer(name="config", help="View and manage Golem configuration.")
+app.add_typer(config_app)
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print the current Golem config as pretty JSON."""
+    from dataclasses import asdict
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+    console.print_json(json.dumps(asdict(config), indent=2, sort_keys=True))
+
+
+@config_app.command("reset")
+def config_reset(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """Reset config to defaults (delete .golem/config.json)."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config_path = golem_dir / "config.json"
+    if not config_path.exists():
+        console.print("[yellow]No config.json found -- already at defaults.[/yellow]")
+        return
+    if not force:
+        typer.confirm("This will delete .golem/config.json and reset to defaults. Continue?", abort=True)
+    config_path.unlink()
+    console.print("[green]Config reset to defaults.[/green]")
