@@ -318,6 +318,35 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 9: Overnight Queue (hardening)
+
+### [ ] 46. Test `_cleanup_golem_worktrees` — Verify error cleanup
+**Size:** Small | **Files:** `tests/test_tech_lead.py`
+**What:** _cleanup_golem_worktrees has no tests. Verify it removes worktrees and handles missing dirs gracefully.
+**Done when:** `uv run pytest` passes with new tests.
+
+### [ ] 47. `golem run` — Log spec path and project root at start
+**Size:** Small | **Files:** `cli.py`
+**What:** Print the spec file path and resolved project root at the start of a run for debugging.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 48. Writer prompt — Add file size warning
+**Size:** Small | **Files:** `prompts/worker.md`
+**What:** If pre-loaded file contents are large, warn the writer to focus on the specific sections mentioned in the plan rather than reading the entire file again.
+**Done when:** Prompt updated, tests pass.
+
+### [ ] 49. `golem status` — Show "no active run" when .golem/ missing
+**Size:** Small | **Files:** `cli.py`
+**What:** Currently exits with error code. Should be friendlier — print a helpful message and exit 0.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 50. Test `build_writer_prompt` — Verify all template variables replaced
+**Size:** Small | **Files:** `tests/test_writer.py`
+**What:** Add a test that builds a prompt with ALL context fields populated and verifies no `{placeholder}` patterns remain.
+**Done when:** `uv run pytest` passes.
+
+---
+
 ## Ideas & Future Work (Not Yet Scheduled)
 
 ### Agent Observability / Live Streaming (EXPANDED)

@@ -4,7 +4,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from golem.tech_lead import _ensure_merged_to_main
+from golem.tech_lead import _cleanup_golem_worktrees, _ensure_merged_to_main
+from golem.worktree import create_worktree
 
 
 def _init_repo(path: Path) -> None:
@@ -76,3 +77,34 @@ def test_ensure_merged_merges_unmerged_branch() -> None:
         _ensure_merged_to_main(repo)
         log_after = _git(repo, "log", "--oneline").stdout
         assert "unmerged integration work" in log_after
+
+
+def test_cleanup_golem_worktrees_noop_no_dir() -> None:
+    """No worktrees dir — should not raise."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        # No worktrees/ subdir — should be a noop
+        _cleanup_golem_worktrees(golem_dir, repo)
+
+
+def test_cleanup_golem_worktrees_removes_worktree() -> None:
+    """Cleanup removes a worktree created via git worktree add."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+
+        golem_dir = Path(tmpdir) / ".golem"
+        wt_dir = golem_dir / "worktrees"
+        wt_dir.mkdir(parents=True)
+
+        wt_path = wt_dir / "group-test"
+        create_worktree("group-test", "golem/test/group-test", "main", wt_path, repo)
+        assert wt_path.exists()
+
+        _cleanup_golem_worktrees(golem_dir, repo)
+        assert not wt_path.exists()
