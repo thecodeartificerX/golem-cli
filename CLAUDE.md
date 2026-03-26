@@ -51,7 +51,7 @@ The original design spec has been implemented and removed. For architecture and 
 ### Style
 - **Formatter/Linter:** ruff (configured in pyproject.toml)
 - **Line length:** 120
-- **Pre-existing lint errors** — `cli.py`, `executor.py`, `planner.py`, `tui.py`, and some test files have known ruff warnings; don't fix unless explicitly asked
+- **Pre-existing lint errors** — `cli.py`, `planner.py`, `tui.py`, `progress.py`, `tasks.py`, and some test files have known ruff warnings; don't fix unless explicitly asked
 - **Match existing patterns** — do NOT refactor code you're not changing
 - **Minimal diff scope** — only touch what the spec says to touch
 
@@ -70,10 +70,13 @@ src/
     __init__.py
     version.py          ← Version/platform metadata utility
     cli.py              ← CLI entry point (typer + rich)
-    planner.py          ← Spec parser → tasks.json generation
-    executor.py         ← Main execution loop (async orchestrator)
-    worker.py           ← Claude Agent SDK worker session spawner
-    validator.py        ← Deterministic checks + AI reviewer
+    planner.py          ← Spec → research + tickets (sub-agent architecture)
+    tech_lead.py        ← Tech Lead agent orchestrator (ticket dispatch)
+    writer.py           ← Writer pair spawner (ticket-driven coding)
+    tickets.py          ← Ticket store (JSON-based, .golem/tickets/)
+    tools.py            ← Custom SDK tools for Tech Lead sessions
+    qa.py               ← Deterministic QA tool (subprocess checks)
+    validator.py        ← Subprocess env helpers (_subprocess_env, _normalize_cmd)
     dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
     worktree.py         ← Git worktree creation/management/merge
     tasks.py            ← tasks.json read/write/state machine
@@ -84,14 +87,18 @@ src/
     ui_template.html    ← Self-contained HTML dashboard (no CDN)
     prompts/
       planner.md        ← Planner system prompt template
-      worker.md         ← Worker system prompt template
-      validator.md      ← Validator system prompt template
+      worker.md         ← Writer agent system prompt template
+      tech_lead.md      ← Tech Lead agent system prompt template
 tests/
   __init__.py
   test_tasks.py         ← Task graph parsing and state machine
-  test_executor.py      ← Execution loop logic
+  test_planner.py       ← Planner directory creation and ticket output
+  test_tickets.py       ← Ticket store CRUD and concurrency
+  test_tools.py         ← Tech Lead tool dispatch
+  test_qa.py            ← QA checks, autofix, infra detection
+  test_writer.py        ← Writer prompt building and spawning
   test_worktree.py      ← Git worktree operations
-  test_validator.py     ← Deterministic validation
+  test_validator.py     ← Subprocess env helpers
   test_config.py        ← GolemConfig, setting_sources, sdk_env
   test_ui.py            ← UI server endpoints, SSE, helpers
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
