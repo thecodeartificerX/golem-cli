@@ -37,4 +37,11 @@ Batch 2 (tasks 11-15) complete. 111 tests passing. Starting batch 3.
 - [x] Task 19: Ticket case-insensitive glob (1fbcead)
 - [x] Task 20: Tech Lead retry logic (8906083)
 
-Batch 3 (tasks 16-20) complete. 111 tests passing. 20 features shipped overnight.
+Batch 3 (tasks 16-20) complete. 111 tests passing.
+- [x] Task 21: golem logs (3f9d627)
+- [x] Task 22: Writer retry (09eddcb)
+- [x] Task 23: Ticket case-insensitive read (8910f4c)
+- [x] Task 24: Config sorted keys (02cee63)
+- [x] Task 25: Plan summary (d6df574)
+
+Batch 4 (tasks 21-25) complete. 112 tests passing. 25 features shipped overnight.

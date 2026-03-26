@@ -156,31 +156,31 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 4: Overnight Queue (continued)
 
-### [ ] 21. `golem logs` — Tail progress.log in real-time
+### [x] 21. `golem logs` (DONE: 3f9d627) — Tail progress.log in real-time
 **Size:** Small | **Files:** `cli.py`
 **What:** New CLI command that tails `.golem/progress.log` and prints new lines as they appear.
 **How:** Read progress.log, print existing lines, then poll for new lines every 1s.
 **Done when:** `uv run pytest` passes and `golem logs --help` works.
 
-### [ ] 22. Writer Retry — Same retry pattern as planner/tech lead
+### [x] 22. Writer Retry (DONE: 09eddcb) — Same retry pattern as planner/tech lead
 **Size:** Small | **Files:** `writer.py`
 **What:** Writer should retry on transient SDK errors.
 **How:** Wrap query() in retry loop with _MAX_RETRIES/_RETRY_DELAY_S.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 23. TicketStore.read — Case-insensitive lookup
+### [x] 23. TicketStore.read (DONE: 8910f4c) — Case-insensitive lookup
 **Size:** Small | **Files:** `tickets.py`, `tests/test_tickets.py`
 **What:** `store.read("ticket-001")` should find `TICKET-001.json`. Currently exact match only.
 **How:** Try exact match first, then case-insensitive fallback.
 **Done when:** `uv run pytest` passes with new test.
 
-### [ ] 24. Config `save_config` — Pretty-print with sorted keys
+### [x] 24. Config `save_config` (DONE: 02cee63) — Pretty-print with sorted keys
 **Size:** Small | **Files:** `config.py`
 **What:** config.json should have sorted keys for deterministic diffs.
 **How:** Add `sort_keys=True` to json.dump.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 25. `golem plan` — Show plan summary after completion
+### [x] 25. `golem plan` (DONE: d6df574) — Show plan summary after completion
 **Size:** Small | **Files:** `cli.py`
 **What:** After planner completes, show a summary of what was planned (task count, research files, reference files).
 **How:** Read plans/ and research/ directories after planner returns, print counts.
