@@ -280,6 +280,42 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_version_test_count_matches_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem version test count matches actual pytest collection count."""
+    import subprocess
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["version"])
+    assert result.exit_code == 0
+
+    # Extract test count from version output
+    for line in result.output.splitlines():
+        if line.strip().startswith("Tests"):
+            reported_count = int(line.strip().split()[-1])
+            break
+    else:
+        pytest.fail("No 'Tests' line found in version output")
+
+    # Get actual count from pytest --co -q
+    proc = subprocess.run(
+        ["uv", "run", "pytest", "--co", "-q"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    # Last non-empty line is like "205 tests collected"
+    for line in reversed(proc.stdout.strip().splitlines()):
+        if "test" in line and "collected" in line:
+            actual_count = int(line.split()[0])
+            break
+    else:
+        pytest.fail(f"Could not parse pytest collection count from: {proc.stdout}")
+
+    assert reported_count == actual_count
+
+
 def test_create_golem_dirs_all_subdirs(tmp_path: Path) -> None:
     """_create_golem_dirs creates all 6 expected subdirectories."""
     golem_dir = tmp_path / ".golem"
