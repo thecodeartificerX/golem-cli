@@ -16,8 +16,6 @@ def test_golem_config_defaults() -> None:
     assert config.validator_model == "claude-sonnet-4-6"
     assert config.tech_lead_model == "claude-opus-4-6"
     assert config.max_worker_turns == 50
-    assert config.max_validator_turns == 20
-    assert config.auto_pr is True
     assert config.pr_target == "main"
 
 

@@ -26,11 +26,6 @@ from golem.tools import create_writer_mcp_server
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
 
-def _strip_section(template: str, key: str) -> str:
-    """Replace a template variable with empty string when its value is empty."""
-    return template.replace("{" + key + "}", "")
-
-
 def build_writer_prompt(ticket: Ticket) -> str:
     """Build writer prompt from ticket context, stripping empty sections."""
     template = _WRITER_PROMPT_TEMPLATE.read_text(encoding="utf-8")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Callable
 
 from rich.console import Console
@@ -19,14 +18,6 @@ def force_defaults(config: GolemConfig | None = None) -> GolemConfig:
     return config or GolemConfig()
 
 
-@dataclass
-class _TaskState:
-    group_id: str
-    task_id: str
-    status: str
-    current: str
-
-
 class PreRunScreen:
     """Interactive pre-run settings screen."""
 
@@ -40,7 +31,8 @@ class PreRunScreen:
         Show pre-run TUI. Returns (config, action) where action is one of:
         'run', 'dry_run', 'quit'.
         """
-        console.print("\n[bold]Golem v0.1.0[/bold]\n")
+        from golem import __version__
+        console.print(f"\n[bold]Golem v{__version__}[/bold]\n")
         console.print(f"Found [bold]{self._task_count}[/bold] tasks across [bold]{self._group_count}[/bold] parallel groups:\n")
         for summary in self._groups_summary:
             console.print(f"  {summary}")
