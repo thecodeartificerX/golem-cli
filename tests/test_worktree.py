@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from golem.worktree import commit_task, create_worktree, delete_worktree, list_worktrees, merge_group_branches
+from golem.worktree import commit_task, create_pr, create_worktree, delete_worktree, list_worktrees, merge_group_branches
 
 
 def _init_git_repo(path: Path) -> None:
@@ -173,3 +173,72 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         # Should succeed — nonexistent branch is skipped
         assert success is True
         assert conflict_info == ""
+
+
+def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr returns the PR URL on success."""
+    from unittest.mock import MagicMock
+
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "https://github.com/owner/repo/pull/42\n"
+    fake_result.stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
+
+    url = create_pr(
+        branch="feat/my-feature",
+        title="My Feature",
+        body="Description here",
+        draft=False,
+        repo_root=Path("."),
+    )
+    assert url == "https://github.com/owner/repo/pull/42"
+
+
+def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr raises RuntimeError when gh fails."""
+    from unittest.mock import MagicMock
+
+    fake_result = MagicMock()
+    fake_result.returncode = 1
+    fake_result.stdout = ""
+    fake_result.stderr = "not authenticated"
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
+
+    with pytest.raises(RuntimeError, match="gh pr create failed"):
+        create_pr(
+            branch="feat/broken",
+            title="Broken",
+            body="",
+            draft=False,
+            repo_root=Path("."),
+        )
+
+
+def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr passes --draft when draft=True."""
+    from unittest.mock import MagicMock
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        captured_cmd.extend(cmd)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "https://github.com/owner/repo/pull/99\n"
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    url = create_pr(
+        branch="feat/draft",
+        title="Draft PR",
+        body="WIP",
+        draft=True,
+        repo_root=Path("."),
+    )
+    assert url == "https://github.com/owner/repo/pull/99"
+    assert "--draft" in captured_cmd
