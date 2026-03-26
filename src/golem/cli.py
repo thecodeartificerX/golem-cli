@@ -401,6 +401,46 @@ def inspect(
 
 
 @app.command()
+def logs(
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow mode — tail new lines as they appear"),
+    lines: int = typer.Option(20, "--lines", "-n", help="Number of recent lines to show"),
+) -> None:
+    """Show progress.log entries."""
+    import time
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    log_path = golem_dir / "progress.log"
+
+    if not log_path.exists():
+        console.print("[yellow]No progress.log found. Run 'golem run <spec>' first.[/yellow]")
+        raise typer.Exit(1)
+
+    all_lines = log_path.read_text(encoding="utf-8").splitlines()
+    # Show last N lines
+    recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
+    for line in recent:
+        console.print(line)
+
+    if not follow:
+        return
+
+    # Follow mode: poll for new lines
+    console.print("[dim]-- following (Ctrl+C to stop) --[/dim]")
+    seen = len(all_lines)
+    try:
+        while True:
+            time.sleep(1)
+            current = log_path.read_text(encoding="utf-8").splitlines()
+            if len(current) > seen:
+                for line in current[seen:]:
+                    console.print(line)
+                seen = len(current)
+    except KeyboardInterrupt:
+        pass
+
+
+@app.command()
 def clean() -> None:
     """Remove .golem/ state, worktrees, and branches."""
     project_root = _get_project_root()
