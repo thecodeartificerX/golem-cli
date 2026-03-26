@@ -141,7 +141,7 @@ def run(
         await run_tech_lead(ticket_id, golem_dir, config, project_root)
         elapsed = time.monotonic() - t0
         mins, secs = divmod(int(elapsed), 60)
-        progress.log_tech_lead_complete()
+        progress.log_tech_lead_complete(elapsed_s=elapsed)
         console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
 
     asyncio.run(_run_async())

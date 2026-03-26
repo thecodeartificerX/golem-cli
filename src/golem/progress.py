@@ -49,8 +49,12 @@ class ProgressLogger:
     def log_tech_lead_start(self, ticket_id: str) -> None:
         self._write(f"TECH_LEAD_START ticket={ticket_id}")
 
-    def log_tech_lead_complete(self) -> None:
-        self._write("TECH_LEAD_COMPLETE")
+    def log_tech_lead_complete(self, elapsed_s: float | None = None) -> None:
+        if elapsed_s is not None:
+            mins, secs = divmod(int(elapsed_s), 60)
+            self._write(f"TECH_LEAD_COMPLETE elapsed={mins}m{secs}s")
+        else:
+            self._write("TECH_LEAD_COMPLETE")
 
     def log_ticket_created(self, ticket_id: str, title: str) -> None:
         self._write(f"TICKET_CREATED {ticket_id} title={title!r}")
