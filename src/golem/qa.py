@@ -33,6 +33,8 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
         content = pyproject.read_text(encoding="utf-8")
         if "[tool.ruff]" in content or "[tool.ruff." in content:
             checks.append("ruff check .")
+        if "[tool.mypy]" in content or "[mypy]" in content:
+            checks.append("mypy .")
 
     package_json = project_root / "package.json"
     if package_json.exists():
@@ -41,12 +43,18 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
             scripts = data.get("scripts", {})
             if "lint" in scripts:
                 checks.append("npm run lint")
+            if "test" in scripts:
+                checks.append("npm test")
         except Exception:
             pass
 
     tsconfig = project_root / "tsconfig.json"
     if tsconfig.exists():
         checks.append("npx tsc --noEmit")
+
+    cargo_toml = project_root / "Cargo.toml"
+    if cargo_toml.exists():
+        checks.append("cargo test")
 
     return checks
 

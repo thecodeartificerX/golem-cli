@@ -154,3 +154,27 @@ def test_qa_check_type_test() -> None:
         # 'pytest' in command -> test type
         check = result.checks[0]
         assert check.type == "test"
+
+
+def test_detect_infrastructure_checks_finds_mypy() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pyproject = Path(tmpdir) / "pyproject.toml"
+        pyproject.write_text("[tool.mypy]\nstrict = true\n", encoding="utf-8")
+        checks = detect_infrastructure_checks(Path(tmpdir))
+        assert "mypy ." in checks
+
+
+def test_detect_infrastructure_checks_finds_cargo_test() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cargo = Path(tmpdir) / "Cargo.toml"
+        cargo.write_text('[package]\nname = "test"\n', encoding="utf-8")
+        checks = detect_infrastructure_checks(Path(tmpdir))
+        assert "cargo test" in checks
+
+
+def test_detect_infrastructure_checks_finds_npm_test() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pkg = Path(tmpdir) / "package.json"
+        pkg.write_text(json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
+        checks = detect_infrastructure_checks(Path(tmpdir))
+        assert "npm test" in checks
