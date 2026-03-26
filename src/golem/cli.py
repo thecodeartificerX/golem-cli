@@ -222,7 +222,11 @@ def plan(
         console.print(f"  References: {len(ref_files)} file(s)")
         console.print(f"  Output:     {plans_dir}")
 
-    asyncio.run(_plan_async())
+    try:
+        asyncio.run(_plan_async())
+    except RuntimeError as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()

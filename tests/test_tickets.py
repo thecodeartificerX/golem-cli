@@ -184,3 +184,33 @@ async def test_concurrent_updates_no_corruption() -> None:
         # 1 created event + 5 update events = 6 total
         assert len(loaded.history) == 6
         assert loaded.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_full_context_roundtrip() -> None:
+    """All TicketContext fields survive create → read roundtrip."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ctx = TicketContext(
+            plan_file="/path/to/plan.md",
+            files={"src/app.py": "print('hello')\n", "tests/test.py": "pass\n"},
+            references=["/ref/a.md", "/ref/b.md"],
+            blueprint="Full blueprint text here",
+            acceptance=["Tests pass", "Lint clean"],
+            qa_checks=["uv run pytest", "ruff check ."],
+            parallelism_hints=["tests independent", "lint independent"],
+        )
+        ticket = Ticket(
+            id="", type="task", title="Full Context", status="pending",
+            priority="high", created_by="test", assigned_to="writer",
+            context=ctx,
+        )
+        tid = await store.create(ticket)
+        loaded = await store.read(tid)
+        assert loaded.context.plan_file == "/path/to/plan.md"
+        assert loaded.context.files == {"src/app.py": "print('hello')\n", "tests/test.py": "pass\n"}
+        assert loaded.context.references == ["/ref/a.md", "/ref/b.md"]
+        assert loaded.context.blueprint == "Full blueprint text here"
+        assert loaded.context.acceptance == ["Tests pass", "Lint clean"]
+        assert loaded.context.qa_checks == ["uv run pytest", "ruff check ."]
+        assert loaded.context.parallelism_hints == ["tests independent", "lint independent"]
