@@ -89,12 +89,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Create a branch first, then call `create_worktree` with same branch name. Verify it uses `git worktree add <path> <branch>` (no `-b`).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 127. Test `_create_golem_dirs()` — All 6 subdirectories created
+#### [x] 127. Test `_create_golem_dirs()` — All 6 subdirectories created (DONE: 6891b69)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Call `_create_golem_dirs` with a temp path, verify all directories exist: tickets, research, plans, references, reports, worktrees.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 128. Test `_get_golem_dir()` and `_get_project_root()` — Return correct paths
+#### [x] 128. Test `_get_golem_dir()` and `_get_project_root()` — Return correct paths (DONE: 6891b69)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Verify `_get_golem_dir()` returns `<cwd>/.golem` and `_get_project_root()` returns `<cwd>`.
 **Done when:** `uv run pytest` passes.
