@@ -349,27 +349,27 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 10: Overnight Queue (edge cases + quality)
 
-### [ ] 51. Test TicketStore.update — Verify status change and history append
+### [x] 51. (DONE: 34bd57e) Test TicketStore.update — Verify status change and history append
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** update() with case-insensitive ID lookup is untested for the new _resolve_path path.
 **Done when:** `uv run pytest` passes with new test.
 
-### [ ] 52. QA test — run_qa with empty check lists
+### [x] 52. (DONE: 6fb31ab) QA test — run_qa with empty check lists
 **Size:** Small | **Files:** `tests/test_qa.py`
 **What:** run_qa([],[]) should return passed=True with empty checks list.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 53. Test merge_group_branches — Clean merge (no conflicts)
+### [x] 53. (DONE: 25be51c) Test merge_group_branches — Clean merge (no conflicts)
 **Size:** Small | **Files:** `tests/test_worktree.py`
 **What:** Test the happy path: two non-conflicting branches merge cleanly.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 54. `golem history` and `golem inspect` — Friendly when .golem/ missing
+### [x] 54. (DONE: d1c3f30) `golem history` and `golem inspect` — Friendly when .golem/ missing
 **Size:** Small | **Files:** `cli.py`
 **What:** Same fix as task 49 — show helpful message instead of error exit.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 55. CLAUDE.md — Add new test files to project structure
+### [x] 55. (DONE: d148214) CLAUDE.md — Add new test files to project structure
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** Project structure is missing test_cli.py, test_progress.py, test_tech_lead.py.
 **Done when:** CLAUDE.md updated.

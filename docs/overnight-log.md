@@ -83,4 +83,13 @@
 - [x] Task 49: Friendly status when no run (6f9cae3)
 - [x] Task 50: Writer prompt all-fields test (380dad3)
 
-Batch 9 complete. 137 tests passing. 50 tasks shipped overnight.
+Batch 9 complete. 137 tests passing.
+
+### Batch 10 (tasks 51-55) — Edge cases + quality
+- [x] Task 51: Update case-insensitive test (34bd57e)
+- [x] Task 52: QA empty checks test (6fb31ab)
+- [x] Task 53: Clean merge test (25be51c)
+- [x] Task 54: Friendly history/inspect (d1c3f30)
+- [x] Task 55: CLAUDE.md test files (d148214)
+
+Batch 10 complete. 140 tests passing. 55 tasks shipped overnight.
