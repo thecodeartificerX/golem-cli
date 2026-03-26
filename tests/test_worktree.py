@@ -117,3 +117,34 @@ def test_merge_group_branches_conflict() -> None:
         )
         assert success is False
         assert "branch-b" in conflict_info
+
+
+def test_merge_group_branches_clean() -> None:
+    """merge_group_branches returns (True, '') when branches don't conflict."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Two branches touching different files
+        _git("checkout", "-b", "branch-x")
+        (repo / "file_x.txt").write_text("content x", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "add file_x")
+
+        _git("checkout", "main")
+        _git("checkout", "-b", "branch-y")
+        (repo / "file_y.txt").write_text("content y", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "add file_y")
+
+        _git("checkout", "main")
+
+        success, conflict_info = merge_group_branches(
+            ["branch-x", "branch-y"], "integration", repo,
+        )
+        assert success is True
+        assert conflict_info == ""
