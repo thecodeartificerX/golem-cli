@@ -141,6 +141,8 @@ def run(
 
     console.print(f"  Spec:    {spec.resolve()}")
     console.print(f"  Project: {spec_project_root}")
+    console.print(f"  Models:  planner={config.planner_model}, tech_lead={config.tech_lead_model}, worker={config.worker_model}")
+    console.print(f"  Limits:  parallel={config.max_parallel}, retries={config.max_retries}, worker_turns={config.max_worker_turns}")
     if config.infrastructure_checks:
         console.print(f"  Infra:   {', '.join(config.infrastructure_checks)}")
 
