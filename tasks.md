@@ -325,32 +325,32 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme E: Prompt Quality & Agent Behavior (171–185)
 
-#### [ ] 171. Planner prompt — Add task graph format example
+#### [x] 171. Planner prompt — Add task graph format example (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/planner.md`
 **What:** Step 6 "Task Graph: table" gives no format example. Add a concrete markdown table example showing ID, title, deps, group columns.
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 172. Planner prompt — Handle "(none detected)" infrastructure checks
+#### [x] 172. Planner prompt — Handle "(none detected)" infrastructure checks (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/planner.md`
 **What:** When no infra checks detected, the placeholder renders as "(none detected)". Add instruction: "If no infrastructure checks listed, use an empty qa_checks list."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 173. Planner prompt — Guidance for specs with no enumerable tasks
+#### [x] 173. Planner prompt — Guidance for specs with no enumerable tasks (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/planner.md`
 **What:** If spec is pure prose with no clear task breakdown, the planner has no guidance. Add: "If the spec cannot be broken into discrete tasks, create a single task covering the entire scope."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 174. Planner prompt — Handle `create_ticket` tool failure
+#### [x] 174. Planner prompt — Handle `create_ticket` tool failure (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/planner.md`
 **What:** No instruction for what to do if the MCP tool call fails. Add: "If `mcp__golem__create_ticket` returns an error, retry once. If still failing, log the error and proceed."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 175. Tech Lead prompt — Define writer timeout threshold
+#### [x] 175. Tech Lead prompt — Define writer timeout threshold (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`
 **What:** "if a writer fails or times out" but no timeout threshold defined. Add: "If a writer hasn't updated its ticket in 15 minutes, consider it timed out."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 176. Tech Lead prompt — Clarify UX smoke test criteria
+#### [x] 176. Tech Lead prompt — Clarify UX smoke test criteria (DONE: b40f53e)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`
 **What:** Phase 7 "if the project is a web project" is vague. Add: "A project is a web project if it has an `index.html`, a `dev` script in `package.json`, or a frontend framework (React/Vue/Svelte) in dependencies."
 **Done when:** Prompt updated, tests pass.
