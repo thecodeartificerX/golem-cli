@@ -212,19 +212,31 @@ def resume() -> None:
 
     async def _resume_async() -> None:
         store = TicketStore(tickets_dir)
-        pending = await store.list_tickets(status_filter="pending")
-        in_progress = await store.list_tickets(status_filter="in_progress")
-        candidates = pending + in_progress
+        all_tickets = await store.list_tickets()
 
-        if not candidates:
-            console.print("[yellow]No pending or in-progress tickets found.[/yellow]")
+        if not all_tickets:
+            console.print("[yellow]No tickets found. Run 'golem run <spec>' first.[/yellow]")
             return
 
-        # Re-spawn tech lead with the first pending ticket
-        ticket_id = sorted(candidates, key=lambda t: t.id)[0].id
+        # Prefer the tech_lead ticket; fall back to any pending/in_progress ticket
+        tech_lead_tickets = [t for t in all_tickets if t.assigned_to == "tech_lead" and t.status not in ("done", "approved")]
+        pending = [t for t in all_tickets if t.status in ("pending", "in_progress")]
+        candidates = tech_lead_tickets or pending
+
+        if not candidates:
+            console.print("[yellow]All tickets are done or approved — nothing to resume.[/yellow]")
+            return
+
+        ticket = sorted(candidates, key=lambda t: t.id)[0]
         config = load_config(golem_dir)
-        console.print(f"[bold cyan]Golem[/bold cyan] — Resuming from ticket {ticket_id}...")
-        await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        spec_project_root = _resolve_spec_project_root(Path(ticket.context.plan_file)) if ticket.context.plan_file else project_root
+        config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
+
+        progress = ProgressLogger(golem_dir)
+        console.print(f"[bold cyan]Golem[/bold cyan] -- Resuming from ticket {ticket.id} ({ticket.title[:50]})...")
+        progress.log_tech_lead_start(ticket.id)
+        await run_tech_lead(ticket.id, golem_dir, config, project_root)
+        progress.log_tech_lead_complete()
         console.print("[bold]Resume complete.[/bold]")
 
     asyncio.run(_resume_async())
