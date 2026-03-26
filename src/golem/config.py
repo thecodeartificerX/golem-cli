@@ -18,6 +18,9 @@ class GolemConfig:
     validator_model: str = "claude-sonnet-4-6"
     tech_lead_model: str = "claude-opus-4-6"
     max_worker_turns: int = 50
+    max_tech_lead_turns: int = 100
+    sdk_timeout: int = 180
+    retry_delay: int = 10
     pr_target: str = "main"
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
     # from firing in headless SDK sessions and killing them.

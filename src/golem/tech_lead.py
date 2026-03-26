@@ -122,7 +122,7 @@ async def run_tech_lead(
                     cwd=str(project_root),
                     tools={"type": "preset", "preset": "claude_code"},
                     mcp_servers={"golem": mcp_server},
-                    max_turns=100,
+                    max_turns=config.max_tech_lead_turns,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),
                 ),
@@ -148,10 +148,10 @@ async def run_tech_lead(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[TECH LEAD] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[TECH LEAD] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 _session_failed = True
                 _cleanup_golem_worktrees(golem_dir, project_root)

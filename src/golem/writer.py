@@ -122,10 +122,10 @@ async def spawn_writer_pair(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[WRITER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[WRITER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 raise RuntimeError(
                     f"Writer failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"

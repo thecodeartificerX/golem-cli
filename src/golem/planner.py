@@ -113,10 +113,10 @@ async def run_planner(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 raise RuntimeError(
                     f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
