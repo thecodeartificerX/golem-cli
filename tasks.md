@@ -84,7 +84,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Mock `worktree.commit_task`, call `handle_tool_call` with `commit_worktree`, verify args.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 126. Test `create_worktree()` — Branch already exists path
+#### [x] 126. Test `create_worktree()` — Branch already exists path (DONE: e652757)
 **Size:** Small | **Files:** `tests/test_worktree.py`
 **What:** Create a branch first, then call `create_worktree` with same branch name. Verify it uses `git worktree add <path> <branch>` (no `-b`).
 **Done when:** `uv run pytest` passes.
