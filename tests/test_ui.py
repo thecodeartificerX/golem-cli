@@ -737,6 +737,43 @@ def test_root_serves_html(client: TestClient) -> None:
     assert "Golem" in resp.text or "<html" in resp.text.lower()
 
 
+def test_api_clean_removes_golem_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/clean removes .golem/ directory."""
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "tickets").mkdir()
+
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    c = TestClient(app, raise_server_exceptions=True)
+    resp = c.post("/api/clean")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cleaned"
+    assert not golem_dir.exists()
+
+
+def test_api_clean_nothing_to_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/clean when no .golem/ exists returns nothing_to_clean."""
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    c = TestClient(app, raise_server_exceptions=True)
+    resp = c.post("/api/clean")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "nothing_to_clean"
+
+
+def test_api_config_returns_defaults(client: TestClient) -> None:
+    """GET /api/config returns config with default values."""
+    resp = client.get("/api/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "max_parallel" in data
+    assert "planner_model" in data
+    assert data["max_parallel"] == 3
+
+
 def test_api_specs_returns_md_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/specs returns .md files from the project root."""
     # Create some .md files

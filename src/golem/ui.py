@@ -395,6 +395,31 @@ def create_app() -> FastAPI:
                 specs.append(full)
         return {"specs": specs}
 
+    @app.post("/api/clean")
+    async def api_clean() -> dict[str, str]:
+        """Remove .golem/ state directory."""
+        import shutil
+
+        golem_dir = Path.cwd().resolve() / ".golem"
+        if not golem_dir.exists():
+            return {"status": "nothing_to_clean"}
+        shutil.rmtree(golem_dir, ignore_errors=True)
+        return {"status": "cleaned"}
+
+    @app.get("/api/config")
+    async def api_config() -> dict[str, object]:
+        """Return the current Golem config as JSON."""
+        from dataclasses import asdict
+
+        from golem.config import GolemConfig, load_config
+
+        golem_dir = Path.cwd().resolve() / ".golem"
+        if golem_dir.exists():
+            config = load_config(golem_dir)
+        else:
+            config = GolemConfig()
+        return asdict(config)
+
     @app.get("/api/browse/file")
     async def api_browse_file(initial_dir: str = "") -> dict[str, str | None]:
         """Open a native OS file picker dialog filtered to .md files."""
