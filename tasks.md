@@ -404,7 +404,7 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme F: UI Dashboard Improvements (186–200)
 
-#### [ ] 186. Test `/api/specs` endpoint — Verify spec discovery
+#### [x] 186. Test `/api/specs` endpoint — Verify spec discovery (DONE: 00e1ae7)
 **Size:** Small | **Files:** `tests/test_ui.py`
 **What:** Create temp project with `.md` files, call `/api/specs`, verify specs returned with correct paths.
 **Done when:** `uv run pytest` passes.
