@@ -134,12 +134,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Call `merge_group_branches([], "integration", repo)`, verify `(True, "")` returned without error.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 136. Test `spawn_writer_pair` — `golem_dir=None` fallback
+#### [x] 136. Test `spawn_writer_pair` — `golem_dir=None` fallback (DONE: 97fc8ba)
 **Size:** Small | **Files:** `tests/test_writer.py`
 **What:** Call `spawn_writer_pair` without `golem_dir`, verify it uses `create_writer_mcp_server(Path(worktree_path))`.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 137. Test `write_tasks_sync` — Legacy v1 sync writer
+#### [x] 137. Test `write_tasks_sync` — Legacy v1 sync writer (DONE: a34bd03)
 **Size:** Small | **Files:** `tests/test_tasks.py`
 **What:** `write_tasks_sync()` is never tested. Call it with a TasksFile, verify it writes to disk.
 **Done when:** `uv run pytest` passes.
@@ -148,7 +148,7 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme B: Error Handling & Robustness (138–152)
 
-#### [ ] 138. Worktree `_run()` — Add timeout to all subprocess calls
+#### [x] 138. Worktree `_run()` — Add timeout to all subprocess calls (DONE: a34bd03)
 **Size:** Small | **Files:** `src/golem/worktree.py`
 **What:** All `subprocess.run` calls in worktree.py have no timeout. A hung git operation blocks indefinitely. Add `timeout=60` to all `_run()` calls.
 **Done when:** `uv run pytest` passes.
