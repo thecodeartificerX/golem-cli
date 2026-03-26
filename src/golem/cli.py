@@ -314,6 +314,10 @@ def status() -> None:
     asyncio.run(_status_async())
 
 
+# Alias: golem tickets = golem status
+app.command(name="tickets", hidden=True)(status)
+
+
 @app.command()
 def resume() -> None:
     """Resume interrupted run from ticket store."""
