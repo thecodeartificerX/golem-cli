@@ -582,6 +582,32 @@ async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
     assert ui_module.log_buffer[0]["verb"] == "PLANNER_START"
 
 
+@pytest.mark.asyncio
+async def test_stream_subprocess_output_captures_stdout() -> None:
+    """stream_subprocess_output forwards stdout lines to log_buffer."""
+    import asyncio
+
+    from golem.ui import stream_subprocess_output
+
+    # Create a real subprocess that prints to stdout and stderr
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-c", "import sys; print('hello_out'); print('hello_err', file=sys.stderr)",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    await stream_subprocess_output(proc)
+    await proc.wait()
+
+    # Check log_buffer for captured output
+    verbs = [e["verb"] for e in ui_module.log_buffer]
+    messages = [e["message"] for e in ui_module.log_buffer]
+    assert "STDOUT" in verbs
+    assert "STDERR" in verbs
+    assert any("hello_out" in m for m in messages if m)
+    assert any("hello_err" in m for m in messages if m)
+
+
 # ---------------------------------------------------------------------------
 # GET /api/browse/file — native file dialog
 # ---------------------------------------------------------------------------
