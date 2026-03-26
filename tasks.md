@@ -509,17 +509,17 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 16: Overnight Queue
 
-### [ ] 78. Mark `tasks.py` as v1 legacy — add deprecation comment
+### [x] 78. (DONE: df6d44b) Mark `tasks.py` as v1 legacy — add deprecation comment
 **Size:** Small | **Files:** `src/golem/tasks.py`
 **What:** tasks.py is no longer imported by any v2 module. Add a docstring marking it as v1 legacy, kept for backward compatibility with v1 test suite.
 **Done when:** Comment added, tests pass.
 
-### [ ] 79. `golem plan` — Also catch RuntimeError cleanly
+### [x] 79. (DONE: df6d44b) `golem plan` — Also catch RuntimeError cleanly
 **Size:** Small | **Files:** `cli.py`
 **What:** Same as task 76 but for the plan command.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 80. Test `_ticket_to_dict` and `_ticket_from_dict` roundtrip with all fields
+### [x] 80. (DONE: df6d44b) Test `_ticket_to_dict` and `_ticket_from_dict` roundtrip with all fields
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** Verify serialization handles all TicketContext fields including files dict.
 **Done when:** `uv run pytest` passes.

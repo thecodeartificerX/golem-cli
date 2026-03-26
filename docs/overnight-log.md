@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 77 tasks, 15 batches, 156 tests, 92 commits
+**Status:** COMPLETE — 80 tasks, 16 batches, 157 tests, 94 commits
 
 ### Final Stats
-- **Tasks completed:** 77
-- **Batches:** 15
-- **Tests:** 156 (up from 106 at start — +47%)
-- **Commits:** 92
+- **Tasks completed:** 80
+- **Batches:** 16
+- **Tests:** 157 (up from 106 at start — +48%)
+- **Commits:** 94
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -134,4 +134,11 @@ Batch 14 complete. 154 tests passing.
 - [x] Task 76: Clean RuntimeError display (1af097a)
 - [x] Task 77: Final stats update (this commit)
 
-Batch 15 complete. 156 tests passing. 77 tasks shipped overnight.
+Batch 15 complete. 156 tests passing.
+
+### Batch 16 (tasks 78-80)
+- [x] Task 78: tasks.py legacy docstring (df6d44b)
+- [x] Task 79: plan error catch (df6d44b)
+- [x] Task 80: Full context roundtrip test (df6d44b)
+
+Batch 16 complete. 157 tests passing. 80 tasks shipped overnight.
