@@ -98,7 +98,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 13. Spec Validation — Check spec has required sections before running
+### [x] 13. Spec Validation — Check spec has required sections before running (DONE: d56c596)
 **Size:** Small | **Files:** `cli.py`
 **What:** Before running the planner, validate the spec has tasks/sections. Catch empty or malformed specs early.
 **How:** Read spec, check it has at least one `###` or `**` section. Print warning if spec looks empty.
