@@ -112,9 +112,10 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest`
-- **Focus on:** task graph logic, state machine transitions, deterministic validation, git operations
+- **Run:** `uv run pytest` (150+ tests)
+- **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
+- **Test count:** `uv run golem version` shows the current test count
 
 ### Claude Agent SDK Gotchas
 - **Use `permission_mode="bypassPermissions"`** for all SDK sessions — `acceptEdits` blocks headless file writes

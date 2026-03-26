@@ -149,3 +149,9 @@ By the time you finish, these files MUST exist on disk:
 - A ticket in the ticket store (via `mcp__golem__create_ticket` tool call)
 
 Do not write a summary. Write the files and call the tool. That is your output.
+
+## Rules
+
+- Use `Write` tool for new files only — never overwrite existing project files
+- Sub-agents write to `.golem/research/` — they do NOT modify project source code
+- All file I/O must use `encoding="utf-8"` (Windows compatibility)

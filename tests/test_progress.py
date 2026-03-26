@@ -66,6 +66,23 @@ def test_log_qa_result_failed() -> None:
         assert "QA_FAILED TICKET-002" in content
 
 
+def test_log_writer_dispatched() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_writer_dispatched("TICKET-003")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "WRITER_DISPATCHED TICKET-003" in content
+
+
+def test_log_merge_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_merge_complete("golem/spec/integration")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "MERGE_COMPLETE" in content
+        assert "golem/spec/integration" in content
+
+
 def test_multiple_events_appended() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         logger = ProgressLogger(Path(tmpdir))

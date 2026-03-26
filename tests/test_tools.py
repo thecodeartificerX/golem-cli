@@ -78,6 +78,27 @@ async def test_handle_tool_call_run_qa() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_tool_call_run_qa_failing() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = GolemConfig()
+        result_str = await handle_tool_call(
+            "run_qa",
+            {
+                "worktree_path": tmpdir,
+                "checks": ["exit 1"],
+                "infrastructure_checks": [],
+            },
+            Path(tmpdir),
+            config,
+            Path(tmpdir),
+        )
+        result = json.loads(result_str)
+        assert result["passed"] is False
+        assert len(result["checks"]) == 1
+        assert result["checks"][0]["passed"] is False
+
+
+@pytest.mark.asyncio
 async def test_handle_tool_call_unknown_tool_raises() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         config = GolemConfig()
