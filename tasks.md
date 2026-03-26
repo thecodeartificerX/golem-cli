@@ -15,7 +15,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests should still pass. Manual verification by running golem.
 **Done when:** `uv run pytest` passes and stderr shows agent activity during runs.
 
-### [ ] 2. Tech Lead Merge-to-Main — Fix the integration→main merge gap
+### [x] 2. Tech Lead Merge-to-Main — Fix the integration→main merge gap (DONE: bf1b1fa)
 **Size:** Small | **Files:** `prompts/tech_lead.md`, `tech_lead.py`
 **What:** Tech Lead doesn't merge integration branch to main. Add explicit prompt instruction + self-healing fallback in `run_tech_lead()`.
 **How:**
