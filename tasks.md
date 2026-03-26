@@ -190,31 +190,31 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 5: Overnight Queue (continued)
 
-### [ ] 26. `golem run` — Show elapsed time on completion
+### [x] 26. `golem run` — Show elapsed time on completion (DONE: b9fc81e)
 **Size:** Small | **Files:** `cli.py`
 **What:** Print total elapsed time when `golem run` finishes (e.g. "Run complete in 4m 32s").
 **How:** Capture `time.monotonic()` at start, compute delta at end, format as Xm Ys.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 27. TicketStore.create — Normalize ticket IDs to uppercase
+### [x] 27. TicketStore.create (DONE: e275da1) — Normalize ticket IDs to uppercase
 **Size:** Small | **Files:** `tickets.py`, `tests/test_tickets.py`
 **What:** MCP tool creates lowercase IDs (ticket-001). Store should normalize to TICKET-001 on create.
 **How:** In create(), uppercase the generated ID before writing. Add test.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 28. `golem run` — Print ticket summary before Tech Lead starts
+### [x] 28. `golem run` — Print ticket summary (DONE: 36058b9) before Tech Lead starts
 **Size:** Small | **Files:** `cli.py`
 **What:** After planner creates the ticket, show the ticket title and plan file path before handing off to Tech Lead.
 **How:** Read the ticket from store after planner returns, print key fields.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 29. Progress logger — Add run elapsed time to completion event
+### [x] 29. Progress logger (DONE: f7ac19f) — Add run elapsed time to completion event
 **Size:** Small | **Files:** `progress.py`, `cli.py`
 **What:** TECH_LEAD_COMPLETE event should include total elapsed time.
 **How:** Add optional `elapsed_s` param to `log_tech_lead_complete()`, format in the log line.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 30. `golem clean` — Prompt for confirmation unless --force
+### [x] 30. `golem clean` (DONE: be00fb4) — Prompt for confirmation unless --force
 **Size:** Small | **Files:** `cli.py`
 **What:** `golem clean` is destructive. Ask "Are you sure?" unless --force is passed.
 **How:** Add `--force` flag, use `typer.confirm()` when not forced.

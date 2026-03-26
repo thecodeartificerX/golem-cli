@@ -44,4 +44,12 @@ Batch 3 (tasks 16-20) complete. 111 tests passing.
 - [x] Task 24: Config sorted keys (02cee63)
 - [x] Task 25: Plan summary (d6df574)
 
-Batch 4 (tasks 21-25) complete. 112 tests passing. 25 features shipped overnight.
+Batch 4 (tasks 21-25) complete. 112 tests passing.
+
+- [x] Task 26: Elapsed time (b9fc81e)
+- [x] Task 27: Ticket ID normalization (e275da1)
+- [x] Task 28: Ticket summary before TL (36058b9)
+- [x] Task 29: Progress elapsed time (f7ac19f)
+- [x] Task 30: Clean confirmation (be00fb4)
+
+Batch 5 (tasks 26-30) complete. 112 tests passing. 30 features shipped overnight.
