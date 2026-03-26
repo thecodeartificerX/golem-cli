@@ -4,16 +4,16 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** MILESTONE — 100 tasks, 23 batches, 176 tests, 115 commits
+**Status:** COMPLETE — 103 tasks, 24 batches, 178 tests, 118 commits
 
 ### Final Stats
-- **Tasks completed:** 100
-- **Batches:** 23
-- **Tests:** 176 (up from 106 at start — +66%)
-- **Commits:** 115
+- **Tasks completed:** 103
+- **Batches:** 24
+- **Tests:** 178 (up from 106 at start — +68%)
+- **Commits:** 118
 - **Files changed:** 28
-- **Lines added:** 2,508
-- **Lines removed:** 144
+- **Lines added:** ~2,600
+- **Lines removed:** ~145
 
 ### Batch 1 (tasks 1-10) — Core improvements
 - [x] Task 1: SDK Message Streaming (ea785c1)
@@ -189,7 +189,14 @@ Batch 22 complete. 175 tests passing.
 - [x] Task 99: Logs CLI test (b84cd31)
 - [x] Task 100: Milestone stats (this commit)
 
-**100 TASKS SHIPPED OVERNIGHT. 176 tests. 23 batches. 115 commits. Golem v0.2.0.**
+100 tasks milestone reached.
+
+### Batch 24 (tasks 101-103) — Post-milestone
+- [x] Task 101: Inspect CLI test (4ff0587)
+- [x] Task 102: Resume CLI test (4ff0587)
+- [x] Task 103: Version banner at run start (4ff0587)
+
+Batch 24 complete. 178 tests passing. 103 tasks shipped overnight.
 
 ### Key Feature Highlights for Morning Review
 1. **SDK streaming** — `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` stderr output shows what agents are doing
