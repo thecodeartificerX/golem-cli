@@ -390,12 +390,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Create a consistent "Available Tools" section in all three prompts that lists every MCP tool with its full `mcp__<server>__<name>` format.
 **Done when:** All prompts updated, tests pass.
 
-#### [ ] 184. Tech Lead prompt — Add explicit "create PR" vs "skip PR" based on config
+#### [S] 184. Tech Lead prompt — Add explicit "create PR" vs "skip PR" based on config (SKIP: auto_pr field was removed in task 157)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`
 **What:** If `auto_pr` is wired (task 157), the prompt should conditionally include or skip the PR creation step.
 **Done when:** Prompt updated, tests pass. Depends on task 157.
 
-#### [ ] 185. Tech Lead prompt — Add `pr_target` template variable
+#### [S] 185. Tech Lead prompt — Add `pr_target` template variable (SKIP: depends on task 159 which was skipped)
 **Size:** Small | **Files:** `src/golem/prompts/tech_lead.md`, `src/golem/tech_lead.py`
 **What:** Replace hardcoded "Base branch: `main`" with `{pr_target}` injected from config. Depends on task 159.
 **Done when:** Prompt updated, tests pass.

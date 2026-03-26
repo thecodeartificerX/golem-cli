@@ -116,7 +116,11 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
 ) -> None:
-    """Full autonomous run: plan, orchestrate writers, validate, create PR."""
+    """Full autonomous run: plan, orchestrate writers, validate, create PR.
+
+    Example: golem run spec.md
+    Example: golem run spec.md --force --dry-run
+    """
     from golem import __version__
 
     if verbose:
@@ -214,7 +218,10 @@ def run(
 def plan(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
 ) -> None:
-    """Dry run — generate plans only, no Tech Lead execution."""
+    """Dry run — generate plans only, no Tech Lead execution.
+
+    Example: golem plan spec.md
+    """
     _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
@@ -562,7 +569,10 @@ def logs(
 def clean(
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
 ) -> None:
-    """Remove .golem/ state, worktrees, and branches."""
+    """Remove .golem/ state, worktrees, and golem/* branches.
+
+    Example: golem clean --force
+    """
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
 
