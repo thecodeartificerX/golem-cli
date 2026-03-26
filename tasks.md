@@ -701,32 +701,32 @@ Tasks are organized by theme. Each task should be:
 **What:** Add docstring: purpose, parameters (especially `draft`), return value, error conditions.
 **Done when:** Documented.
 
-#### [ ] 243. Docstrings — `run_planner()` full behavior
+#### [x] 243. Docstrings — `run_planner()` full behavior (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/planner.py`
 **What:** Update docstring to mention: retry logic, SDK timeout monkey-patch, self-healing fallback ticket creation.
 **Done when:** Documented.
 
-#### [ ] 244. Docstrings — `run_tech_lead()` full behavior
+#### [x] 244. Docstrings — `run_tech_lead()` full behavior (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/tech_lead.py`
 **What:** Update docstring to mention: `_ensure_merged_to_main`, `_cleanup_golem_worktrees`, retry logic.
 **Done when:** Documented.
 
-#### [ ] 245. Docstrings — `sdk_env()` clarify partial override
+#### [x] 245. Docstrings — `sdk_env()` clarify partial override (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/config.py`
 **What:** Clarify that `sdk_env()` returns a minimal dict (just clears `ANTHROPIC_API_KEY`), not a full environment copy.
 **Done when:** Documented.
 
-#### [ ] 246. Docstrings — `_resolve_spec_project_root()` fallback behavior
+#### [x] 246. Docstrings — `_resolve_spec_project_root()` fallback behavior (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Document the fallback: if no `.git` found, returns spec's parent directory.
 **Done when:** Documented.
 
-#### [ ] 247. Docstrings — `run_autofix()` purpose and callers
+#### [x] 247. Docstrings — `run_autofix()` purpose and callers (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/qa.py`
 **What:** Add docstring explaining when autofix runs, what it does for ruff/prettier, and that it's invoked by the QA pipeline.
 **Done when:** Documented.
 
-#### [ ] 248. Docstrings — `dialogs.py:open_folder_dialog()` `initial_dir` clarification
+#### [x] 248. Docstrings — `dialogs.py:open_folder_dialog()` `initial_dir` clarification (DONE: f3cf149)
 **Size:** Small | **Files:** `src/golem/dialogs.py`
 **What:** Change "reserved for future use" to "silently ignored due to Windows SHBrowseForFolder API limitation".
 **Done when:** Documented.
