@@ -154,6 +154,18 @@ def test_validate_bad_max_worker_turns_warns() -> None:
     assert any("max_worker_turns" in w for w in warnings)
 
 
+def test_validate_unknown_setting_source_warns() -> None:
+    config = GolemConfig(setting_sources=["project", "typo"])
+    warnings = config.validate()
+    assert any("typo" in w for w in warnings)
+
+
+def test_validate_valid_setting_sources_no_warnings() -> None:
+    config = GolemConfig(setting_sources=["project", "user"])
+    warnings = config.validate()
+    assert not any("setting_source" in w.lower() for w in warnings)
+
+
 def test_validate_known_models_no_warnings() -> None:
     config = GolemConfig(
         planner_model="claude-opus-4-6",

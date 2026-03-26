@@ -39,6 +39,10 @@ class GolemConfig:
             warnings.append(f"max_retries must be >= 0, got {self.max_retries}")
         if self.max_worker_turns < 1:
             warnings.append(f"max_worker_turns must be >= 1, got {self.max_worker_turns}")
+        valid_sources = {"project", "user"}
+        for src in self.setting_sources:
+            if src not in valid_sources:
+                warnings.append(f"Unknown setting_source: {src!r} — valid values are {sorted(valid_sources)}")
         return warnings
 
 
