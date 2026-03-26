@@ -1,0 +1,24 @@
+# Overnight Development Log
+
+## Session: 2026-03-27
+
+**Branch:** `feat/overnight-improvements`
+**Started:** ~midnight
+**Status:** In progress
+
+### Progress
+
+- [ ] Task 1: SDK Message Streaming
+- [ ] Task 2: Tech Lead Merge-to-Main
+- [ ] Task 3: Ticket Lifecycle Updates
+- [ ] Task 4: CLI golem status table
+- [ ] Task 5: Config Validation
+- [ ] Task 6: Progress Events
+- [ ] Task 7: Better Error Messages
+- [ ] Task 8: golem clean branches
+- [ ] Task 9: Retry Logic
+- [ ] Task 10: golem version v2 info
+
+### Notes
+
+(Updated as work progresses — this file is my memory across context compactions)
