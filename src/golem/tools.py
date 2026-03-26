@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import asdict
 from functools import partial
 from pathlib import Path
@@ -199,13 +200,16 @@ async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
 
 
 async def _handle_create_worktree(args: dict[str, object]) -> dict[str, object]:
-    create_worktree(
-        group_id=str(args["group_id"]),
-        branch=str(args["branch"]),
-        base_branch=str(args["base_branch"]),
-        path=Path(str(args["path"])),
-        repo_root=Path(str(args["repo_root"])),
-    )
+    try:
+        create_worktree(
+            group_id=str(args["group_id"]),
+            branch=str(args["branch"]),
+            base_branch=str(args["base_branch"]),
+            path=Path(str(args["path"])),
+            repo_root=Path(str(args["repo_root"])),
+        )
+    except subprocess.CalledProcessError as e:
+        return {"content": [{"type": "text", "text": json.dumps({"error": f"create_worktree failed: {e.stderr or e}"})}]}
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 
@@ -220,11 +224,14 @@ async def _handle_merge_branches(args: dict[str, object]) -> dict[str, object]:
 
 
 async def _handle_commit_worktree(args: dict[str, object]) -> dict[str, object]:
-    committed = commit_task(
-        worktree_path=Path(str(args["worktree_path"])),
-        task_id=str(args["task_id"]),
-        description=str(args["description"]),
-    )
+    try:
+        committed = commit_task(
+            worktree_path=Path(str(args["worktree_path"])),
+            task_id=str(args["task_id"]),
+            description=str(args["description"]),
+        )
+    except subprocess.CalledProcessError as e:
+        return {"content": [{"type": "text", "text": json.dumps({"error": f"commit_worktree failed: {e.stderr or e}"})}]}
     return {"content": [{"type": "text", "text": json.dumps({"committed": committed})}]}
 
 
