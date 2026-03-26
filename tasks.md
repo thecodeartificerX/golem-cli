@@ -203,7 +203,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `asyncio.Lock` only protects within one process. If two Golem processes write simultaneously, JSON can corrupt. Use `filelock` (add to deps) or OS-level lock file.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 149. `worktree.py` tool handlers — Return structured JSON errors on failure
+#### [x] 149. `worktree.py` tool handlers — Return structured JSON errors on failure (DONE: 6f21132)
 **Size:** Small | **Files:** `src/golem/tools.py`
 **What:** If `create_worktree` or `commit_task` raises `CalledProcessError`, the MCP handler should return `{"error": "..."}` instead of letting the exception propagate.
 **Done when:** `uv run pytest` passes.
