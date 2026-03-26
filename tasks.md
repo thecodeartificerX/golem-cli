@@ -462,22 +462,22 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 14: Overnight Queue
 
-### [ ] 70. Test `handle_tool_call` — run_qa tool dispatch
+### [x] 70. (DONE: ae86673) Test `handle_tool_call` — run_qa tool dispatch
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** The existing test_handle_tool_call_run_qa may not verify the QA result structure fully. Verify passed/checks fields.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 71. Test `ProgressLogger` — log_writer_dispatched and log_merge_complete
+### [x] 71. (DONE: ae86673) Test `ProgressLogger` — log_writer_dispatched and log_merge_complete
 **Size:** Small | **Files:** `tests/test_progress.py`
 **What:** These two v2 methods have no coverage. Add tests.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 72. Planner prompt — Add "do not use Write on existing files" rule
+### [x] 72. (DONE: ae86673) Planner prompt — Add "do not use Write on existing files" rule
 **Size:** Small | **Files:** `prompts/planner.md`
 **What:** The writer prompt has this rule but the planner writes plans to disk — it should also avoid overwriting existing reference files without reading first.
 **Done when:** Prompt updated, tests pass.
 
-### [ ] 73. CLAUDE.md — Update test count in Testing section
+### [x] 73. (DONE: ae86673) CLAUDE.md — Update test count in Testing section
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** Testing section mentions old test count patterns. Update to reflect 150+ tests.
 **Done when:** CLAUDE.md updated.

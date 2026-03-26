@@ -4,16 +4,16 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 69 tasks, 13 batches, 151 tests, 88 commits
+**Status:** COMPLETE — 73 tasks, 14 batches, 154 tests, 90 commits
 
 ### Final Stats
-- **Tasks completed:** 69
-- **Batches:** 13
-- **Tests:** 151 (up from 106 at start — +42% coverage)
-- **Commits:** 88
+- **Tasks completed:** 73
+- **Batches:** 14
+- **Tests:** 154 (up from 106 at start — +45% coverage)
+- **Commits:** 90
 - **Files changed:** 25
-- **Lines added:** 1,901
-- **Lines removed:** 132
+- **Lines added:** ~2,000
+- **Lines removed:** ~135
 
 ### Batch 1 (tasks 1-10) — Core improvements
 - [x] Task 1: SDK Message Streaming (ea785c1)
@@ -118,4 +118,12 @@ Batch 12 complete. 150 tests passing.
 - [x] Task 68: Clean shows counts (58d5696)
 - [x] Task 69: Final stats (this commit)
 
-Batch 13 complete. 151 tests passing. 69 tasks shipped overnight.
+Batch 13 complete. 151 tests passing.
+
+### Batch 14 (tasks 70-73) — Final coverage
+- [x] Task 70: Failing QA dispatch test (ae86673)
+- [x] Task 71: Writer/merge progress tests (ae86673)
+- [x] Task 72: Planner rules (ae86673)
+- [x] Task 73: CLAUDE.md testing update (ae86673)
+
+Batch 14 complete. 154 tests passing. 73 tasks shipped overnight.
