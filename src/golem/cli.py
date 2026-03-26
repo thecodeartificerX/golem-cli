@@ -146,24 +146,46 @@ def status() -> None:
             return
 
         table = Table(title="Golem Status", show_header=True)
-        table.add_column("Ticket ID", style="cyan")
-        table.add_column("Type")
+        table.add_column("ID", style="cyan")
         table.add_column("Status")
-        table.add_column("Assigned To")
+        table.add_column("Priority")
+        table.add_column("Assigned")
         table.add_column("Title")
+        table.add_column("Last Event", style="dim")
 
-        status_styles = {
+        status_styles: dict[str, str] = {
             "approved": "[green]approved[/green]",
             "done": "[green]done[/green]",
+            "qa_passed": "[green]qa_passed[/green]",
             "blocked": "[red]blocked[/red]",
             "needs_work": "[yellow]needs_work[/yellow]",
             "in_progress": "[yellow]in_progress[/yellow]",
             "ready_for_review": "[cyan]ready_for_review[/cyan]",
-            "pending": "pending",
+            "pending": "[dim]pending[/dim]",
         }
-        for ticket in tickets:
-            style = status_styles.get(ticket.status, ticket.status)
-            table.add_row(ticket.id, ticket.type, style, ticket.assigned_to, ticket.title[:60])
+        priority_styles: dict[str, str] = {
+            "high": "[red]high[/red]",
+            "medium": "[yellow]medium[/yellow]",
+            "low": "[dim]low[/dim]",
+        }
+        for ticket in sorted(tickets, key=lambda t: t.id):
+            styled_status = status_styles.get(ticket.status, ticket.status)
+            styled_priority = priority_styles.get(ticket.priority, ticket.priority)
+            last_event = ""
+            if ticket.history:
+                last = ticket.history[-1]
+                last_event = f"{last.ts[:16]} {last.action}"
+            table.add_row(
+                ticket.id, styled_status, styled_priority,
+                ticket.assigned_to, ticket.title[:50], last_event,
+            )
+
+        # Summary line
+        total = len(tickets)
+        done_count = sum(1 for t in tickets if t.status in ("done", "approved"))
+        in_prog = sum(1 for t in tickets if t.status == "in_progress")
+        console.print(table)
+        console.print(f"  {done_count}/{total} complete, {in_prog} in progress")
 
         console.print(table)
 
