@@ -563,7 +563,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Watch the spec file for changes and auto-trigger a new run when it's modified. Uses `watchdog` or polling.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 217. CLI — `golem list-specs` — Show available specs in project
+#### [x] 217. CLI — `golem list-specs` — Show available specs in project (DONE: 112c73a)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** List all `.md` files that look like specs (have headings, tasks, etc.) in the project.
 **Done when:** `uv run pytest` passes.
