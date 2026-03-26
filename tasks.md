@@ -59,7 +59,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 8. `golem clean` — Also clean up stale git branches
+### [x] 8. `golem clean` — Also clean up stale git branches (DONE: 30aeddd)
 **Size:** Small | **Files:** `cli.py`
 **What:** `golem clean` removes `.golem/` but leaves behind `golem/*` git branches from previous runs. Clean those too.
 **How:** After removing `.golem/`, list local branches matching `golem/*` and delete them.
