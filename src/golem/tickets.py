@@ -142,7 +142,7 @@ class TicketStore:
         if not self._dir.exists():
             return []
         tickets: list[Ticket] = []
-        for path in sorted(self._dir.glob("TICKET-*.json")):
+        for path in sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-")):
             data = json.loads(path.read_text(encoding="utf-8"))
             ticket = _ticket_from_dict(data)
             if status_filter is not None and ticket.status != status_filter:
