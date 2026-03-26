@@ -10,7 +10,7 @@
 
 - [x] Task 1: SDK Message Streaming (ea785c1)
 - [x] Task 2: Tech Lead Merge-to-Main (bf1b1fa)
-- [ ] Task 3: Ticket Lifecycle Updates
+- [x] Task 3: Ticket Lifecycle Updates (1b5617b)
 - [ ] Task 4: CLI golem status table
 - [ ] Task 5: Config Validation
 - [ ] Task 6: Progress Events

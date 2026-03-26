@@ -24,7 +24,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass. The merge logic is a fallback — verify it doesn't break when there's nothing to merge.
 **Done when:** `uv run pytest` passes and `run_tech_lead()` has merge verification.
 
-### [ ] 3. Ticket Lifecycle Updates — Tech Lead updates ticket status
+### [x] 3. Ticket Lifecycle Updates — Tech Lead updates ticket status (DONE: 1b5617b)
 **Size:** Small | **Files:** `prompts/tech_lead.md`
 **What:** Tech Lead prompt should explicitly instruct ticket status updates at each stage.
 **How:** Add clear instructions in tech_lead.md: "When dispatching a writer, update ticket to in_progress. When writer completes, update to qa_passed. After review, update to approved or needs_work."
