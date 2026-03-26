@@ -60,4 +60,12 @@ Batch 5 (tasks 26-30) complete. 112 tests passing.
 - [x] Task 34: QA stderr summary (1052eb8)
 - [x] Task 35: No-command help (a704205)
 
-Batch 6 (tasks 31-35) complete. 120 tests passing. 35 features shipped overnight.
+Batch 6 (tasks 31-35) complete. 120 tests passing.
+
+- [x] Task 36: CLI tests (feea667)
+- [x] Task 37: Merge conflict test (05c0379)
+- [x] Task 38: (covered by task 36)
+- [x] Task 39: Tech Lead timeout guidance (eacb1c2)
+- [x] Task 40: Memory files updated
+
+Batch 7 (tasks 36-40) complete. 129 tests passing. 40 features shipped overnight.
