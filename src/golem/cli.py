@@ -160,14 +160,22 @@ def run(
         progress.log_tech_lead_complete(elapsed_s=elapsed)
         console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
 
-        # Final ticket summary
+        # Final summary
         all_tickets = await store.list_tickets()
         if all_tickets:
             by_status: dict[str, int] = {}
             for t in all_tickets:
                 by_status[t.status] = by_status.get(t.status, 0) + 1
             parts = [f"{count} {status}" for status, count in sorted(by_status.items())]
-            console.print(f"  Tickets: {', '.join(parts)}")
+            console.print(f"  Tickets:    {', '.join(parts)}")
+
+        plans_dir = golem_dir / "plans"
+        research_dir = golem_dir / "research"
+        refs_dir = golem_dir / "references"
+        plan_count = len(list(plans_dir.glob("task-*.md"))) if plans_dir.exists() else 0
+        research_count = len(list(research_dir.glob("*.md"))) if research_dir.exists() else 0
+        ref_count = len(list(refs_dir.glob("*.md"))) if refs_dir.exists() else 0
+        console.print(f"  Artifacts:  {plan_count} plans, {research_count} research, {ref_count} references")
 
     asyncio.run(_run_async())
 
