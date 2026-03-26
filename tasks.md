@@ -585,17 +585,17 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 20: Overnight Queue
 
-### [ ] 90. Test v1 ProgressLogger methods — log_task_start/complete/retry/blocked
+### [x] 90. (DONE: b9fe06c) Test v1 ProgressLogger methods — log_task_start/complete/retry/blocked
 **Size:** Small | **Files:** `tests/test_progress.py`
 **What:** The v1 log methods have zero coverage. Add basic tests.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 91. Test `create_golem_mcp_server` — Verify server name and type
+### [x] 91. (DONE: b9fe06c) Test `create_golem_mcp_server` — Verify server name and type
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** create_golem_mcp_server returns a dict with name="golem". No test exists.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 92. Test `create_qa_mcp_server` — Verify server name
+### [x] 92. (DONE: b9fe06c) Test `create_qa_mcp_server` — Verify server name
 **Size:** Small | **Files:** `tests/test_tools.py`
 **What:** create_qa_mcp_server returns name="golem-qa". No test.
 **Done when:** `uv run pytest` passes.
