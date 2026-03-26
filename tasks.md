@@ -775,7 +775,7 @@ Tasks are organized by theme. Each task should be:
 **What:** End-to-end test that mocks the SDK but exercises the full pipeline: spec → planner → tickets → tech lead → worktrees → merge.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 257. Test — `golem ui` server startup and shutdown
+#### [x] 257. Test — `golem ui` server startup and shutdown (DONE: fee52c1)
 **Size:** Small | **Files:** `tests/test_ui.py`
 **What:** Test that the FastAPI app starts, serves the HTML template at `/`, and shuts down cleanly.
 **Done when:** `uv run pytest` passes.
