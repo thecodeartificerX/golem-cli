@@ -154,3 +154,5 @@ All tools use the `mcp__golem__` prefix:
 - Do not approve work that doesn't meet the acceptance criteria
 - Do integration review inline — you have full context
 - Spawn UX smoke test only for web projects
+- If a writer fails or times out, create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
+- Never leave the pipeline in an incomplete state — if something fails, either fix it or report exactly what failed and what remains
