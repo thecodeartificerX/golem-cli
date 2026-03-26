@@ -293,6 +293,54 @@ def ui(
 
 
 @app.command()
+def history() -> None:
+    """Show chronological event timeline across all tickets."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[red]No tickets found. Run 'golem run <spec>' first.[/red]")
+        raise typer.Exit(1)
+
+    async def _history_async() -> None:
+        store = TicketStore(tickets_dir)
+        tickets = await store.list_tickets()
+
+        if not tickets:
+            console.print("[yellow]No tickets found.[/yellow]")
+            return
+
+        # Flatten all events with their ticket ID, sort by timestamp
+        events: list[tuple[str, str, str, str, str]] = []  # (ts, ticket_id, agent, action, note)
+        for ticket in tickets:
+            for event in ticket.history:
+                events.append((event.ts, ticket.id, event.agent, event.action, event.note))
+
+        if not events:
+            console.print("[yellow]No events recorded yet.[/yellow]")
+            return
+
+        events.sort(key=lambda e: e[0])
+
+        table = Table(title="Golem Event Timeline", show_header=True)
+        table.add_column("Timestamp", style="dim")
+        table.add_column("Ticket", style="cyan")
+        table.add_column("Agent")
+        table.add_column("Action")
+        table.add_column("Note")
+
+        for ts, tid, agent, action, note in events:
+            short_note = note[:60] + "..." if len(note) > 60 else note
+            table.add_row(ts[:19], tid, agent, action, short_note)
+
+        console.print(table)
+        console.print(f"  {len(events)} event(s) across {len(tickets)} ticket(s)")
+
+    asyncio.run(_history_async())
+
+
+@app.command()
 def clean() -> None:
     """Remove .golem/ state, worktrees, and branches."""
     project_root = _get_project_root()
