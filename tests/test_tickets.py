@@ -150,3 +150,19 @@ async def test_update_case_insensitive() -> None:
         assert loaded.status == "in_progress"
         assert len(loaded.history) == 2  # created + status_changed
         assert loaded.history[-1].action == "status_changed_to_in_progress"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_updates_no_corruption() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Concurrent Update"))
+
+        async def _update(i: int) -> None:
+            await store.update(ticket_id, "in_progress", f"Update {i}", agent=f"agent-{i}")
+
+        await asyncio.gather(*[_update(i) for i in range(5)])
+        loaded = await store.read(ticket_id)
+        # 1 created event + 5 update events = 6 total
+        assert len(loaded.history) == 6
+        assert loaded.status == "in_progress"
