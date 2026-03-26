@@ -643,6 +643,60 @@ def diff(
 
 
 @app.command()
+def pr(
+    title: str = typer.Option("", "--title", "-t", help="PR title (auto-generated if empty)"),
+    draft: bool = typer.Option(False, "--draft", help="Create as draft PR"),
+    base: str = typer.Option("main", "--base", "-b", help="Base branch for the PR"),
+) -> None:
+    """Create a GitHub PR from the current branch's changes.
+
+    Example: golem pr --title "feat: implement auth" --draft
+    """
+    project_root = _get_project_root()
+
+    # Get current branch
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+    )
+    branch = result.stdout.strip()
+    if not branch or branch in ("main", "master"):
+        console.print("[red]Cannot create PR from main/master. Switch to a feature branch first.[/red]")
+        raise typer.Exit(1)
+
+    # Auto-generate title from branch name if not provided
+    if not title:
+        title = f"golem: {branch.replace('golem/', '').replace('/', ' ')}"
+
+    # Build body from ticket summaries if available
+    golem_dir = _get_golem_dir(project_root)
+    body_parts: list[str] = [f"## Golem Run\n\nBranch: `{branch}`\n"]
+    tickets_dir = golem_dir / "tickets"
+    if tickets_dir.exists():
+
+        async def _read_tickets() -> list[str]:
+            store = TicketStore(tickets_dir)
+            tickets = await store.list_tickets()
+            return [f"- **{t.id}** {t.title} ({t.status})" for t in sorted(tickets, key=lambda x: x.id)]
+
+        lines = asyncio.run(_read_tickets())
+        if lines:
+            body_parts.append("## Tickets\n\n" + "\n".join(lines))
+
+    body = "\n\n".join(body_parts)
+
+    cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", base, "--head", branch]
+    if draft:
+        cmd.append("--draft")
+
+    result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        console.print(f"[red]gh pr create failed: {result.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]PR created: {result.stdout.strip()}[/green]")
+
+
+@app.command()
 def doctor() -> None:
     """Diagnose environment issues — check all required tools are installed."""
     checks: list[tuple[str, bool, str]] = []
