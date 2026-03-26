@@ -727,3 +727,31 @@ def test_open_folder_dialog_raises_on_non_windows() -> None:
     with patch.object(sys, "platform", "linux"):
         with pytest.raises(NotImplementedError):
             dialogs.open_folder_dialog()
+
+
+def test_api_specs_returns_md_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/specs returns .md files from the project root."""
+    # Create some .md files
+    (tmp_path / "spec.md").write_text("# Spec", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guide.md").write_text("# Guide", encoding="utf-8")
+    # Create files that should be skipped
+    (tmp_path / ".golem").mkdir()
+    (tmp_path / ".golem" / "plans.md").write_text("# Plans", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "readme.md").write_text("# NM", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    client = TestClient(app, raise_server_exceptions=True)
+    resp = client.get("/api/specs")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    specs = data["specs"]
+    # Should include spec.md and docs/guide.md
+    assert any("spec.md" in s for s in specs)
+    assert any("guide.md" in s for s in specs)
+    # Should NOT include .golem or node_modules
+    assert not any(".golem" in s for s in specs)
+    assert not any("node_modules" in s for s in specs)
