@@ -795,7 +795,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Test: empty string, string with `&` and `|` characters, string with both single and double quotes.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 261. Test performance — Ensure test suite runs in < 30s
+#### [x] 261. Test performance — Ensure test suite runs in < 30s (DONE: already at 15.73s with 230 tests)
 **Size:** Small | **Files:** `tests/`
 **What:** Profile test suite, identify slow tests, add markers for slow tests (`@pytest.mark.slow`) so they can be skipped in fast mode.
 **Done when:** `uv run pytest` (without slow) runs in < 30s.

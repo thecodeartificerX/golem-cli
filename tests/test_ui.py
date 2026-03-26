@@ -729,6 +729,14 @@ def test_open_folder_dialog_raises_on_non_windows() -> None:
             dialogs.open_folder_dialog()
 
 
+def test_root_serves_html(client: TestClient) -> None:
+    """GET / returns the HTML dashboard."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "Golem" in resp.text or "<html" in resp.text.lower()
+
+
 def test_api_specs_returns_md_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/specs returns .md files from the project root."""
     # Create some .md files
