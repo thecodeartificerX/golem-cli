@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 83 tasks, 17 batches, 158 tests, 97 commits
+**Status:** COMPLETE — 86 tasks, 18 batches, 160 tests, 100 commits
 
 ### Final Stats
-- **Tasks completed:** 83
-- **Batches:** 17
-- **Tests:** 158 (up from 106 at start — +49%)
-- **Commits:** 97
+- **Tasks completed:** 86
+- **Batches:** 18
+- **Tests:** 160 (up from 106 at start — +51%)
+- **Commits:** 100
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -148,4 +148,11 @@ Batch 16 complete. 157 tests passing.
 - [x] Task 82: Ticket ID format test (f6b18c7)
 - [x] Task 83: Version bump to 0.2.0 (f6b18c7)
 
-Batch 17 complete. 158 tests passing. 83 tasks shipped overnight.
+Batch 17 complete. 158 tests passing.
+
+### Batch 18 (tasks 84-86)
+- [x] Task 84: pyproject.toml v0.2.0 (0c7cf75)
+- [x] Task 85: Version matches __init__ test (0c7cf75)
+- [x] Task 86: CLI integration test (0c7cf75)
+
+Batch 18 complete. 160 tests passing. 86 tasks shipped overnight.

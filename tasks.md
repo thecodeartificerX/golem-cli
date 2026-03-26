@@ -547,17 +547,17 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 18: Overnight Queue
 
-### [ ] 84. `pyproject.toml` — Bump version to match __init__.py
+### [x] 84. (DONE: 0c7cf75) `pyproject.toml` — Bump version to match __init__.py
 **Size:** Small | **Files:** `pyproject.toml`
 **What:** pyproject.toml version may still say 0.1.0. Sync with __init__.py 0.2.0.
 **Done when:** Both files say 0.2.0.
 
-### [ ] 85. Test `get_version_info` — Verify version matches __init__
+### [x] 85. (DONE: 0c7cf75) Test `get_version_info` — Verify version matches __init__
 **Size:** Small | **Files:** `tests/test_version.py`
 **What:** Verify get_version_info().version matches golem.__version__.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 86. `golem run` dry run verification — Confirm full CLI output shape
+### [x] 86. (DONE: 0c7cf75) `golem run` dry run verification — Confirm full CLI output shape
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Test that the run command exits with error on nonexistent spec (integration test of the full CLI entry point).
 **Done when:** `uv run pytest` passes.
