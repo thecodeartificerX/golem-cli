@@ -8,8 +8,44 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
+from golem.worktree import merge_group_branches
 
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
+
+
+def _ensure_merged_to_main(project_root: Path) -> None:
+    """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
+    import subprocess
+
+    def _git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=project_root, capture_output=True, text=True, encoding="utf-8"
+        )
+
+    # Find golem integration branches
+    result = _git("branch", "--list", "golem/*/integration")
+    integration_branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
+    if not integration_branches:
+        return
+
+    # Check if main already has the integration commits
+    current = _git("rev-parse", "HEAD")
+    _git("checkout", "main")
+
+    for branch in integration_branches:
+        # Check if branch is already merged into main
+        merge_check = _git("merge-base", "--is-ancestor", branch, "main")
+        if merge_check.returncode == 0:
+            continue  # Already merged
+
+        print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
+        merge_result = _git("merge", branch, "--ff-only")
+        if merge_result.returncode != 0:
+            # ff-only failed, try regular merge
+            merge_result = _git("merge", "--no-ff", "-m", f"feat: merge {branch} (golem self-heal)", branch)
+            if merge_result.returncode != 0:
+                print(f"[TECH LEAD] Warning: could not merge {branch} into main: {merge_result.stderr}", file=sys.stderr)
+                _git("merge", "--abort")
 
 
 async def run_tech_lead(
@@ -63,3 +99,6 @@ async def run_tech_lead(
         elif isinstance(message, ResultMessage) and message.result:
             preview = message.result[:120].replace("\n", " ")
             print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
+
+    # Self-heal: if integration branches exist but weren't merged to main, merge them
+    _ensure_merged_to_main(project_root)
