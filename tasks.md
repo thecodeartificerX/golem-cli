@@ -604,15 +604,15 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 21: Overnight Queue
 
-### [ ] 93. Test v1 ProgressLogger — log_integration_review and log_final_validation
+### [x] 93. (DONE: 6e2b299) Test v1 ProgressLogger — log_integration_review and log_final_validation
 **Size:** Small | **Files:** `tests/test_progress.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 94. Test `golem version` CLI entry — Verify output contains v0.2.0
+### [x] 94. (DONE: 6e2b299) Test `golem version` CLI entry — Verify output contains v0.2.0
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 95. Test `golem status` CLI entry — Verify exits cleanly with no .golem/
+### [x] 95. (DONE: 6e2b299) Test `golem status` CLI entry — Verify exits cleanly with no .golem/
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 

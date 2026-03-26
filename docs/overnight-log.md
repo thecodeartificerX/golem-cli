@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 92 tasks, 20 batches, 168 tests, 106 commits
+**Status:** COMPLETE — 95 tasks, 21 batches, 173 tests, 109 commits
 
 ### Final Stats
-- **Tasks completed:** 92
-- **Batches:** 20
-- **Tests:** 168 (up from 106 at start — +58%)
-- **Commits:** 106
+- **Tasks completed:** 95
+- **Batches:** 21
+- **Tests:** 173 (up from 106 at start — +63%)
+- **Commits:** 109
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -169,7 +169,14 @@ Batch 19 complete. 161 tests passing.
 - [x] Task 91: create_golem_mcp_server test (b9fe06c)
 - [x] Task 92: create_qa_mcp_server test (b9fe06c)
 
-Batch 20 complete. 168 tests passing. 92 tasks shipped overnight.
+Batch 20 complete. 168 tests passing.
+
+### Batch 21 (tasks 93-95)
+- [x] Task 93: v1 review/validation tests (6e2b299)
+- [x] Task 94: Version CLI test (6e2b299)
+- [x] Task 95: Status CLI test (6e2b299)
+
+Batch 21 complete. 173 tests passing. 95 tasks shipped overnight.
 
 ### Key Feature Highlights for Morning Review
 1. **SDK streaming** — `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` stderr output shows what agents are doing
