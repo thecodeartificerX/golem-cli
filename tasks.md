@@ -385,7 +385,7 @@ Tasks are organized by theme. Each task should be:
 **What:** The Rules section should remind the planner to use `encoding="utf-8"` on all file writes, same as the worker prompt.
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 183. All prompts — Standardize MCP tool prefix documentation
+#### [x] 183. All prompts — Standardize MCP tool prefix documentation (DONE: 93a87f1)
 **Size:** Small | **Files:** `src/golem/prompts/*.md`
 **What:** Create a consistent "Available Tools" section in all three prompts that lists every MCP tool with its full `mcp__<server>__<name>` format.
 **Done when:** All prompts updated, tests pass.
