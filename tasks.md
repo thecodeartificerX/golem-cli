@@ -513,7 +513,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Add `--dry-run` flag that runs the planner and shows the plan but doesn't dispatch the tech lead. Same as `golem plan` but from the `run` command.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 207. `golem run --verbose` — Enable debug logging
+#### [x] 207. `golem run --verbose` — Enable debug logging (DONE: d327661)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Add `--verbose` flag that sets `GOLEM_DEBUG=1` and enables more detailed stderr output.
 **Done when:** `uv run pytest` passes.
