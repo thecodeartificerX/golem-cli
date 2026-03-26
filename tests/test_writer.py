@@ -64,6 +64,41 @@ def test_build_writer_prompt_no_leftover_placeholders() -> None:
     assert "{" not in prompt
 
 
+def test_build_writer_prompt_all_fields_populated_no_placeholders() -> None:
+    """With ALL context fields populated, no {placeholder} patterns should remain."""
+    ctx = TicketContext(
+        plan_file="",  # empty plan file — won't read from disk
+        files={"src/app.py": "print('hello')\n", "tests/test_app.py": "def test(): pass\n"},
+        references=["docs/api.md", "docs/guide.md"],
+        blueprint="Full architectural blueprint for the project with all details",
+        acceptance=["All tests pass", "No lint errors", "Coverage > 80%"],
+        qa_checks=["uv run pytest", "ruff check .", "mypy ."],
+        parallelism_hints=["tests can run parallel", "lint is independent"],
+    )
+    ticket = Ticket(
+        id="TICKET-099",
+        type="task",
+        title="Full context ticket",
+        status="in_progress",
+        priority="medium",
+        created_by="tech_lead",
+        assigned_to="writer",
+        context=ctx,
+    )
+    prompt = build_writer_prompt(ticket)
+    # No template placeholders should remain
+    import re
+    leftover = re.findall(r"\{[a-z_]+\}", prompt)
+    assert leftover == [], f"Unresolved placeholders: {leftover}"
+    # All content should be present
+    assert "TICKET-099" in prompt
+    assert "src/app.py" in prompt
+    assert "docs/api.md" in prompt
+    assert "All tests pass" in prompt
+    assert "uv run pytest" in prompt
+    assert "tests can run parallel" in prompt
+
+
 @pytest.mark.asyncio
 async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
