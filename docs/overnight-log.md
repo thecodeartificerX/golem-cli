@@ -35,3 +35,6 @@ Batch 2 (tasks 11-15) complete. 111 tests passing. Starting batch 3.
 - [x] Task 17: Planner infra checks (6255c85)
 - [x] Task 18: CLAUDE.md update (b69e64c)
 - [x] Task 19: Ticket case-insensitive glob (1fbcead)
+- [x] Task 20: Tech Lead retry logic (8906083)
+
+Batch 3 (tasks 16-20) complete. 111 tests passing. 20 features shipped overnight.

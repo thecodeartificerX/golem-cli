@@ -146,10 +146,44 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **How:** Add assigned_to parameter to list_tickets(). Add test.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 20. Tech Lead Retry — Same retry pattern as planner
+### [x] 20. Tech Lead Retry — Same retry pattern as planner (DONE: 8906083)
 **Size:** Small | **Files:** `tech_lead.py`
 **What:** Tech Lead should retry on transient SDK errors, same as the planner (task 9).
 **How:** Wrap query() in retry loop with same _MAX_RETRIES/_RETRY_DELAY_S pattern.
+**Done when:** `uv run pytest` passes.
+
+---
+
+## Batch 4: Overnight Queue (continued)
+
+### [ ] 21. `golem logs` — Tail progress.log in real-time
+**Size:** Small | **Files:** `cli.py`
+**What:** New CLI command that tails `.golem/progress.log` and prints new lines as they appear.
+**How:** Read progress.log, print existing lines, then poll for new lines every 1s.
+**Done when:** `uv run pytest` passes and `golem logs --help` works.
+
+### [ ] 22. Writer Retry — Same retry pattern as planner/tech lead
+**Size:** Small | **Files:** `writer.py`
+**What:** Writer should retry on transient SDK errors.
+**How:** Wrap query() in retry loop with _MAX_RETRIES/_RETRY_DELAY_S.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 23. TicketStore.read — Case-insensitive lookup
+**Size:** Small | **Files:** `tickets.py`, `tests/test_tickets.py`
+**What:** `store.read("ticket-001")` should find `TICKET-001.json`. Currently exact match only.
+**How:** Try exact match first, then case-insensitive fallback.
+**Done when:** `uv run pytest` passes with new test.
+
+### [ ] 24. Config `save_config` — Pretty-print with sorted keys
+**Size:** Small | **Files:** `config.py`
+**What:** config.json should have sorted keys for deterministic diffs.
+**How:** Add `sort_keys=True` to json.dump.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 25. `golem plan` — Show plan summary after completion
+**Size:** Small | **Files:** `cli.py`
+**What:** After planner completes, show a summary of what was planned (task count, research files, reference files).
+**How:** Read plans/ and research/ directories after planner returns, print counts.
 **Done when:** `uv run pytest` passes.
 
 ---
