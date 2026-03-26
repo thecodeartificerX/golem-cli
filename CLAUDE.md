@@ -11,6 +11,7 @@ uv run golem plan spec.md        # Dry run — planner only, no Tech Lead
 uv run golem status              # Ticket status table (color-coded)
 uv run golem history             # Chronological event timeline
 uv run golem inspect TICKET-001  # Full details of a single ticket
+uv run golem logs -f             # Tail progress.log (follow mode)
 uv run golem resume              # Resume interrupted run from tickets
 uv run golem clean               # Remove .golem/ + golem/* branches
 uv run golem version             # Version, architecture, Python, platform
