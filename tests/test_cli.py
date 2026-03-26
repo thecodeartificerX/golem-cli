@@ -280,6 +280,77 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_inspect_with_real_ticket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem inspect shows all ticket fields: blueprint, acceptance, qa_checks, files, references."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    data = {
+        "id": "TICKET-001",
+        "type": "task",
+        "title": "Build auth module",
+        "status": "in_progress",
+        "priority": "high",
+        "created_by": "planner",
+        "assigned_to": "writer-1",
+        "context": {
+            "plan_file": "plans/001-auth.md",
+            "files": {"src/auth.py": "# auth module"},
+            "references": ["docs/auth-spec.md"],
+            "blueprint": "Implement JWT-based authentication",
+            "acceptance": ["Login endpoint returns 200", "Token expires in 1h"],
+            "qa_checks": ["uv run pytest tests/test_auth.py"],
+            "parallelism_hints": [],
+        },
+        "history": [
+            {
+                "ts": "2026-03-27T10:00:00+00:00",
+                "agent": "planner",
+                "action": "created",
+                "note": "Ticket created: Build auth module",
+                "attachments": [],
+            },
+            {
+                "ts": "2026-03-27T10:05:00+00:00",
+                "agent": "tech-lead",
+                "action": "status_changed_to_in_progress",
+                "note": "Assigned to writer-1",
+                "attachments": [],
+            },
+        ],
+    }
+    (tickets_dir / "TICKET-001.json").write_text(
+        json.dumps(data, indent=2), encoding="utf-8"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["inspect", "TICKET-001"])
+
+    assert result.exit_code == 0
+    assert "TICKET-001" in result.output
+    assert "Build auth module" in result.output
+    assert "in_progress" in result.output
+    assert "high" in result.output
+    assert "planner" in result.output
+    assert "writer-1" in result.output
+    # Context fields
+    assert "plans/001-auth.md" in result.output
+    assert "JWT-based" in result.output
+    assert "Login endpoint" in result.output
+    assert "Token expires" in result.output
+    assert "uv run pytest" in result.output
+    assert "docs/auth-spec.md" in result.output
+    assert "src/auth.py" in result.output
+    # History
+    assert "created" in result.output
+    assert "status_changed_to_in_progress" in result.output
+
+
 def test_status_with_real_tickets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem status renders a table with ticket IDs, titles, and statuses."""
     from typer.testing import CliRunner
