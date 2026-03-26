@@ -785,12 +785,12 @@ Tasks are organized by theme. Each task should be:
 **What:** Mock `dialogs.open_file_dialog` and `open_folder_dialog`, call `/api/browse/spec` and `/api/browse/root`, verify responses.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 259. Test — `validator.py:_subprocess_env()` on non-Windows
+#### [x] 259. Test — `validator.py:_subprocess_env()` on non-Windows (DONE: a99a236)
 **Size:** Small | **Files:** `tests/test_validator.py`
 **What:** Verify `_subprocess_env()` returns a valid PATH dict on non-Windows platforms (where winreg isn't available).
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 260. Test — `validator.py:_normalize_cmd()` edge cases
+#### [x] 260. Test — `validator.py:_normalize_cmd()` edge cases (DONE: a99a236)
 **Size:** Small | **Files:** `tests/test_validator.py`
 **What:** Test: empty string, string with `&` and `|` characters, string with both single and double quotes.
 **Done when:** `uv run pytest` passes.
