@@ -4,6 +4,7 @@ import asyncio
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import typer
@@ -117,6 +118,7 @@ def run(
     save_config(config, golem_dir)
 
     progress = ProgressLogger(golem_dir)
+    t0 = time.monotonic()
 
     async def _run_async() -> None:
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
@@ -128,8 +130,10 @@ def run(
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)
         await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        elapsed = time.monotonic() - t0
+        mins, secs = divmod(int(elapsed), 60)
         progress.log_tech_lead_complete()
-        console.print("[bold]Run complete.[/bold]")
+        console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
 
     asyncio.run(_run_async())
 
