@@ -105,7 +105,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Add test for the validation function.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 14. `golem history` — Show ticket event timeline
+### [x] 14. `golem history` — Show ticket event timeline (DONE: 1e9e4bf)
 **Size:** Small | **Files:** `cli.py`
 **What:** New CLI command that shows the full event history across all tickets in chronological order.
 **How:** Read all tickets, flatten all TicketEvents, sort by timestamp, print as a timeline.
