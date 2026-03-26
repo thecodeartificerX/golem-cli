@@ -150,7 +150,22 @@ def plan(
         console.print("[bold cyan]Golem[/bold cyan] — Planning (dry run)...")
         ticket_id = await run_planner(spec, golem_dir, config, project_root)
         console.print(f"[bold green]Plan complete.[/bold green] Ticket: {ticket_id}")
-        console.print(f"Plans written to: {golem_dir / 'plans'}")
+
+        # Show plan summary
+        plans_dir = golem_dir / "plans"
+        research_dir = golem_dir / "research"
+        refs_dir = golem_dir / "references"
+        task_plans = list(plans_dir.glob("task-*.md")) if plans_dir.exists() else []
+        research_files = list(research_dir.glob("*.md")) if research_dir.exists() else []
+        ref_files = list(refs_dir.glob("*.md")) if refs_dir.exists() else []
+        has_overview = (plans_dir / "overview.md").exists() if plans_dir.exists() else False
+
+        console.print(f"\n[bold]Plan Summary:[/bold]")
+        console.print(f"  Overview:   {'yes' if has_overview else 'MISSING'}")
+        console.print(f"  Task plans: {len(task_plans)}")
+        console.print(f"  Research:   {len(research_files)} file(s)")
+        console.print(f"  References: {len(ref_files)} file(s)")
+        console.print(f"  Output:     {plans_dir}")
 
     asyncio.run(_plan_async())
 
