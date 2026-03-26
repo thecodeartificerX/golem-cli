@@ -34,7 +34,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create a ticket with full context (blueprint, acceptance, qa_checks, files, references), invoke inspect, verify all fields appear in output.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 116. Test `golem history` with ticket events — Verify timeline rendering
+#### [x] 116. Test `golem history` with ticket events — Verify timeline rendering (DONE: 79e2ed8)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create tickets with multiple status updates, invoke history, verify events appear chronologically in output.
 **Done when:** `uv run pytest` passes.
