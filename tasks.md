@@ -224,31 +224,31 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 6: Overnight Queue (continued)
 
-### [ ] 31. `golem run` — Detect stale .golem/ and warn
+### [x] 31. (DONE: b7d357a) `golem run` — Detect stale .golem/ and warn
 **Size:** Small | **Files:** `cli.py`
 **What:** If `.golem/` already exists from a previous run, warn the user and suggest `golem clean` or `--force` to overwrite.
 **How:** Check if `.golem/tickets/` has files. If so, print warning. With `--force`, proceed anyway.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 32. ProgressLogger tests — Cover v2 event methods
+### [x] 32. (DONE: 828b322) ProgressLogger tests — Cover v2 event methods
 **Size:** Small | **Files:** `tests/test_progress.py` (new or extend existing)
 **What:** The new v2 progress methods (planner_start, tech_lead_complete, ticket_created, etc.) have no tests.
 **How:** Create tests that write events and verify the log file contents.
 **Done when:** `uv run pytest` passes with new tests.
 
-### [ ] 33. `golem run` summary — Show final ticket status counts
+### [x] 33. (DONE: 8a599cc) `golem run` summary — Show final ticket status counts
 **Size:** Small | **Files:** `cli.py`
 **What:** After run completes, show how many tickets are done/approved/blocked/pending.
 **How:** Read all tickets from store after tech lead, print summary counts.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 34. QA result summary in stderr — Show pass/fail count during runs
+### [x] 34. (DONE: 1052eb8) QA result summary in stderr — Show pass/fail count during runs
 **Size:** Small | **Files:** `tools.py`
 **What:** When run_qa MCP tool is called, log a summary to stderr (e.g. "[QA] 5/6 checks passed").
 **How:** In _handle_run_qa, print summary to stderr after running checks.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 35. `golem` (no command) — Show help with available commands summary
+### [x] 35. (DONE: a704205) `golem` (no command) — Show help with available commands summary
 **Size:** Small | **Files:** `cli.py`
 **What:** Running just `golem` with no subcommand should show a clean help message listing all commands.
 **How:** Typer already does this by default, but verify and add `invoke_without_command=True` with a help print if missing.

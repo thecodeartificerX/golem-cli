@@ -52,4 +52,12 @@ Batch 4 (tasks 21-25) complete. 112 tests passing.
 - [x] Task 29: Progress elapsed time (f7ac19f)
 - [x] Task 30: Clean confirmation (be00fb4)
 
-Batch 5 (tasks 26-30) complete. 112 tests passing. 30 features shipped overnight.
+Batch 5 (tasks 26-30) complete. 112 tests passing.
+
+- [x] Task 31: Stale .golem/ detection (b7d357a)
+- [x] Task 32: Progress tests (828b322)
+- [x] Task 33: Run summary (8a599cc)
+- [x] Task 34: QA stderr summary (1052eb8)
+- [x] Task 35: No-command help (a704205)
+
+Batch 6 (tasks 31-35) complete. 120 tests passing. 35 features shipped overnight.
