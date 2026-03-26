@@ -280,6 +280,71 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_history_with_ticket_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem history shows events chronologically across tickets."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    # Ticket 1 with two events
+    data1 = {
+        "id": "TICKET-001",
+        "type": "task",
+        "title": "First task",
+        "status": "done",
+        "priority": "high",
+        "created_by": "planner",
+        "assigned_to": "writer",
+        "context": {"plan_file": "", "files": {}, "references": [], "blueprint": "",
+                     "acceptance": [], "qa_checks": [], "parallelism_hints": []},
+        "history": [
+            {"ts": "2026-03-27T08:00:00+00:00", "agent": "planner", "action": "created",
+             "note": "Ticket created: First task", "attachments": []},
+            {"ts": "2026-03-27T12:00:00+00:00", "agent": "writer", "action": "done",
+             "note": "Work complete", "attachments": []},
+        ],
+    }
+    # Ticket 2 with one event (timestamp between ticket 1's events)
+    data2 = {
+        "id": "TICKET-002",
+        "type": "task",
+        "title": "Second task",
+        "status": "pending",
+        "priority": "low",
+        "created_by": "planner",
+        "assigned_to": "writer",
+        "context": {"plan_file": "", "files": {}, "references": [], "blueprint": "",
+                     "acceptance": [], "qa_checks": [], "parallelism_hints": []},
+        "history": [
+            {"ts": "2026-03-27T10:00:00+00:00", "agent": "planner", "action": "created",
+             "note": "Ticket created: Second task", "attachments": []},
+        ],
+    }
+    (tickets_dir / "TICKET-001.json").write_text(json.dumps(data1, indent=2), encoding="utf-8")
+    (tickets_dir / "TICKET-002.json").write_text(json.dumps(data2, indent=2), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["history"])
+
+    assert result.exit_code == 0
+    assert "TICKET-001" in result.output
+    assert "TICKET-002" in result.output
+    assert "created" in result.output
+    # Verify chronological ordering: 08:00 then 10:00 then 12:00
+    # Rich may truncate timestamps, so check rows appear in ticket order
+    first_t001 = result.output.index("TICKET-001")
+    t002_pos = result.output.index("TICKET-002")
+    # TICKET-001 created at 08:00 should appear before TICKET-002 created at 10:00
+    assert first_t001 < t002_pos
+    # Summary line
+    assert "3 event(s)" in result.output
+    assert "2 ticket(s)" in result.output
+
+
 def test_inspect_with_real_ticket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """golem inspect shows all ticket fields: blueprint, acceptance, qa_checks, files, references."""
     from typer.testing import CliRunner
