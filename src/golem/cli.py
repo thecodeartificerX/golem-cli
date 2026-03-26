@@ -642,6 +642,28 @@ def diff(
     console.print(result.stdout)
 
 
+@app.command(name="list-specs")
+def list_specs() -> None:
+    """List all .md files in the project that look like specs."""
+    project_root = _get_project_root()
+    skip = {".git", ".golem", ".venv", "node_modules", "__pycache__", ".claude"}
+    specs: list[Path] = []
+    for p in sorted(project_root.rglob("*.md")):
+        parts = p.relative_to(project_root).parts
+        if any(part.startswith(".") or part in skip for part in parts):
+            continue
+        specs.append(p)
+
+    if not specs:
+        console.print("[dim]No .md files found in project.[/dim]")
+        return
+
+    for spec in specs:
+        rel = spec.relative_to(project_root)
+        console.print(f"  {rel}")
+    console.print(f"\n[dim]{len(specs)} spec(s) found.[/dim]")
+
+
 # --------------------------------------------------------------------------
 # config subcommand group
 # --------------------------------------------------------------------------
