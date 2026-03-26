@@ -484,6 +484,29 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 15: Overnight Queue
+
+### [ ] 74. Test worktree — merge_group_branches with nonexistent branch
+**Size:** Small | **Files:** `tests/test_worktree.py`
+**What:** If a branch doesn't exist, merge_group_branches should skip it gracefully.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 75. Test QA — run_qa summary string format
+**Size:** Small | **Files:** `tests/test_qa.py`
+**What:** Verify summary includes "passed" count and lists failed checks.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 76. `golem run` — Catch and display RuntimeError cleanly
+**Size:** Small | **Files:** `cli.py`
+**What:** If planner/tech lead raises RuntimeError, catch it in the run command and print the message cleanly instead of showing a full traceback.
+**Done when:** `uv run pytest` passes.
+
+### [ ] 77. Update overnight stats + memory files final
+**Size:** Small
+**Done when:** All updated.
+
+---
+
 ### Agent Observability / Live Streaming (EXPANDED)
 Beyond basic stderr streaming (task 1), we eventually want:
 - A TUI dashboard showing all active agents and their current activity

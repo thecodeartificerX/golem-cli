@@ -148,3 +148,28 @@ def test_merge_group_branches_clean() -> None:
         )
         assert success is True
         assert conflict_info == ""
+
+
+def test_merge_group_branches_skips_nonexistent() -> None:
+    """merge_group_branches skips branches that don't exist."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Create one real branch, reference one that doesn't exist
+        _git("checkout", "-b", "branch-real")
+        (repo / "real.txt").write_text("real", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "real branch")
+        _git("checkout", "main")
+
+        success, conflict_info = merge_group_branches(
+            ["branch-real", "branch-nonexistent"], "integration", repo,
+        )
+        # Should succeed — nonexistent branch is skipped
+        assert success is True
+        assert conflict_info == ""

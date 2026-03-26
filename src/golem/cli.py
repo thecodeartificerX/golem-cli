@@ -182,7 +182,11 @@ def run(
         ref_count = len(list(refs_dir.glob("*.md"))) if refs_dir.exists() else 0
         console.print(f"  Artifacts:  {plan_count} plans, {research_count} research, {ref_count} references")
 
-    asyncio.run(_run_async())
+    try:
+        asyncio.run(_run_async())
+    except RuntimeError as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()

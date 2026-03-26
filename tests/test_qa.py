@@ -53,6 +53,14 @@ def test_run_qa_summary_format() -> None:
         assert "exit 1" in result.summary or "Failed" in result.summary
 
 
+def test_run_qa_summary_all_pass() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0", "echo ok"], [])
+        assert "2/2" in result.summary
+        # Should not mention "Failed" when all pass
+        assert "Failed" not in result.summary or "0" in result.summary
+
+
 def test_run_autofix_runs_ruff() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch("subprocess.run") as mock_run:
