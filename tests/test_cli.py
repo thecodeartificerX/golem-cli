@@ -173,3 +173,13 @@ def test_clean_cli_no_golem_dir_exits_cleanly() -> None:
     result = runner.invoke(app, ["clean", "--force"])
     assert result.exit_code == 0
     assert "nothing to clean" in result.output.lower()
+
+
+def test_logs_cli_no_progress_log_exits() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["logs"])
+    assert result.exit_code != 0 or "no progress" in result.output.lower()

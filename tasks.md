@@ -635,6 +635,19 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 23: The 100 Tasks Milestone
+
+### [ ] 99. Test `golem logs` CLI — exits cleanly with no progress.log
+**Size:** Small | **Files:** `tests/test_cli.py`
+**Done when:** `uv run pytest` passes.
+
+### [ ] 100. Final milestone — update all stats, memory, CLAUDE.md
+**Size:** Small
+**What:** 100th task. Update overnight-log.md, memory files, verify everything is consistent.
+**Done when:** All updated and committed.
+
+---
+
 ## Ideas & Future Work (Not Yet Scheduled)
 
 ### Agent Observability / Live Streaming (EXPANDED)
