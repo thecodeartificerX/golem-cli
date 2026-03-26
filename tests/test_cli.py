@@ -37,6 +37,23 @@ def test_validate_spec_valid_passes() -> None:
     _validate_spec(Path(f.name))
 
 
+def test_validate_spec_short_warns(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w", encoding="utf-8") as f:
+        f.write("# Short\nTiny spec.")  # 19 chars, < 50
+    # Should not raise, just warn
+    _validate_spec(Path(f.name))
+    captured = capsys.readouterr()
+    assert "very short" in captured.out
+
+
+def test_validate_spec_no_structure_warns(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w", encoding="utf-8") as f:
+        f.write("This is just a paragraph of text without any headings or task markers at all and it is long enough.")
+    _validate_spec(Path(f.name))
+    captured = capsys.readouterr()
+    assert "no headings" in captured.out
+
+
 def test_detect_infrastructure_checks_finds_ruff() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         pyproject = Path(tmpdir) / "pyproject.toml"
