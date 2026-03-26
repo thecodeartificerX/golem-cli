@@ -73,7 +73,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 10. `golem version` — Show v2 architecture info
+### [x] 10. `golem version` — Show v2 architecture info (DONE: f6431e6)
 **Size:** Small | **Files:** `cli.py`, `version.py`
 **What:** `golem version` should indicate it's running the v2 ticket-driven architecture.
 **How:** Update version string or add "Architecture: v2 (ticket-driven)" to version output.
