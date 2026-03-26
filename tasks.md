@@ -306,7 +306,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Print key config values (models, max_parallel, max_worker_turns) at the start of a run for debugging.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 168. Config — Add `golem config show` subcommand
+#### [x] 168. Config — Add `golem config show` subcommand (DONE: e165467)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** New CLI command that prints the current config as pretty JSON (from `.golem/config.json` or defaults).
 **Done when:** `uv run pytest` passes.
@@ -316,7 +316,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Allow setting config values from CLI without editing JSON. Validate the key and value type.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 170. Config — Add `golem config reset` subcommand
+#### [x] 170. Config — Add `golem config reset` subcommand (DONE: e165467)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Reset config to defaults (delete `.golem/config.json`).
 **Done when:** `uv run pytest` passes.
