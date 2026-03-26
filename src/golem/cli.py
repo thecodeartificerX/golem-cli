@@ -80,12 +80,33 @@ def _create_golem_dirs(golem_dir: Path) -> None:
         (golem_dir / subdir).mkdir(parents=True, exist_ok=True)
 
 
+def _validate_spec(spec: Path) -> None:
+    """Validate that a spec file exists and has meaningful content."""
+    if not spec.exists():
+        console.print(f"[red]Spec file not found: {spec}[/red]")
+        raise typer.Exit(1)
+    if not spec.suffix == ".md":
+        console.print(f"[red]Spec must be a markdown file (.md), got: {spec.suffix}[/red]")
+        raise typer.Exit(1)
+    content = spec.read_text(encoding="utf-8").strip()
+    if not content:
+        console.print("[red]Spec file is empty.[/red]")
+        raise typer.Exit(1)
+    if len(content) < 50:
+        console.print(f"[yellow]Warning: spec is very short ({len(content)} chars) — may not have enough detail for planning.[/yellow]")
+    # Check for at least one heading or task marker
+    has_structure = any(line.strip().startswith(("#", "**", "- [")) for line in content.splitlines())
+    if not has_structure:
+        console.print("[yellow]Warning: spec has no headings or task markers — planner may struggle to extract tasks.[/yellow]")
+
+
 @app.command()
 def run(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR."""
+    _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
     _create_golem_dirs(golem_dir)
@@ -118,6 +139,7 @@ def plan(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
 ) -> None:
     """Dry run — generate plans only, no Tech Lead execution."""
+    _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
     _create_golem_dirs(golem_dir)
