@@ -44,7 +44,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create `.golem/` with tickets and branches, invoke `clean --force`, verify directory removed and branches deleted.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 118. Test `golem logs` with existing log file — Verify output printed
+#### [x] 118. Test `golem logs` with existing log file — Verify output printed (DONE: 1c62171)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create a `progress.log` with entries, invoke `golem logs` (non-follow mode), verify log lines appear in output.
 **Done when:** `uv run pytest` passes.
