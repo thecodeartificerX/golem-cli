@@ -183,3 +183,25 @@ def test_logs_cli_no_progress_log_exits() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["logs"])
     assert result.exit_code != 0 or "no progress" in result.output.lower()
+
+
+def test_inspect_cli_no_golem_dir_exits_cleanly() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["inspect", "TICKET-001"])
+    assert result.exit_code == 0
+    assert "no active" in result.output.lower()
+
+
+def test_resume_cli_no_tickets_exits_cleanly() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["resume"])
+    # Should exit with error since no tickets dir exists
+    assert result.exit_code != 0 or "no tickets" in result.output.lower()

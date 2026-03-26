@@ -112,6 +112,9 @@ def run(
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR."""
+    from golem import __version__
+
+    console.print(f"[bold cyan]Golem[/bold cyan] v{__version__} (v2 ticket-driven)")
     _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)

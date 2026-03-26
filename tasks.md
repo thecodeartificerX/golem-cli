@@ -648,6 +648,23 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ---
 
+## Batch 24: Post-milestone
+
+### [ ] 101. Test `golem inspect` CLI — exits cleanly with no .golem/
+**Size:** Small | **Files:** `tests/test_cli.py`
+**Done when:** `uv run pytest` passes.
+
+### [ ] 102. Test `golem resume` CLI — exits cleanly with no tickets
+**Size:** Small | **Files:** `tests/test_cli.py`
+**Done when:** `uv run pytest` passes.
+
+### [ ] 103. `golem run` — Print "golem version" info at start
+**Size:** Small | **Files:** `cli.py`
+**What:** Show version + architecture at the top of a run for diagnostic/log context.
+**Done when:** `uv run pytest` passes.
+
+---
+
 ## Ideas & Future Work (Not Yet Scheduled)
 
 ### Agent Observability / Live Streaming (EXPANDED)
