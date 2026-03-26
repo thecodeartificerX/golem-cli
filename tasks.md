@@ -566,17 +566,17 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 19: Overnight Queue (morning prep)
 
-### [ ] 87. Overnight summary in CLAUDE.md — Document what was built overnight
+### [x] 87. (DONE: 3537d0d) Overnight summary in CLAUDE.md — Document what was built overnight
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** Add a section noting that 80+ improvements were shipped overnight on feat/overnight-improvements, ready for merge review.
 **Done when:** CLAUDE.md updated.
 
-### [ ] 88. Test `golem plan` CLI entry — Exits on bad spec
+### [x] 88. (DONE: 3537d0d) Test `golem plan` CLI entry — Exits on bad spec
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Same as task 86 but for the plan command.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 89. Final git log summary for morning review
+### [x] 89. (DONE: this commit) Final git log summary for morning review
 **Size:** Small
 **What:** Print the full commit log to overnight-log.md so the user can see everything at a glance.
 **Done when:** Log updated.

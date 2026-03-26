@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 86 tasks, 18 batches, 160 tests, 100 commits
+**Status:** COMPLETE — 89 tasks, 19 batches, 161 tests, 103 commits
 
 ### Final Stats
-- **Tasks completed:** 86
-- **Batches:** 18
-- **Tests:** 160 (up from 106 at start — +51%)
-- **Commits:** 100
+- **Tasks completed:** 89
+- **Batches:** 19
+- **Tests:** 161 (up from 106 at start — +52%)
+- **Commits:** 103
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -155,4 +155,23 @@ Batch 17 complete. 158 tests passing.
 - [x] Task 85: Version matches __init__ test (0c7cf75)
 - [x] Task 86: CLI integration test (0c7cf75)
 
-Batch 18 complete. 160 tests passing. 86 tasks shipped overnight.
+Batch 18 complete. 160 tests passing.
+
+### Batch 19 (tasks 87-89) — Morning prep
+- [x] Task 87: CLAUDE.md overnight summary (3537d0d)
+- [x] Task 88: Plan CLI exit test (3537d0d)
+- [x] Task 89: Git log summary (this commit)
+
+Batch 19 complete. 161 tests passing. 89 tasks shipped overnight.
+
+### Key Feature Highlights for Morning Review
+1. **SDK streaming** — `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` stderr output shows what agents are doing
+2. **Self-healing** — planner ticket fallback, tech lead merge-to-main, worktree cleanup on error
+3. **Retry logic** — all 3 agents retry 2x on transient SDK errors
+4. **New CLI commands** — `history`, `inspect`, `logs -f`, enhanced `status`/`clean`/`version`
+5. **Config validation** — warns on bad model names and invalid bounds
+6. **Spec validation** — catches empty/malformed specs before wasting tokens
+7. **Stale state detection** — warns if `.golem/` has leftover state from previous run
+8. **Writer gets ticket tools** — can self-report `ready_for_review` via MCP
+9. **Progress logging** — structured events written to progress.log
+10. **v0.2.0** — version bumped, pyproject.toml synced
