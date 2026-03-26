@@ -543,7 +543,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `golem inspect` and `golem retry` should tab-complete ticket IDs from `.golem/tickets/`.
 **Done when:** Tab completion works in bash/zsh.
 
-#### [ ] 213. CLI — `golem pr` — Create PR from last run's changes
+#### [x] 213. CLI — `golem pr` — Create PR from last run's changes (DONE: c532091)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Wrapper around `gh pr create` with auto-generated title/body from the spec and ticket summaries.
 **Done when:** `uv run pytest` passes.
