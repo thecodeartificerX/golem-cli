@@ -129,18 +129,18 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **How:** Read ticket by ID, print formatted output with all sections.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 17. Planner Prompt — Inject infra checks into planner context
+### [x] 17. Planner Prompt — Inject infra checks into planner context (DONE: 6255c85)
 **Size:** Small | **Files:** `planner.py`
 **What:** The planner doesn't know about detected infrastructure checks. Pass them so it can include them in QA check lists for writers.
 **How:** Add `{infrastructure_checks}` template variable to planner.md and inject in run_planner().
 **Done when:** `uv run pytest` passes.
 
-### [ ] 18. CLAUDE.md Update — Reflect overnight changes
+### [x] 18. CLAUDE.md Update — Reflect overnight changes (DONE: b69e64c)
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** CLAUDE.md project structure and CLI commands are stale. Update to reflect all new commands (history, inspect) and new modules (qa.py, tools.py, tech_lead.py, writer.py).
 **Done when:** CLAUDE.md matches reality.
 
-### [ ] 19. TicketStore.list_tickets — Add assigned_to filter
+### [x] 19. TicketStore.list_tickets — Case-insensitive ticket file glob (DONE: 1fbcead)
 **Size:** Small | **Files:** `tickets.py`, `tests/test_tickets.py`
 **What:** list_tickets accepts status_filter but not assigned_to_filter, even though the spec defined it.
 **How:** Add assigned_to parameter to list_tickets(). Add test.

@@ -29,4 +29,9 @@ Batch 1 (tasks 1-10) complete. 110 tests passing. Starting batch 2.
 - [x] Task 14: golem history (1e9e4bf)
 - [x] Task 15: Worktree Cleanup on Error (292a48b)
 
-Batch 2 (tasks 11-15) complete. 111 tests passing. Generating batch 3.
+Batch 2 (tasks 11-15) complete. 111 tests passing. Starting batch 3.
+
+- [x] Task 16: golem inspect (e86cdec)
+- [x] Task 17: Planner infra checks (6255c85)
+- [x] Task 18: CLAUDE.md update (b69e64c)
+- [x] Task 19: Ticket case-insensitive glob (1fbcead)
