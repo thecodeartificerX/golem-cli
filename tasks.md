@@ -45,7 +45,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Add test for validate() with valid and invalid model names.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 6. Progress Events — Write structured events to progress.log
+### [x] 6. Progress Events — Write structured events to progress.log (DONE: 7c002bf)
 **Size:** Small | **Files:** `progress.py`, `planner.py`, `tech_lead.py`
 **What:** The v2 pipeline doesn't write to progress.log at all. Add event logging for key milestones.
 **How:** Call `ProgressLogger` at: planner start/end, tech lead start/end, ticket creation, writer dispatch, QA results.
