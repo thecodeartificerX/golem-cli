@@ -91,7 +91,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 **Test:** Existing tests pass. Add test that `create_writer_mcp_server` returns both tools.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 12. `golem resume` — Re-spawn Tech Lead from existing tickets
+### [x] 12. `golem resume` — Re-spawn Tech Lead from existing tickets (DONE: aa446b2)
 **Size:** Small | **Files:** `cli.py`
 **What:** The resume command should find the last planner ticket and re-spawn the Tech Lead.
 **How:** Read tickets from store, find the tech_lead ticket, call `run_tech_lead()`.

@@ -24,7 +24,7 @@
 Batch 1 (tasks 1-10) complete. 110 tests passing. Starting batch 2.
 
 - [x] Task 11: Writer Gets Ticket Tools (7a09659)
-- [ ] Task 12: golem resume
+- [x] Task 12: golem resume (aa446b2)
 - [ ] Task 13: Spec Validation
 - [ ] Task 14: golem history
 - [ ] Task 15: Worktree Cleanup on Error
