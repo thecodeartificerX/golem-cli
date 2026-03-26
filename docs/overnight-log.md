@@ -4,15 +4,15 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 73 tasks, 14 batches, 154 tests, 90 commits
+**Status:** COMPLETE — 77 tasks, 15 batches, 156 tests, 92 commits
 
 ### Final Stats
-- **Tasks completed:** 73
-- **Batches:** 14
-- **Tests:** 154 (up from 106 at start — +45% coverage)
-- **Commits:** 90
+- **Tasks completed:** 77
+- **Batches:** 15
+- **Tests:** 156 (up from 106 at start — +47%)
+- **Commits:** 92
 - **Files changed:** 25
-- **Lines added:** ~2,000
+- **Lines added:** ~2,100
 - **Lines removed:** ~135
 
 ### Batch 1 (tasks 1-10) — Core improvements
@@ -126,4 +126,12 @@ Batch 13 complete. 151 tests passing.
 - [x] Task 72: Planner rules (ae86673)
 - [x] Task 73: CLAUDE.md testing update (ae86673)
 
-Batch 14 complete. 154 tests passing. 73 tasks shipped overnight.
+Batch 14 complete. 154 tests passing.
+
+### Batch 15 (tasks 74-77) — Final
+- [x] Task 74: Merge skips nonexistent branch (1af097a)
+- [x] Task 75: QA all-pass summary test (1af097a)
+- [x] Task 76: Clean RuntimeError display (1af097a)
+- [x] Task 77: Final stats update (this commit)
+
+Batch 15 complete. 156 tests passing. 77 tasks shipped overnight.
