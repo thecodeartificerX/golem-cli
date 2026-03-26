@@ -13,10 +13,16 @@ def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, re
     path.parent.mkdir(parents=True, exist_ok=True)
     # Check if branch already exists
     result = _run(["git", "branch", "--list", branch], cwd=repo_root, check=False)
-    if branch in result.stdout:
-        _run(["git", "worktree", "add", str(path), branch], cwd=repo_root)
-    else:
-        _run(["git", "worktree", "add", "-b", branch, str(path), base_branch], cwd=repo_root)
+    try:
+        if branch in result.stdout:
+            _run(["git", "worktree", "add", str(path), branch], cwd=repo_root)
+        else:
+            _run(["git", "worktree", "add", "-b", branch, str(path), base_branch], cwd=repo_root)
+    except subprocess.CalledProcessError:
+        # Clean up empty directory left behind by mkdir
+        if path.exists() and not any(path.iterdir()):
+            path.rmdir()
+        raise
 
 
 def delete_worktree(path: Path, repo_root: Path) -> None:

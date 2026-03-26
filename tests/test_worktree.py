@@ -175,6 +175,22 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         assert conflict_info == ""
 
 
+def test_create_worktree_cleans_up_on_failure() -> None:
+    """create_worktree cleans up empty parent dir if git worktree add fails."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        wt_path = Path(tmpdir) / "worktrees" / "bad-group"
+        # Use a non-existent base branch to force failure
+        with pytest.raises(subprocess.CalledProcessError):
+            create_worktree("bad-group", "golem/spec/bad", "nonexistent-branch", wt_path, repo)
+
+        # The empty directory should have been cleaned up
+        assert not wt_path.exists()
+
+
 def test_merge_group_branches_empty_list() -> None:
     """merge_group_branches with empty list returns (True, '')."""
     with tempfile.TemporaryDirectory() as tmpdir:
