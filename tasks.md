@@ -29,7 +29,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create tickets in a temp `.golem/tickets/` dir, invoke the status command, verify the table contains ticket IDs, titles, and status values in the output.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 115. Test `golem inspect` with real ticket — Verify all sections printed
+#### [x] 115. Test `golem inspect` with real ticket — Verify all sections printed (DONE: a864323)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create a ticket with full context (blueprint, acceptance, qa_checks, files, references), invoke inspect, verify all fields appear in output.
 **Done when:** `uv run pytest` passes.
