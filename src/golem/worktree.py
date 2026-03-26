@@ -4,8 +4,8 @@ import subprocess
 from pathlib import Path
 
 
-def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check)
+def _run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check, timeout=timeout)
 
 
 def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path) -> None:
@@ -13,10 +13,44 @@ def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, re
     path.parent.mkdir(parents=True, exist_ok=True)
     # Check if branch already exists
     result = _run(["git", "branch", "--list", branch], cwd=repo_root, check=False)
-    if branch in result.stdout:
-        _run(["git", "worktree", "add", str(path), branch], cwd=repo_root)
-    else:
-        _run(["git", "worktree", "add", "-b", branch, str(path), base_branch], cwd=repo_root)
+    try:
+        if branch in result.stdout:
+            _run(["git", "worktree", "add", str(path), branch], cwd=repo_root)
+        else:
+            _run(["git", "worktree", "add", "-b", branch, str(path), base_branch], cwd=repo_root)
+    except subprocess.CalledProcessError:
+        # Clean up empty directory left behind by mkdir
+        if path.exists() and not any(path.iterdir()):
+            path.rmdir()
+        raise
+
+    # Auto-install dependencies in the new worktree
+    _post_create_install(path)
+
+
+def _post_create_install(worktree_path: Path) -> None:
+    """Run dependency installation in a new worktree if project files are detected."""
+    import os
+
+    # Clear inherited VIRTUAL_ENV to avoid uv conflicts
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+
+    if (worktree_path / "pyproject.toml").exists():
+        subprocess.run(
+            ["uv", "sync"], cwd=worktree_path, capture_output=True, env=env, timeout=120,
+        )
+    elif (worktree_path / "package.json").exists():
+        # Prefer bun if available, fallback to npm
+        bun_result = subprocess.run(["bun", "--version"], capture_output=True)
+        if bun_result.returncode == 0:
+            subprocess.run(
+                ["bun", "install"], cwd=worktree_path, capture_output=True, timeout=120,
+            )
+        else:
+            subprocess.run(
+                ["npm", "install"], cwd=worktree_path, capture_output=True, timeout=120,
+            )
 
 
 def delete_worktree(path: Path, repo_root: Path) -> None:
@@ -80,7 +114,11 @@ def merge_group_branches(group_branches: list[str], target_branch: str, repo_roo
 
 
 def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, pr_target: str = "main") -> str:
-    """Create a GitHub PR using gh CLI. Returns the PR URL."""
+    """Create a GitHub PR using gh CLI. Returns the PR URL.
+
+    Requires `gh` (GitHub CLI) to be installed and authenticated.
+    Raises RuntimeError if gh fails (e.g. not authenticated, repo not a GitHub remote).
+    """
     cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", pr_target, "--head", branch]
     if draft:
         cmd.append("--draft")

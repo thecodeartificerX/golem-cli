@@ -26,11 +26,6 @@ from golem.tools import create_writer_mcp_server
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
 
-def _strip_section(template: str, key: str) -> str:
-    """Replace a template variable with empty string when its value is empty."""
-    return template.replace("{" + key + "}", "")
-
-
 def build_writer_prompt(ticket: Ticket) -> str:
     """Build writer prompt from ticket context, stripping empty sections."""
     template = _WRITER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
@@ -127,10 +122,10 @@ async def spawn_writer_pair(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[WRITER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[WRITER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 raise RuntimeError(
                     f"Writer failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from golem.worktree import commit_task, create_worktree, delete_worktree, list_worktrees, merge_group_branches
+from golem.worktree import commit_task, create_pr, create_worktree, delete_worktree, list_worktrees, merge_group_branches
 
 
 def _init_git_repo(path: Path) -> None:
@@ -173,3 +173,128 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         # Should succeed — nonexistent branch is skipped
         assert success is True
         assert conflict_info == ""
+
+
+def test_create_worktree_cleans_up_on_failure() -> None:
+    """create_worktree cleans up empty parent dir if git worktree add fails."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        wt_path = Path(tmpdir) / "worktrees" / "bad-group"
+        # Use a non-existent base branch to force failure
+        with pytest.raises(subprocess.CalledProcessError):
+            create_worktree("bad-group", "golem/spec/bad", "nonexistent-branch", wt_path, repo)
+
+        # The empty directory should have been cleaned up
+        assert not wt_path.exists()
+
+
+def test_merge_group_branches_empty_list() -> None:
+    """merge_group_branches with empty list returns (True, '')."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        success, conflict_info = merge_group_branches([], "integration", repo)
+        assert success is True
+        assert conflict_info == ""
+
+
+def test_create_worktree_branch_already_exists() -> None:
+    """create_worktree uses existing branch when it already exists (no -b flag)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        # Create branch first
+        subprocess.run(["git", "branch", "golem/spec/existing"], cwd=repo, check=True, capture_output=True)
+
+        wt_path = Path(tmpdir) / "worktrees" / "existing"
+        create_worktree("existing", "golem/spec/existing", "main", wt_path, repo)
+
+        # Worktree should exist and be on the correct branch
+        worktrees = list_worktrees(repo)
+        assert any("existing" in wt for wt in worktrees)
+
+        # Check the worktree is on the expected branch
+        result = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=wt_path,
+            capture_output=True, text=True, check=True,
+        )
+        assert result.stdout.strip() == "golem/spec/existing"
+
+        # Cleanup
+        delete_worktree(wt_path, repo)
+
+
+def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr returns the PR URL on success."""
+    from unittest.mock import MagicMock
+
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "https://github.com/owner/repo/pull/42\n"
+    fake_result.stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
+
+    url = create_pr(
+        branch="feat/my-feature",
+        title="My Feature",
+        body="Description here",
+        draft=False,
+        repo_root=Path("."),
+    )
+    assert url == "https://github.com/owner/repo/pull/42"
+
+
+def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr raises RuntimeError when gh fails."""
+    from unittest.mock import MagicMock
+
+    fake_result = MagicMock()
+    fake_result.returncode = 1
+    fake_result.stdout = ""
+    fake_result.stderr = "not authenticated"
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
+
+    with pytest.raises(RuntimeError, match="gh pr create failed"):
+        create_pr(
+            branch="feat/broken",
+            title="Broken",
+            body="",
+            draft=False,
+            repo_root=Path("."),
+        )
+
+
+def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_pr passes --draft when draft=True."""
+    from unittest.mock import MagicMock
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        captured_cmd.extend(cmd)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "https://github.com/owner/repo/pull/99\n"
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    url = create_pr(
+        branch="feat/draft",
+        title="Draft PR",
+        body="WIP",
+        draft=True,
+        repo_root=Path("."),
+    )
+    assert url == "https://github.com/owner/repo/pull/99"
+    assert "--draft" in captured_cmd

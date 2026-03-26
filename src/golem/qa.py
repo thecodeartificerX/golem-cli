@@ -33,6 +33,8 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
         content = pyproject.read_text(encoding="utf-8")
         if "[tool.ruff]" in content or "[tool.ruff." in content:
             checks.append("ruff check .")
+        if "[tool.mypy]" in content or "[mypy]" in content:
+            checks.append("mypy .")
 
     package_json = project_root / "package.json"
     if package_json.exists():
@@ -41,12 +43,18 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
             scripts = data.get("scripts", {})
             if "lint" in scripts:
                 checks.append("npm run lint")
+            if "test" in scripts:
+                checks.append("npm test")
         except Exception:
             pass
 
     tsconfig = project_root / "tsconfig.json"
     if tsconfig.exists():
         checks.append("npx tsc --noEmit")
+
+    cargo_toml = project_root / "Cargo.toml"
+    if cargo_toml.exists():
+        checks.append("cargo test")
 
     return checks
 
@@ -59,16 +67,21 @@ def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[st
 
     for cmd in infrastructure_checks + checks:
         normalized = _normalize_cmd(cmd)
-        result = subprocess.run(
-            normalized,
-            shell=True,
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=env,
-        )
-        passed = result.returncode == 0
+        try:
+            result = subprocess.run(
+                normalized,
+                shell=True,
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+                timeout=120,
+            )
+            passed = result.returncode == 0
+        except subprocess.TimeoutExpired:
+            passed = False
+            result = type("R", (), {"returncode": -1, "stdout": "", "stderr": f"Timed out after 120s: {cmd}"})()  # type: ignore[assignment]
         # Determine check type from command
         if "ruff" in cmd or "lint" in cmd or "eslint" in cmd:
             check_type = "lint"
@@ -104,7 +117,14 @@ def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[st
 
 
 def run_autofix(worktree_path: str, infrastructure_checks: list[str]) -> None:
-    """Run autofix tools (ruff, prettier) before counting a retry."""
+    """Run autofix tools (ruff, prettier) before counting a QA retry.
+
+    Scans infrastructure_checks for known tool names and runs their fix commands:
+    - ruff: runs `ruff check --fix .` then `ruff format .`
+    - prettier: runs `npx prettier --write .`
+
+    No-op if no matching tools are found in the checks list.
+    """
     env = _subprocess_env()
     all_checks = infrastructure_checks
 

@@ -18,8 +18,9 @@ class GolemConfig:
     validator_model: str = "claude-sonnet-4-6"
     tech_lead_model: str = "claude-opus-4-6"
     max_worker_turns: int = 50
-    max_validator_turns: int = 20
-    auto_pr: bool = True
+    max_tech_lead_turns: int = 100
+    sdk_timeout: int = 180
+    retry_delay: int = 10
     pr_target: str = "main"
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
     # from firing in headless SDK sessions and killing them.
@@ -41,6 +42,10 @@ class GolemConfig:
             warnings.append(f"max_retries must be >= 0, got {self.max_retries}")
         if self.max_worker_turns < 1:
             warnings.append(f"max_worker_turns must be >= 1, got {self.max_worker_turns}")
+        valid_sources = {"project", "user"}
+        for src in self.setting_sources:
+            if src not in valid_sources:
+                warnings.append(f"Unknown setting_source: {src!r} — valid values are {sorted(valid_sources)}")
         return warnings
 
 
@@ -60,6 +65,10 @@ def load_config(golem_dir: Path) -> GolemConfig:
 
 def sdk_env() -> dict[str, str]:
     """Environment overrides for Claude Agent SDK subprocess.
+
+    Returns a *partial* dict (not a full env copy). The SDK merges these
+    overrides into the inherited environment. Only keys that need to be
+    changed are included.
 
     Clears ANTHROPIC_API_KEY so the spawned claude CLI uses its own
     OAuth auth instead of treating the env var as an external API key.

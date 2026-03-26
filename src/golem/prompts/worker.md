@@ -54,6 +54,7 @@ Before writing any code, sanity-check the plan against the references:
 - Make only the changes required by this ticket
 - Follow the existing code style and patterns
 - Do not add unnecessary abstractions or documentation
+- Do NOT run `git commit` or `git push` — the Tech Lead handles all git operations
 
 ### Step 3: Spawn Sub-Writers (if parallelism hints provided)
 
@@ -77,7 +78,8 @@ If QA fails:
 - Read the structured error output carefully
 - Fix the specific failures in-context
 - Call `mcp__golem-writer__run_qa` again
-- Repeat until QA passes or you've tried 3 times (then report the failure)
+- Repeat until QA passes or you've tried 3 times
+- If still failing after 3 attempts, call `mcp__golem-writer__update_ticket` with status `needs_work` and the failure details so the Tech Lead can assess
 
 ### Step 6: Report and Update Ticket
 
@@ -89,10 +91,19 @@ When QA passes:
 
 Stay alive. Do not exit. Wait for the Tech Lead to respond.
 
+After updating the ticket to `ready_for_review`, poll for status changes by calling `mcp__golem-writer__read_ticket` every 30 seconds until the status changes from `ready_for_review`.
+
 - If the Tech Lead sets status to `approved`: your work is done. Exit.
 - If the Tech Lead sets status to `needs_work`: read the specific feedback, fix in-context, re-run QA, and re-update the ticket to `ready_for_review`
 
 ---
+
+## Available MCP Tools
+
+- `mcp__golem-writer__run_qa(worktree_path, checks, infrastructure_checks)` — run QA checks
+- `mcp__golem-writer__update_ticket(ticket_id, status, note, agent)` — update ticket status
+
+These are writer-specific tools (server: `golem-writer`). Do NOT use `mcp__golem__*` tools — those belong to the Tech Lead.
 
 ## Rules
 

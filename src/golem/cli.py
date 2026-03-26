@@ -29,7 +29,10 @@ _GOLEM_DIR_NAME = ".golem"
 
 
 def _resolve_spec_project_root(spec: Path) -> Path:
-    """Walk up from the spec file to find the git root of the target project."""
+    """Walk up from the spec file to find the git root of the target project.
+
+    Falls back to the spec file's parent directory if no .git directory is found.
+    """
     candidate = spec.resolve().parent
     while candidate != candidate.parent:
         if (candidate / ".git").exists():
@@ -110,9 +113,19 @@ def _validate_spec(spec: Path) -> None:
 def run(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
 ) -> None:
-    """Full autonomous run: plan, orchestrate writers, validate, create PR."""
+    """Full autonomous run: plan, orchestrate writers, validate, create PR.
+
+    Example: golem run spec.md
+    Example: golem run spec.md --force --dry-run
+    """
     from golem import __version__
+
+    if verbose:
+        import os
+        os.environ["GOLEM_DEBUG"] = "1"
 
     console.print(f"[bold cyan]Golem[/bold cyan] v{__version__} (v2 ticket-driven)")
     _validate_spec(spec)
@@ -141,6 +154,8 @@ def run(
 
     console.print(f"  Spec:    {spec.resolve()}")
     console.print(f"  Project: {spec_project_root}")
+    console.print(f"  Models:  planner={config.planner_model}, tech_lead={config.tech_lead_model}, worker={config.worker_model}")
+    console.print(f"  Limits:  parallel={config.max_parallel}, retries={config.max_retries}, worker_turns={config.max_worker_turns}")
     if config.infrastructure_checks:
         console.print(f"  Infra:   {', '.join(config.infrastructure_checks)}")
 
@@ -162,6 +177,10 @@ def run(
             console.print(f"  Plan file: {ticket.context.plan_file}")
         if ticket.context.references:
             console.print(f"  References: {len(ticket.context.references)} file(s)")
+
+        if dry_run:
+            console.print("[bold yellow]--dry-run: stopping after planner. Tech Lead not dispatched.[/bold yellow]")
+            return
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)
@@ -199,7 +218,10 @@ def run(
 def plan(
     spec: Path = typer.Argument(..., help="Path to spec markdown file"),
 ) -> None:
-    """Dry run — generate plans only, no Tech Lead execution."""
+    """Dry run — generate plans only, no Tech Lead execution.
+
+    Example: golem plan spec.md
+    """
     _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
@@ -291,14 +313,16 @@ def status() -> None:
 
         # Summary line
         total = len(tickets)
-        done_count = sum(1 for t in tickets if t.status in ("done", "approved"))
+        done_count = sum(1 for t in tickets if t.status in ("done", "approved", "qa_passed", "ready_for_review"))
         in_prog = sum(1 for t in tickets if t.status == "in_progress")
         console.print(table)
         console.print(f"  {done_count}/{total} complete, {in_prog} in progress")
 
-        console.print(table)
-
     asyncio.run(_status_async())
+
+
+# Alias: golem tickets = golem status
+app.command(name="tickets", hidden=True)(status)
 
 
 @app.command()
@@ -446,12 +470,20 @@ def inspect(
         console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
         return
 
+    import re
+    if not re.match(r"^TICKET-\d+$", ticket_id, re.IGNORECASE):
+        console.print(f"[red]Invalid ticket ID format: {ticket_id}. Expected TICKET-NNN.[/red]")
+        raise typer.Exit(1)
+
     async def _inspect_async() -> None:
         store = TicketStore(tickets_dir)
         try:
             ticket = await store.read(ticket_id)
         except (FileNotFoundError, KeyError):
             console.print(f"[red]Ticket {ticket_id} not found.[/red]")
+            raise typer.Exit(1)
+        except json.JSONDecodeError:
+            console.print(f"[red]Ticket {ticket_id} file is corrupt (invalid JSON).[/red]")
             raise typer.Exit(1)
 
         # Header
@@ -537,7 +569,10 @@ def logs(
 def clean(
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
 ) -> None:
-    """Remove .golem/ state, worktrees, and branches."""
+    """Remove .golem/ state, worktrees, and golem/* branches.
+
+    Example: golem clean --force
+    """
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
 
@@ -562,8 +597,9 @@ def clean(
     if worktrees_dir.exists():
         for wt in worktrees_dir.iterdir():
             if wt.is_dir():
-                subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
-                wt_count += 1
+                result = subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
+                if result.returncode == 0:
+                    wt_count += 1
 
     shutil.rmtree(golem_dir, ignore_errors=True)
 
@@ -585,3 +621,310 @@ def clean(
         console.print(f"  {wt_count} worktree(s)")
     if golem_branches:
         console.print(f"  {len(golem_branches)} golem branch(es)")
+
+
+@app.command()
+def diff(
+    base: str = typer.Option("main", "--base", "-b", help="Base branch to diff against"),
+) -> None:
+    """Show git diff of changes from the last golem run."""
+    project_root = _get_project_root()
+    result = subprocess.run(
+        ["git", "diff", base],
+        cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        console.print(f"[red]git diff failed: {result.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+    if not result.stdout.strip():
+        console.print("[dim]No differences from {base}.[/dim]")
+        return
+    console.print(result.stdout)
+
+
+@app.command()
+def stats() -> None:
+    """Show statistics from the current run's tickets."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
+
+    async def _stats_async() -> None:
+        store = TicketStore(tickets_dir)
+        tickets = await store.list_tickets()
+
+        if not tickets:
+            console.print("[yellow]No tickets found.[/yellow]")
+            return
+
+        total = len(tickets)
+        by_status: dict[str, int] = {}
+        for t in tickets:
+            by_status[t.status] = by_status.get(t.status, 0) + 1
+
+        done = by_status.get("done", 0) + by_status.get("approved", 0) + by_status.get("qa_passed", 0)
+        failed = by_status.get("needs_work", 0) + by_status.get("blocked", 0)
+        pass_rate = (done / total * 100) if total > 0 else 0
+
+        console.print("[bold]Golem Run Statistics[/bold]\n")
+        console.print(f"  Total tickets:  {total}")
+        for status, count in sorted(by_status.items()):
+            console.print(f"    {status}: {count}")
+        console.print(f"\n  Pass rate:      {pass_rate:.0f}% ({done}/{total})")
+        if failed:
+            console.print(f"  Failed/blocked: {failed}")
+
+        # Event count
+        event_count = sum(len(t.history) for t in tickets)
+        console.print(f"  Total events:   {event_count}")
+
+    asyncio.run(_stats_async())
+
+
+@app.command()
+def export(
+    output: Path = typer.Option(Path("golem-export.zip"), "--output", "-o", help="Output zip file path"),
+) -> None:
+    """Export .golem/ run artifacts as a zip archive."""
+    import zipfile
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+
+    if not golem_dir.exists():
+        console.print("[yellow]No .golem/ directory found -- nothing to export.[/yellow]")
+        return
+
+    count = 0
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(golem_dir.rglob("*")):
+            if f.is_file():
+                arcname = f".golem/{f.relative_to(golem_dir)}"
+                zf.write(f, arcname)
+                count += 1
+
+    console.print(f"[green]Exported {count} file(s) to {output}[/green]")
+
+
+@app.command()
+def pr(
+    title: str = typer.Option("", "--title", "-t", help="PR title (auto-generated if empty)"),
+    draft: bool = typer.Option(False, "--draft", help="Create as draft PR"),
+    base: str = typer.Option("main", "--base", "-b", help="Base branch for the PR"),
+) -> None:
+    """Create a GitHub PR from the current branch's changes.
+
+    Example: golem pr --title "feat: implement auth" --draft
+    """
+    project_root = _get_project_root()
+
+    # Get current branch
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+    )
+    branch = result.stdout.strip()
+    if not branch or branch in ("main", "master"):
+        console.print("[red]Cannot create PR from main/master. Switch to a feature branch first.[/red]")
+        raise typer.Exit(1)
+
+    # Auto-generate title from branch name if not provided
+    if not title:
+        title = f"golem: {branch.replace('golem/', '').replace('/', ' ')}"
+
+    # Build body from ticket summaries if available
+    golem_dir = _get_golem_dir(project_root)
+    body_parts: list[str] = [f"## Golem Run\n\nBranch: `{branch}`\n"]
+    tickets_dir = golem_dir / "tickets"
+    if tickets_dir.exists():
+
+        async def _read_tickets() -> list[str]:
+            store = TicketStore(tickets_dir)
+            tickets = await store.list_tickets()
+            return [f"- **{t.id}** {t.title} ({t.status})" for t in sorted(tickets, key=lambda x: x.id)]
+
+        lines = asyncio.run(_read_tickets())
+        if lines:
+            body_parts.append("## Tickets\n\n" + "\n".join(lines))
+
+    body = "\n\n".join(body_parts)
+
+    cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", base, "--head", branch]
+    if draft:
+        cmd.append("--draft")
+
+    result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        console.print(f"[red]gh pr create failed: {result.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]PR created: {result.stdout.strip()}[/green]")
+
+
+@app.command()
+def doctor() -> None:
+    """Diagnose environment issues — check all required tools are installed."""
+    checks: list[tuple[str, bool, str]] = []
+
+    # Check git
+    result = subprocess.run(["git", "--version"], capture_output=True, text=True)
+    checks.append(("git", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check uv
+    result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
+    checks.append(("uv", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check claude CLI
+    result = subprocess.run(["claude", "--version"], capture_output=True, text=True)
+    checks.append(("claude", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+
+    # Check ripgrep
+    result = subprocess.run(["rg", "--version"], capture_output=True, text=True)
+    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found"
+    checks.append(("rg (ripgrep)", result.returncode == 0, version_line))
+
+    # Check gh CLI
+    result = subprocess.run(["gh", "--version"], capture_output=True, text=True)
+    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found (optional)"
+    checks.append(("gh (GitHub CLI)", result.returncode == 0, version_line))
+
+    all_pass = True
+    for name, ok, detail in checks:
+        icon = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
+        console.print(f"  {icon}  {name}: {detail}")
+        if not ok and name not in ("gh (GitHub CLI)",):
+            all_pass = False
+
+    if all_pass:
+        console.print("\n[green]All required tools found.[/green]")
+    else:
+        console.print("\n[yellow]Some required tools are missing. Install them before running golem.[/yellow]")
+
+
+@app.command(name="reset-ticket")
+def reset_ticket(
+    ticket_id: str = typer.Argument(..., help="Ticket ID to reset (e.g. TICKET-001)"),
+) -> None:
+    """Reset a single ticket's status back to pending."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
+
+    async def _reset_async() -> None:
+        store = TicketStore(tickets_dir)
+        try:
+            ticket = await store.read(ticket_id)
+        except (FileNotFoundError, KeyError):
+            console.print(f"[red]Ticket {ticket_id} not found.[/red]")
+            raise typer.Exit(1)
+
+        old_status = ticket.status
+        await store.update(ticket_id, "pending", f"Reset from {old_status} to pending", agent="cli")
+        console.print(f"[green]Reset {ticket_id} from {old_status} to pending.[/green]")
+
+    asyncio.run(_reset_async())
+
+
+@app.command(name="list-specs")
+def list_specs() -> None:
+    """List all .md files in the project that look like specs."""
+    project_root = _get_project_root()
+    skip = {".git", ".golem", ".venv", "node_modules", "__pycache__", ".claude"}
+    specs: list[Path] = []
+    for p in sorted(project_root.rglob("*.md")):
+        parts = p.relative_to(project_root).parts
+        if any(part.startswith(".") or part in skip for part in parts):
+            continue
+        specs.append(p)
+
+    if not specs:
+        console.print("[dim]No .md files found in project.[/dim]")
+        return
+
+    for spec in specs:
+        rel = spec.relative_to(project_root)
+        console.print(f"  {rel}")
+    console.print(f"\n[dim]{len(specs)} spec(s) found.[/dim]")
+
+
+# --------------------------------------------------------------------------
+# config subcommand group
+# --------------------------------------------------------------------------
+
+config_app = typer.Typer(name="config", help="View and manage Golem configuration.")
+app.add_typer(config_app)
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print the current Golem config as pretty JSON."""
+    from dataclasses import asdict
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+    console.print_json(json.dumps(asdict(config), indent=2, sort_keys=True))
+
+
+@config_app.command("reset")
+def config_reset(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """Reset config to defaults (delete .golem/config.json)."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config_path = golem_dir / "config.json"
+    if not config_path.exists():
+        console.print("[yellow]No config.json found -- already at defaults.[/yellow]")
+        return
+    if not force:
+        typer.confirm("This will delete .golem/config.json and reset to defaults. Continue?", abort=True)
+    config_path.unlink()
+    console.print("[green]Config reset to defaults.[/green]")
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key (e.g. max_parallel, planner_model)"),
+    value: str = typer.Argument(..., help="New value"),
+) -> None:
+    """Set a config value. Creates .golem/config.json if needed."""
+    from dataclasses import fields as dataclass_fields
+
+    from golem.config import GolemConfig
+
+    valid_keys = {f.name for f in dataclass_fields(GolemConfig)}
+    if key not in valid_keys:
+        console.print(f"[red]Unknown config key: {key}[/red]")
+        console.print(f"  Valid keys: {', '.join(sorted(valid_keys))}")
+        raise typer.Exit(1)
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+
+    # Type coercion based on the field type
+    field_type = type(getattr(config, key))
+    try:
+        if field_type is int:
+            typed_value = int(value)
+        elif field_type is bool:
+            typed_value = value.lower() in ("true", "1", "yes")
+        elif field_type is list:
+            typed_value = [v.strip() for v in value.split(",")]
+        else:
+            typed_value = value
+    except ValueError:
+        console.print(f"[red]Invalid value for {key}: expected {field_type.__name__}, got {value!r}[/red]")
+        raise typer.Exit(1)
+
+    setattr(config, key, typed_value)
+    save_config(config, golem_dir)
+    console.print(f"[green]Set {key} = {typed_value!r}[/green]")

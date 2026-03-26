@@ -548,6 +548,66 @@ def test_log_buffer_max_len_respected() -> None:
     assert len(ui_module.log_buffer) <= 200
 
 
+@pytest.mark.asyncio
+async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
+    """tail_progress_log reads lines incrementally using seek position."""
+    from unittest.mock import MagicMock
+
+    from golem.ui import tail_progress_log
+
+    golem_dir = tmp_path
+    log_path = golem_dir / "progress.log"
+    log_path.write_text(
+        "[2026-03-27T10:00:00Z] PLANNER_START spec=test.md\n",
+        encoding="utf-8",
+    )
+
+    # Set up a fake process that exits after one iteration
+    fake_proc = MagicMock()
+    fake_proc.returncode = None
+    ui_module.current_process = fake_proc
+
+    # Run one iteration then stop (set returncode after brief delay)
+    async def stop_after_delay() -> None:
+        await asyncio.sleep(0.8)
+        fake_proc.returncode = 0
+
+    import asyncio
+    task = asyncio.create_task(stop_after_delay())
+    await tail_progress_log(golem_dir)
+    await task
+
+    # Should have parsed the log line
+    assert len(ui_module.log_buffer) >= 1
+    assert ui_module.log_buffer[0]["verb"] == "PLANNER_START"
+
+
+@pytest.mark.asyncio
+async def test_stream_subprocess_output_captures_stdout() -> None:
+    """stream_subprocess_output forwards stdout lines to log_buffer."""
+    import asyncio
+
+    from golem.ui import stream_subprocess_output
+
+    # Create a real subprocess that prints to stdout and stderr
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-c", "import sys; print('hello_out'); print('hello_err', file=sys.stderr)",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    await stream_subprocess_output(proc)
+    await proc.wait()
+
+    # Check log_buffer for captured output
+    verbs = [e["verb"] for e in ui_module.log_buffer]
+    messages = [e["message"] for e in ui_module.log_buffer]
+    assert "STDOUT" in verbs
+    assert "STDERR" in verbs
+    assert any("hello_out" in m for m in messages if m)
+    assert any("hello_err" in m for m in messages if m)
+
+
 # ---------------------------------------------------------------------------
 # GET /api/browse/file — native file dialog
 # ---------------------------------------------------------------------------
@@ -727,3 +787,76 @@ def test_open_folder_dialog_raises_on_non_windows() -> None:
     with patch.object(sys, "platform", "linux"):
         with pytest.raises(NotImplementedError):
             dialogs.open_folder_dialog()
+
+
+def test_root_serves_html(client: TestClient) -> None:
+    """GET / returns the HTML dashboard."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "Golem" in resp.text or "<html" in resp.text.lower()
+
+
+def test_api_clean_removes_golem_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/clean removes .golem/ directory."""
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "tickets").mkdir()
+
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    c = TestClient(app, raise_server_exceptions=True)
+    resp = c.post("/api/clean")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cleaned"
+    assert not golem_dir.exists()
+
+
+def test_api_clean_nothing_to_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/clean when no .golem/ exists returns nothing_to_clean."""
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    c = TestClient(app, raise_server_exceptions=True)
+    resp = c.post("/api/clean")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "nothing_to_clean"
+
+
+def test_api_config_returns_defaults(client: TestClient) -> None:
+    """GET /api/config returns config with default values."""
+    resp = client.get("/api/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "max_parallel" in data
+    assert "planner_model" in data
+    assert data["max_parallel"] == 3
+
+
+def test_api_specs_returns_md_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/specs returns .md files from the project root."""
+    # Create some .md files
+    (tmp_path / "spec.md").write_text("# Spec", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guide.md").write_text("# Guide", encoding="utf-8")
+    # Create files that should be skipped
+    (tmp_path / ".golem").mkdir()
+    (tmp_path / ".golem" / "plans.md").write_text("# Plans", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "readme.md").write_text("# NM", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    client = TestClient(app, raise_server_exceptions=True)
+    resp = client.get("/api/specs")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    specs = data["specs"]
+    # Should include spec.md and docs/guide.md
+    assert any("spec.md" in s for s in specs)
+    assert any("guide.md" in s for s in specs)
+    # Should NOT include .golem or node_modules
+    assert not any(".golem" in s for s in specs)
+    assert not any("node_modules" in s for s in specs)

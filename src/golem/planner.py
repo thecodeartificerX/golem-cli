@@ -46,9 +46,19 @@ async def run_planner(
 ) -> str:
     """Spawn Opus planner session that writes plans/ + references/ and creates a ticket.
 
+    Retries up to 2 times on CLIConnectionError/ClaudeSDKError with configurable delay.
+    SDK initialize timeout is monkey-patched from 60s to config.sdk_timeout at import time.
+    If the planner doesn't call create_ticket via MCP, a self-healing fallback creates
+    a ticket programmatically from AssistantMessage text blocks.
+
     Returns the ticket_id string created by the planner.
     """
-    spec_content = spec_path.read_text(encoding="utf-8")
+    try:
+        spec_content = spec_path.read_text(encoding="utf-8")
+    except PermissionError:
+        raise RuntimeError(f"Cannot read spec file (permission denied): {spec_path}") from None
+    except OSError as e:
+        raise RuntimeError(f"Cannot read spec file: {spec_path} ({e})") from None
 
     # Gather project context
     project_context = ""
@@ -108,10 +118,10 @@ async def run_planner(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 raise RuntimeError(
                     f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"

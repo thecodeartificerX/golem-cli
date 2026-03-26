@@ -102,7 +102,9 @@ If integration QA fails:
 
 ### Phase 7: UX Smoke Test (web projects only)
 
-If the project is a web project (contains index.html, package.json with a dev server, or similar), spawn a UX smoke test session to verify the UI renders correctly and there are no console errors.
+If the project is a web project, spawn a UX smoke test session to verify the UI renders correctly and there are no console errors.
+
+A project is a web project if it has an `index.html`, a `dev` or `start` script in `package.json`, or a frontend framework (React, Vue, Svelte, Angular, Next.js) in its dependencies.
 
 The smoke test session should:
 - Start the dev server
@@ -119,7 +121,7 @@ The smoke test session should:
 1. Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch
 2. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
 3. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
-4. Verify main has the new commits: `git log --oneline -3`
+4. Verify main has the new commits: `git log --oneline -10`
 5. Create a PR with:
    - Title: `golem: <spec title>`
    - Body: full run report including completed tickets, QA results, integration review notes
@@ -142,6 +144,8 @@ All tools use the `mcp__golem__` prefix:
 - `mcp__golem__merge_branches(group_branches, target_branch, repo_root)` → result JSON
 - `mcp__golem__commit_worktree(worktree_path, task_id, description)` → committed bool
 
+**Note:** As Tech Lead, use `mcp__golem__*` tools only. Writers use `mcp__golem-writer__*` tools — these are different MCP servers with different permission scopes.
+
 ---
 
 ## Rules
@@ -154,5 +158,5 @@ All tools use the `mcp__golem__` prefix:
 - Do not approve work that doesn't meet the acceptance criteria
 - Do integration review inline — you have full context
 - Spawn UX smoke test only for web projects
-- If a writer fails or times out, create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
+- If a writer fails or times out (no ticket update within 15 minutes), create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
 - Never leave the pipeline in an incomplete state — if something fails, either fix it or report exactly what failed and what remains

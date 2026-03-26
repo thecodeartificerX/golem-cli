@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from golem.tasks import FinalValidation, Group, Task, TasksFile, read_tasks, task_by_id, write_tasks
+from golem.tasks import FinalValidation, Group, Task, TasksFile, read_tasks, task_by_id, write_tasks, write_tasks_sync
 
 
 def make_task(task_id: str = "task-001", status: str = "pending") -> Task:
@@ -164,3 +164,16 @@ async def test_concurrent_writes_no_corruption() -> None:
             data = json.load(f)
         assert "spec" in data
         assert "groups" in data
+
+
+def test_write_tasks_sync_writes_to_disk() -> None:
+    """write_tasks_sync writes a valid JSON file that can be read back."""
+    tf = make_tasks_file()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "subdir" / "tasks.json"
+        write_tasks_sync(tf, path)
+        assert path.exists()
+        tf2 = read_tasks(path)
+        assert tf2.spec == tf.spec
+        assert len(tf2.groups) == len(tf.groups)
+        assert tf2.groups[0].tasks[0].id == tf.groups[0].tasks[0].id

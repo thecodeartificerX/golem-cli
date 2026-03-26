@@ -16,8 +16,6 @@ def test_golem_config_defaults() -> None:
     assert config.validator_model == "claude-sonnet-4-6"
     assert config.tech_lead_model == "claude-opus-4-6"
     assert config.max_worker_turns == 50
-    assert config.max_validator_turns == 20
-    assert config.auto_pr is True
     assert config.pr_target == "main"
 
 
@@ -154,6 +152,18 @@ def test_validate_bad_max_worker_turns_warns() -> None:
     config = GolemConfig(max_worker_turns=0)
     warnings = config.validate()
     assert any("max_worker_turns" in w for w in warnings)
+
+
+def test_validate_unknown_setting_source_warns() -> None:
+    config = GolemConfig(setting_sources=["project", "typo"])
+    warnings = config.validate()
+    assert any("typo" in w for w in warnings)
+
+
+def test_validate_valid_setting_sources_no_warnings() -> None:
+    config = GolemConfig(setting_sources=["project", "user"])
+    warnings = config.validate()
+    assert not any("setting_source" in w.lower() for w in warnings)
 
 
 def test_validate_known_models_no_warnings() -> None:

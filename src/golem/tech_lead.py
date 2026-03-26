@@ -44,13 +44,25 @@ def _ensure_merged_to_main(project_root: Path) -> None:
 
     # Check if main already has the integration commits
     current = _git("rev-parse", "HEAD")
-    _git("checkout", "main")
+    checkout_result = _git("checkout", "main")
+    if checkout_result.returncode != 0:
+        # Fallback: try 'master' or detect default branch
+        checkout_result = _git("checkout", "master")
+        if checkout_result.returncode != 0:
+            print("[TECH LEAD] Warning: could not checkout main or master branch", file=sys.stderr)
+            return
 
     for branch in integration_branches:
         # Check if branch is already merged into main
         merge_check = _git("merge-base", "--is-ancestor", branch, "main")
         if merge_check.returncode == 0:
             continue  # Already merged
+
+        # Skip branches with no actual changes (diff against HEAD which is now on main/master)
+        diff_stat = _git("diff", "--stat", f"HEAD...{branch}")
+        if not diff_stat.stdout.strip():
+            print(f"[TECH LEAD] Skipping {branch} — no changes", file=sys.stderr)
+            continue
 
         print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
         merge_result = _git("merge", branch, "--ff-only")
@@ -87,6 +99,11 @@ async def run_tech_lead(
     The Tech Lead reads plans, creates worktrees, spawns writer pairs, reviews work,
     merges branches, runs integration QA, and creates a PR. Blocks until complete.
     The SDK automatically routes all tool calls to the registered MCP server.
+
+    Self-healing: _ensure_merged_to_main() runs after the session to merge any
+    integration branches the Tech Lead didn't merge. _cleanup_golem_worktrees()
+    removes orphaned worktrees on session failure. Retries up to 2 times on
+    CLIConnectionError/ClaudeSDKError with configurable delay.
     """
     store = TicketStore(golem_dir / "tickets")
     ticket = await store.read(ticket_id)
@@ -116,7 +133,7 @@ async def run_tech_lead(
                     cwd=str(project_root),
                     tools={"type": "preset", "preset": "claude_code"},
                     mcp_servers={"golem": mcp_server},
-                    max_turns=100,
+                    max_turns=config.max_tech_lead_turns,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),
                 ),
@@ -142,10 +159,10 @@ async def run_tech_lead(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[TECH LEAD] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    f"[TECH LEAD] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
-                await asyncio.sleep(_RETRY_DELAY_S)
+                await asyncio.sleep(config.retry_delay)
             else:
                 _session_failed = True
                 _cleanup_golem_worktrees(golem_dir, project_root)

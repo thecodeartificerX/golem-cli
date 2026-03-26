@@ -131,3 +131,32 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]
+
+
+@pytest.mark.asyncio
+async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
+    """When golem_dir is None, create_writer_mcp_server uses Path(worktree_path)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "tickets").mkdir()
+        ticket = _make_ticket_with_context()
+        config = GolemConfig()
+        captured_mcp_dir: list[Path] = []
+
+        original_create = spawn_writer_pair.__module__
+
+        def fake_create_writer_mcp(golem_dir: Path):
+            captured_mcp_dir.append(golem_dir)
+            # Return a minimal server config
+            from unittest.mock import MagicMock
+            return {"name": "golem-writer", "type": "sdk", "instance": MagicMock()}
+
+        async def fake_query(prompt, options=None, **kwargs):
+            return
+            yield
+
+        with patch("golem.writer.create_writer_mcp_server", side_effect=fake_create_writer_mcp), \
+             patch("golem.writer.query", side_effect=fake_query):
+            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=None)
+
+        assert len(captured_mcp_dir) == 1
+        assert captured_mcp_dir[0] == Path(tmpdir)
