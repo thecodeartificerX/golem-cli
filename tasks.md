@@ -508,7 +508,7 @@ Tasks are organized by theme. Each task should be:
 **What:** New command that checks: claude CLI installed, authenticated, uv installed, git configured, rg installed. Print pass/fail for each.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 206. `golem run --dry-run` — Full pipeline dry run
+#### [x] 206. `golem run --dry-run` — Full pipeline dry run (DONE: d7620ad)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Add `--dry-run` flag that runs the planner and shows the plan but doesn't dispatch the tech lead. Same as `golem plan` but from the `run` command.
 **Done when:** `uv run pytest` passes.
