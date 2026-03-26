@@ -291,12 +291,10 @@ def status() -> None:
 
         # Summary line
         total = len(tickets)
-        done_count = sum(1 for t in tickets if t.status in ("done", "approved"))
+        done_count = sum(1 for t in tickets if t.status in ("done", "approved", "qa_passed", "ready_for_review"))
         in_prog = sum(1 for t in tickets if t.status == "in_progress")
         console.print(table)
         console.print(f"  {done_count}/{total} complete, {in_prog} in progress")
-
-        console.print(table)
 
     asyncio.run(_status_async())
 
@@ -453,6 +451,9 @@ def inspect(
         except (FileNotFoundError, KeyError):
             console.print(f"[red]Ticket {ticket_id} not found.[/red]")
             raise typer.Exit(1)
+        except json.JSONDecodeError:
+            console.print(f"[red]Ticket {ticket_id} file is corrupt (invalid JSON).[/red]")
+            raise typer.Exit(1)
 
         # Header
         console.print(f"\n[bold cyan]{ticket.id}[/bold cyan] -- {ticket.title}")
@@ -562,8 +563,9 @@ def clean(
     if worktrees_dir.exists():
         for wt in worktrees_dir.iterdir():
             if wt.is_dir():
-                subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
-                wt_count += 1
+                result = subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=project_root, capture_output=True)
+                if result.returncode == 0:
+                    wt_count += 1
 
     shutil.rmtree(golem_dir, ignore_errors=True)
 

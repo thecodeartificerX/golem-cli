@@ -280,6 +280,24 @@ def _write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: st
     )
 
 
+def test_inspect_corrupt_json_exits_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem inspect with corrupt ticket JSON shows error, not raw traceback."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+    (tickets_dir / "TICKET-001.json").write_text("{corrupt!!!", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["inspect", "TICKET-001"])
+
+    assert result.exit_code != 0
+    assert "corrupt" in result.output.lower()
+
+
 def test_version_test_count_matches_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
     """golem version test count matches actual pytest collection count."""
     import subprocess
