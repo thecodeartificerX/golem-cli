@@ -8,7 +8,7 @@
 
 ### Progress
 
-- [ ] Task 1: SDK Message Streaming
+- [x] Task 1: SDK Message Streaming (ea785c1)
 - [ ] Task 2: Tech Lead Merge-to-Main
 - [ ] Task 3: Ticket Lifecycle Updates
 - [ ] Task 4: CLI golem status table

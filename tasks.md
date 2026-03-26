@@ -8,7 +8,7 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 - Committed with a descriptive message
 - Checked off below
 
-### [x] 1. SDK Message Streaming — Restore stderr output for all agent sessions
+### [x] 1. SDK Message Streaming — Restore stderr output for all agent sessions (DONE: ea785c1)
 **Size:** Small | **Files:** `planner.py`, `tech_lead.py`, `writer.py`
 **What:** The v1 codebase had `[PLANNER]`/`[WORKER]`/`[VALIDATOR]` prefixed stderr streaming that showed text blocks, tool calls, and results in real-time. The v2 rewrite lost this — all sessions just do `pass` or silently iterate. Restore stderr streaming for all three agent types so we can see what they're doing.
 **How:** In the `async for message in query(...)` loops, print `AssistantMessage` text blocks and `ToolUseBlock`/`ToolResultBlock` info to stderr with role prefixes. Match the v1 pattern.
