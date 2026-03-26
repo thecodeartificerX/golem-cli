@@ -79,11 +79,37 @@ async def run_planner(
             "Check planner session output for errors."
         )
 
-    # Find the most recently created ticket
+    # Find the most recently created ticket, or self-heal by creating one
     store = TicketStore(golem_dir / "tickets")
     all_tickets = await store.list_tickets()
     if not all_tickets:
-        raise RuntimeError("Planner did not create any tickets via create_ticket tool.")
+        import sys
+
+        print("[PLANNER] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
+        # Self-heal: create the ticket the planner should have created
+        overview = golem_dir / "plans" / "overview.md"
+        blueprint = overview.read_text(encoding="utf-8")[:500] if overview.exists() else ""
+        plan_files = sorted((golem_dir / "plans").glob("task-*.md"))
+        from golem.tickets import Ticket, TicketContext
+
+        ticket = Ticket(
+            id="",
+            type="task",
+            title=f"Tech Lead: Execute {overview}",
+            status="pending",
+            priority="high",
+            created_by="planner-fallback",
+            assigned_to="tech_lead",
+            context=TicketContext(
+                plan_file=str(overview),
+                references=[str(p) for p in plan_files],
+                blueprint=blueprint,
+                acceptance=["All tasks completed", "All QA checks pass", "PR created"],
+            ),
+            history=[],
+        )
+        ticket_id = await store.create(ticket)
+        return ticket_id
 
     # Return the last ticket created (by ID sort — TICKET-001, TICKET-002, etc.)
     last_ticket = sorted(all_tickets, key=lambda t: t.id)[-1]

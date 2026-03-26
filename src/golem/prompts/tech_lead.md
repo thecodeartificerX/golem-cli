@@ -30,7 +30,7 @@ Understand the full scope before creating any worktrees or tickets.
 
 ### Phase 2: Create Worktrees
 
-For each group of tasks that can run in parallel, create a git worktree using the `create_worktree` tool.
+For each group of tasks that can run in parallel, create a git worktree using the `mcp__golem__create_worktree` tool.
 
 Each worktree gets:
 - A unique branch name: `golem/<spec-slug>/<group-id>`
@@ -40,7 +40,7 @@ Each worktree gets:
 
 ### Phase 3: Create Writer Tickets
 
-For each task, create a ticket using `create_ticket` with full context pre-loaded:
+For each task, create a ticket using `mcp__golem__create_ticket` with full context pre-loaded:
 - `type`: "task"
 - `title`: task title from plans
 - `assigned_to`: "writer"
@@ -73,9 +73,9 @@ When a writer updates a ticket to `ready_for_review`:
 2. Read the changed files
 3. Compare against acceptance criteria and plan
 
-**If LGTM:** Call `update_ticket` to set status to `approved` with your approval note.
+**If LGTM:** Call `mcp__golem__update_ticket` to set status to `approved` with your approval note.
 
-**If needs work:** Call `update_ticket` to set status to `needs_work` with specific, targeted feedback — point to the exact criterion that failed and what to fix.
+**If needs work:** Call `mcp__golem__update_ticket` to set status to `needs_work` with specific, targeted feedback — point to the exact criterion that failed and what to fix.
 
 Do not ask the writer to re-implement from scratch. Give surgical feedback.
 
@@ -85,9 +85,9 @@ Do not ask the writer to re-implement from scratch. Give surgical feedback.
 
 After all individual tickets are approved:
 
-1. **Commit worktrees**: call `commit_worktree` for each worktree with a descriptive message
-2. **Merge branches**: call `merge_branches` to merge all group branches into a single integration branch
-3. **Integration QA**: call `run_qa` on the merged code to verify nothing broke in integration
+1. **Commit worktrees**: call `mcp__golem__commit_worktree` for each worktree with a descriptive message
+2. **Merge branches**: call `mcp__golem__merge_branches` to merge all group branches into a single integration branch
+3. **Integration QA**: call `mcp__golem__run_qa` on the merged code to verify nothing broke in integration
 4. **Integration Review**: read the merged code and verify the full spec is satisfied — you have full context, no need for a separate agent
 
 If integration QA fails:
@@ -112,7 +112,7 @@ The smoke test session should:
 
 ### Phase 8: Create PR
 
-Call `run_qa` one final time to confirm all checks pass on the integration branch.
+Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch.
 
 Then create a PR with:
 - Title: `golem: <spec title>`
@@ -125,8 +125,8 @@ Then create a PR with:
 
 - `create_ticket(type, title, assigned_to, context)` → ticket_id
 - `update_ticket(ticket_id, status, note, agent)` → None
-- `read_ticket(ticket_id)` → ticket JSON
-- `list_tickets(status_filter?, assigned_to_filter?)` → list of tickets
+- `mcp__golem__read_ticket(ticket_id)` → ticket JSON
+- `mcp__golem__list_tickets(status_filter?, assigned_to_filter?)` → list of tickets
 - `run_qa(worktree_path, checks, infrastructure_checks)` → QAResult JSON
 - `create_worktree(group_id, branch, base_branch, path, repo_root)` → None
 - `merge_branches(group_branches, target_branch, repo_root)` → result JSON

@@ -65,7 +65,7 @@ Wait for all sub-writers to complete before proceeding.
 
 ### Step 4: Run QA
 
-After making changes, call the `run_qa` tool with:
+After making changes, call the `mcp__golem-qa__run_qa` tool with:
 - `worktree_path`: the current working directory
 - `checks`: the QA checks from your ticket
 - `infrastructure_checks`: any infrastructure checks that apply
@@ -75,7 +75,7 @@ After making changes, call the `run_qa` tool with:
 If QA fails:
 - Read the structured error output carefully
 - Fix the specific failures in-context
-- Call `run_qa` again
+- Call `mcp__golem-qa__run_qa` again
 - Repeat until QA passes or you've tried 3 times (then report the failure)
 
 ### Step 6: Report and Update Ticket

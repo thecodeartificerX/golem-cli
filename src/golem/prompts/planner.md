@@ -115,16 +115,18 @@ Write `{golem_dir}/references/<topic>.md` files for any external docs, API refer
 
 ## Step 9: Create Tech Lead Ticket
 
-Call the `create_ticket` tool with:
+**CRITICAL:** You MUST call the MCP tool `mcp__golem__create_ticket` to hand off to the Tech Lead. This is NOT optional — the pipeline stops without it.
+
+Call `mcp__golem__create_ticket` with these parameters:
 - `type`: "task"
 - `title`: "Tech Lead: Execute {golem_dir}/plans/overview.md"
 - `assigned_to`: "tech_lead"
-- `context.plan_file`: `{golem_dir}/plans/overview.md`
-- `context.references`: list of all task plan files (`{golem_dir}/plans/task-NNN.md`)
-- `context.blueprint`: the blueprint from overview.md (first 500 chars)
-- `context.acceptance`: ["All tasks completed", "All QA checks pass", "PR created"]
+- `plan_file`: "{golem_dir}/plans/overview.md"
+- `references`: list of all task plan file paths (`{golem_dir}/plans/task-NNN.md`)
+- `blueprint`: the blueprint from overview.md (first 500 chars)
+- `acceptance`: ["All tasks completed", "All QA checks pass", "PR created"]
 
-This ticket is how you hand off to the Tech Lead.
+This ticket is how you hand off to the Tech Lead. If you skip this step, the entire pipeline fails.
 
 ---
 
@@ -134,6 +136,6 @@ By the time you finish, these files MUST exist on disk:
 - `{golem_dir}/plans/overview.md`
 - `{golem_dir}/plans/task-001.md` (at minimum one task plan)
 - At least one file in `{golem_dir}/research/`
-- A ticket in the ticket store (via `create_ticket` tool)
+- A ticket in the ticket store (via `mcp__golem__create_ticket` tool call)
 
 Do not write a summary. Write the files and call the tool. That is your output.
