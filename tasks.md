@@ -409,27 +409,27 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 12: Overnight Queue (coverage gaps)
 
-### [ ] 61. Test `get_version_info` — Verify all keys present
+### [x] 61. (DONE: f12b88c) Test `get_version_info` — Verify all keys present
 **Size:** Small | **Files:** `tests/test_version.py` (new)
 **What:** get_version_info() returns version, python, platform, architecture. No tests exist.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 62. Test `run_autofix` — Verify prettier path
+### [x] 62. (DONE: f12b88c) Test `run_autofix` — Verify prettier path
 **Size:** Small | **Files:** `tests/test_qa.py`
 **What:** run_autofix with "prettier" in checks should call npx prettier. Currently only ruff path tested.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 63. Test TicketStore — list_tickets combined filters
+### [x] 63. (DONE: f12b88c) Test TicketStore — list_tickets combined filters
 **Size:** Small | **Files:** `tests/test_tickets.py`
 **What:** Test list_tickets with both status_filter AND assigned_to_filter at the same time.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 64. Test `_resolve_spec_project_root` — Walk up to .git
+### [x] 64. (DONE: f12b88c) Test `_resolve_spec_project_root` — Walk up to .git
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Verify it finds .git by walking up from spec file location.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 65. `golem version` — Show test count
+### [x] 65. (DONE: ece8067) `golem version` — Show test count
 **Size:** Small | **Files:** `cli.py`
 **What:** `golem version` should show how many tests exist (count def test_ in tests/).
 **Done when:** `uv run pytest` passes.

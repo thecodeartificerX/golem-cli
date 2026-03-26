@@ -101,4 +101,13 @@ Batch 10 complete. 140 tests passing.
 - [x] Task 59: Planner model ID hints (02fbab3)
 - [x] Task 60: Final overnight stats (this commit)
 
-Batch 11 complete. 143 tests passing. 60 tasks shipped overnight.
+Batch 11 complete. 143 tests passing.
+
+### Batch 12 (tasks 61-65) — Coverage gaps
+- [x] Task 61: Version tests (f12b88c)
+- [x] Task 62: Autofix prettier test (f12b88c)
+- [x] Task 63: Combined ticket filters test (f12b88c)
+- [x] Task 64: _resolve_spec_project_root tests (f12b88c)
+- [x] Task 65: Version shows test count (ece8067)
+
+Batch 12 complete. 150 tests passing. 65 tasks shipped overnight.
