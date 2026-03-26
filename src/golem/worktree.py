@@ -4,8 +4,8 @@ import subprocess
 from pathlib import Path
 
 
-def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check)
+def _run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check, timeout=timeout)
 
 
 def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path) -> None:
