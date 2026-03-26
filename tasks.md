@@ -227,32 +227,32 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme C: Dead Code Cleanup (153–160)
 
-#### [ ] 153. Remove `_strip_section()` from `writer.py` — Dead code
+#### [x] 153. Remove `_strip_section()` from `writer.py` — Dead code (DONE: 6fc93cf)
 **Size:** Small | **Files:** `src/golem/writer.py`
 **What:** Defined but never called. The actual replacement logic uses a dict loop. Remove the dead function.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 154. Remove `integration_reviewer.md` — Orphaned prompt
+#### [x] 154. Remove `integration_reviewer.md` — Orphaned prompt (DONE: 6fc93cf)
 **Size:** Small | **Files:** `src/golem/prompts/integration_reviewer.md`
 **What:** Never loaded by any Python code. Tech lead does integration review inline. Delete the file.
 **Done when:** File removed, `uv run pytest` passes.
 
-#### [ ] 155. Remove `_TaskState` from `tui.py` — Unused dataclass
+#### [x] 155. Remove `_TaskState` from `tui.py` — Unused dataclass (DONE: 6fc93cf)
 **Size:** Small | **Files:** `src/golem/tui.py`
 **What:** Defined but never instantiated. Dead code from v1 TUI.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 156. Remove `executor.py` pyc cache — Stale compiled file
+#### [x] 156. Remove `executor.py` pyc cache — Stale compiled file (DONE: 6fc93cf)
 **Size:** Small | **Files:** `__pycache__/executor.cpython-314.pyc`
 **What:** References a deleted source file. Clean up the stale cache.
 **Done when:** File removed.
 
-#### [ ] 157. Audit `GolemConfig.auto_pr` — Either implement or remove
+#### [x] 157. Audit `GolemConfig.auto_pr` — Either implement or remove (DONE: 6fc93cf — removed)
 **Size:** Small | **Files:** `src/golem/config.py`, `src/golem/prompts/tech_lead.md`
 **What:** `auto_pr: bool = True` exists in config but is never checked. Either: (a) add a check in tech_lead prompt/cli, or (b) remove the field.
 **Done when:** Field is either functional or removed. Tests pass.
 
-#### [ ] 158. Audit `GolemConfig.max_validator_turns` — Either use or remove
+#### [x] 158. Audit `GolemConfig.max_validator_turns` — Either use or remove (DONE: 6fc93cf — removed)
 **Size:** Small | **Files:** `src/golem/config.py`
 **What:** Defined but never used in any SDK session. No separate validator agent in v2. Remove or repurpose.
 **Done when:** Field removed or used. Tests pass.
@@ -262,7 +262,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `pr_target` exists in config but is never passed to the tech lead. The prompt hardcodes `main`. Either inject `{pr_target}` into the prompt or remove the field.
 **Done when:** Field is functional or removed. Tests pass.
 
-#### [ ] 160. `tui.py:PreRunScreen` — Version string says v0.1.0, should be dynamic
+#### [x] 160. `tui.py:PreRunScreen` — Version string says v0.1.0, should be dynamic (DONE: 6fc93cf)
 **Size:** Small | **Files:** `src/golem/tui.py`
 **What:** Hardcoded `"Golem v0.1.0"` in the TUI. If keeping the TUI, import `__version__`. If removing it (it's unused in v2), delete the whole class.
 **Done when:** Fixed or removed. Tests pass.
