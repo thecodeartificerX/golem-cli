@@ -121,7 +121,7 @@ The smoke test session should:
 1. Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch
 2. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
 3. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
-4. Verify main has the new commits: `git log --oneline -3`
+4. Verify main has the new commits: `git log --oneline -10`
 5. Create a PR with:
    - Title: `golem: <spec title>`
    - Body: full run report including completed tickets, QA results, integration review notes
@@ -143,6 +143,8 @@ All tools use the `mcp__golem__` prefix:
 - `mcp__golem__create_worktree(group_id, branch, base_branch, path, repo_root)` → None
 - `mcp__golem__merge_branches(group_branches, target_branch, repo_root)` → result JSON
 - `mcp__golem__commit_worktree(worktree_path, task_id, description)` → committed bool
+
+**Note:** As Tech Lead, use `mcp__golem__*` tools only. Writers use `mcp__golem-writer__*` tools — these are different MCP servers with different permission scopes.
 
 ---
 
