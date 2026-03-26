@@ -271,12 +271,12 @@ Tasks are organized by theme. Each task should be:
 
 ### Theme D: Configuration & Validation (161–170)
 
-#### [ ] 161. Validate `setting_sources` values — Warn on unknown sources
+#### [x] 161. Validate `setting_sources` values — Warn on unknown sources (DONE: 0bee1b1)
 **Size:** Small | **Files:** `src/golem/config.py`
 **What:** `setting_sources` accepts any list. An empty list or unknown values like `["typo"]` are silently passed to the SDK. Validate against `["project", "user"]`.
 **Done when:** `uv run pytest` passes with test.
 
-#### [ ] 162. Validate `max_validator_turns` — Same as `max_worker_turns`
+#### [S] 162. Validate `max_validator_turns` — Same as `max_worker_turns` (SKIP: field removed in task 158)
 **Size:** Small | **Files:** `src/golem/config.py`
 **What:** `validate()` checks `max_worker_turns >= 1` but not `max_validator_turns`. Add the check.
 **Done when:** `uv run pytest` passes.
