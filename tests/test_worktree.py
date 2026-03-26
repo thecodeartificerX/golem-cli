@@ -175,6 +175,34 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         assert conflict_info == ""
 
 
+def test_create_worktree_branch_already_exists() -> None:
+    """create_worktree uses existing branch when it already exists (no -b flag)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        # Create branch first
+        subprocess.run(["git", "branch", "golem/spec/existing"], cwd=repo, check=True, capture_output=True)
+
+        wt_path = Path(tmpdir) / "worktrees" / "existing"
+        create_worktree("existing", "golem/spec/existing", "main", wt_path, repo)
+
+        # Worktree should exist and be on the correct branch
+        worktrees = list_worktrees(repo)
+        assert any("existing" in wt for wt in worktrees)
+
+        # Check the worktree is on the expected branch
+        result = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=wt_path,
+            capture_output=True, text=True, check=True,
+        )
+        assert result.stdout.strip() == "golem/spec/existing"
+
+        # Cleanup
+        delete_worktree(wt_path, repo)
+
+
 def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_pr returns the PR URL on success."""
     from unittest.mock import MagicMock
