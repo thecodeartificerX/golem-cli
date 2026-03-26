@@ -74,4 +74,4 @@ def save_config(config: GolemConfig, golem_dir: Path) -> None:
     golem_dir.mkdir(parents=True, exist_ok=True)
     data = {k: v for k, v in asdict(config).items() if k not in _EPHEMERAL_FIELDS}
     with open(golem_dir / "config.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, indent=2, sort_keys=True)
