@@ -667,16 +667,16 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 25: Post-milestone
 
-### [ ] 104. Test `golem run` CLI — Verify version banner in output
+### [x] 104. (DONE: de9c04b) Test `golem run` CLI — Verify version banner in output
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 105. Test `build_writer_prompt` — plan_file reads from disk
+### [x] 105. (DONE: de9c04b) Test `build_writer_prompt` — plan_file reads from disk
 **Size:** Small | **Files:** `tests/test_writer.py`
 **What:** When plan_file points to a real file, its content should appear in the prompt.
 **Done when:** `uv run pytest` passes.
 
-### [ ] 106. CLAUDE.md — Add overnight improvements section with test count
+### [x] 106. (DONE: de9c04b) CLAUDE.md — Add overnight improvements section with test count
 **Size:** Small | **Files:** `CLAUDE.md`
 **What:** Update the test count and overnight summary to reflect 178 tests.
 **Done when:** CLAUDE.md updated.
