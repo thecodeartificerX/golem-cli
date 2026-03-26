@@ -124,6 +124,30 @@ def test_log_group_complete() -> None:
         assert "GROUP_COMPLETE group-1" in content
 
 
+def test_log_integration_review_passed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_integration_review(passed=True)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "INTEGRATION_REVIEW PASSED" in content
+
+
+def test_log_integration_review_failed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_integration_review(passed=False)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "INTEGRATION_REVIEW FAILED" in content
+
+
+def test_log_final_validation() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_final_validation(passed=True)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "FINAL_VALIDATION PASSED" in content
+
+
 def test_multiple_events_appended() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         logger = ProgressLogger(Path(tmpdir))

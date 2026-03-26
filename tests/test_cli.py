@@ -127,3 +127,27 @@ def test_resolve_spec_project_root_no_git_uses_parent() -> None:
         spec.write_text("# Spec", encoding="utf-8")
         result = _resolve_spec_project_root(spec)
         assert result == spec.resolve().parent
+
+
+def test_version_cli_shows_version() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["version"])
+    assert result.exit_code == 0
+    assert "0.2.0" in result.output
+
+
+def test_status_cli_no_golem_dir_exits_cleanly() -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    # Run from a temp dir with no .golem/
+    result = runner.invoke(app, ["status"])
+    # Should exit 0 with friendly message, not crash
+    assert result.exit_code == 0
+    assert "No active run" in result.output or "no active" in result.output.lower()
