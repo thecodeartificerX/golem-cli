@@ -99,6 +99,19 @@ def test_build_writer_prompt_all_fields_populated_no_placeholders() -> None:
     assert "tests can run parallel" in prompt
 
 
+def test_build_writer_prompt_reads_plan_file_from_disk() -> None:
+    """When plan_file points to a real file, its contents appear in the prompt."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        plan_path = Path(tmpdir) / "task-001.md"
+        plan_path.write_text("## Step 1: Build the widget\nCreate widget.py with Widget class.", encoding="utf-8")
+
+        ticket = _make_ticket_with_context()
+        ticket.context.plan_file = str(plan_path)
+        prompt = build_writer_prompt(ticket)
+        assert "Build the widget" in prompt
+        assert "Widget class" in prompt
+
+
 @pytest.mark.asyncio
 async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:

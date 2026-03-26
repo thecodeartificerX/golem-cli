@@ -95,6 +95,18 @@ def test_run_cli_nonexistent_spec_exits() -> None:
     assert result.exit_code != 0
 
 
+def test_run_cli_shows_version_banner() -> None:
+    """golem run should print version banner even on error."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "/nonexistent/spec.md"])
+    assert "Golem" in result.output
+    assert "v0.2.0" in result.output or "ticket-driven" in result.output
+
+
 def test_plan_cli_nonexistent_spec_exits() -> None:
     """Running golem plan with a nonexistent spec should exit with error."""
     from typer.testing import CliRunner

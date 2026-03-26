@@ -151,12 +151,12 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
 ## Overnight Improvements (feat/overnight-improvements branch)
-80+ tasks shipped overnight (2026-03-27), including:
+100+ tasks shipped overnight (2026-03-27), including:
 - SDK stderr streaming, retry logic, error wrapping for all agents
 - Self-healing: planner ticket fallback, tech lead merge-to-main, worktree cleanup
 - New CLI commands: `history`, `inspect`, `logs`, enhanced `status`/`clean`/`version`
 - Config validation, spec validation, progress event logging
-- 160 tests (up from 106), all passing
+- 180+ tests (up from 106), all passing
 - Version bumped to 0.2.0
 
 See `docs/overnight-log.md` for the full task list and commit hashes.
