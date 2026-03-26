@@ -4,13 +4,13 @@
 
 **Branch:** `feat/overnight-improvements`
 **Started:** ~midnight
-**Status:** COMPLETE — 95 tasks, 21 batches, 173 tests, 109 commits
+**Status:** COMPLETE — 98 tasks, 22 batches, 175 tests, 112 commits
 
 ### Final Stats
-- **Tasks completed:** 95
-- **Batches:** 21
-- **Tests:** 173 (up from 106 at start — +63%)
-- **Commits:** 109
+- **Tasks completed:** 98
+- **Batches:** 22
+- **Tests:** 175 (up from 106 at start — +65%)
+- **Commits:** 112
 - **Files changed:** 25
 - **Lines added:** ~2,100
 - **Lines removed:** ~135
@@ -176,7 +176,14 @@ Batch 20 complete. 168 tests passing.
 - [x] Task 94: Version CLI test (6e2b299)
 - [x] Task 95: Status CLI test (6e2b299)
 
-Batch 21 complete. 173 tests passing. 95 tasks shipped overnight.
+Batch 21 complete. 173 tests passing.
+
+### Batch 22 (tasks 96-98)
+- [x] Task 96: History CLI test (17352f6)
+- [x] Task 97: Clean CLI test (17352f6)
+- [x] Task 98: Planner elapsed time (17352f6)
+
+Batch 22 complete. 175 tests passing. 98 tasks shipped overnight.
 
 ### Key Feature Highlights for Morning Review
 1. **SDK streaming** — `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` stderr output shows what agents are doing

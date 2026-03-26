@@ -620,15 +620,15 @@ Tasks are ordered by priority. Work through them top to bottom. Each task should
 
 ## Batch 22: Overnight Queue
 
-### [ ] 96. Test `golem history` CLI — exits cleanly with no .golem/
+### [x] 96. (DONE: 17352f6) Test `golem history` CLI — exits cleanly with no .golem/
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 97. Test `golem clean` CLI — exits cleanly with no .golem/
+### [x] 97. (DONE: 17352f6) Test `golem clean` CLI — exits cleanly with no .golem/
 **Size:** Small | **Files:** `tests/test_cli.py`
 **Done when:** `uv run pytest` passes.
 
-### [ ] 98. `golem run` — Show planner elapsed time separately
+### [x] 98. (DONE: 17352f6) `golem run` — Show planner elapsed time separately
 **Size:** Small | **Files:** `cli.py`
 **What:** Print how long the planner took (e.g. "Planner completed in 2m 15s") before handing off to tech lead.
 **Done when:** `uv run pytest` passes.
