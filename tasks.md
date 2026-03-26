@@ -409,7 +409,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Create temp project with `.md` files, call `/api/specs`, verify specs returned with correct paths.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 187. Test `tail_progress_log()` — Verify file seek and line buffering
+#### [x] 187. Test `tail_progress_log()` — Verify file seek and line buffering (DONE: 6c12918)
 **Size:** Small | **Files:** `tests/test_ui.py`
 **What:** Create a log file, start `tail_progress_log` in a task, write new lines, verify they appear in `log_buffer`.
 **Done when:** `uv run pytest` passes.
