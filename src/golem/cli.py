@@ -12,6 +12,7 @@ from rich.table import Table
 
 from golem.config import load_config, save_config
 from golem.planner import run_planner
+from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
 from golem.tickets import TicketStore
 
@@ -94,13 +95,19 @@ def run(
     config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
     save_config(config, golem_dir)
 
+    progress = ProgressLogger(golem_dir)
+
     async def _run_async() -> None:
-        console.print("[bold cyan]Golem[/bold cyan] — Planning...")
+        console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
+        progress.log_planner_start()
         ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        progress.log_planner_complete(ticket_id)
         console.print(f"  Planner created ticket: {ticket_id}")
 
-        console.print("[bold cyan]Golem[/bold cyan] — Tech Lead executing...")
+        console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
+        progress.log_tech_lead_start(ticket_id)
         await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        progress.log_tech_lead_complete()
         console.print("[bold]Run complete.[/bold]")
 
     asyncio.run(_run_async())
