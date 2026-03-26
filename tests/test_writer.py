@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -66,6 +67,8 @@ def test_build_writer_prompt_no_leftover_placeholders() -> None:
 @pytest.mark.asyncio
 async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
         ticket = _make_ticket_with_context()
         config = GolemConfig()
         captured_cwd: list[str] = []
@@ -77,6 +80,6 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             yield
 
         with patch("golem.writer.query", side_effect=fake_query):
-            await spawn_writer_pair(ticket, tmpdir, config)
+            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]

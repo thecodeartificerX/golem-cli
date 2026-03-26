@@ -309,6 +309,26 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
     return create_sdk_mcp_server("golem-qa", tools=[qa_tool])
 
 
+def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
+    """Create an MCP server for writers with run_qa + update_ticket tools."""
+    store = TicketStore(golem_dir / "tickets")
+    tools = [
+        SdkMcpTool(
+            name="run_qa",
+            description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
+            input_schema=_RUN_QA_INPUT_SCHEMA,
+            handler=_handle_run_qa,
+        ),
+        SdkMcpTool(
+            name="update_ticket",
+            description="Update a ticket's status and append a history event.",
+            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
+            handler=partial(_handle_update_ticket, store),
+        ),
+    ]
+    return create_sdk_mcp_server("golem-writer", tools=tools)
+
+
 async def handle_tool_call(
     tool_name: str,
     tool_input: dict[str, object],

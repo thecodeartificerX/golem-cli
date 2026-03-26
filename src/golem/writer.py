@@ -17,7 +17,7 @@ from claude_agent_sdk import (
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import Ticket
-from golem.tools import create_qa_mcp_server
+from golem.tools import create_writer_mcp_server
 
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
@@ -75,6 +75,7 @@ async def spawn_writer_pair(
     ticket: Ticket,
     worktree_path: str,
     config: GolemConfig,
+    golem_dir: Path | None = None,
 ) -> str:
     """Spawn a writer SDK session for the given ticket in the worktree.
 
@@ -83,7 +84,7 @@ async def spawn_writer_pair(
     prompt = build_writer_prompt(ticket)
     result_text = ""
 
-    qa_server = create_qa_mcp_server(Path(worktree_path))
+    writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
 
     try:
         async for message in query(
@@ -92,7 +93,7 @@ async def spawn_writer_pair(
                 model=config.worker_model,
                 cwd=worktree_path,
                 tools={"type": "preset", "preset": "claude_code"},
-                mcp_servers={"golem-qa": qa_server},
+                mcp_servers={"golem-writer": writer_server},
                 max_turns=config.max_worker_turns,
                 permission_mode="bypassPermissions",
                 env=sdk_env(),

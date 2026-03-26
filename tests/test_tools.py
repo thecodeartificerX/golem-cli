@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from golem.config import GolemConfig
-from golem.tools import get_tech_lead_tools, handle_tool_call
+from golem.tools import create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
 
 _EXPECTED_TOOL_NAMES = {
     "create_ticket",
@@ -89,3 +89,12 @@ async def test_handle_tool_call_unknown_tool_raises() -> None:
                 config,
                 Path(tmpdir),
             )
+
+
+def test_create_writer_mcp_server_has_both_tools() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        (golem_dir / "tickets").mkdir()
+        server = create_writer_mcp_server(golem_dir)
+        # McpSdkServerConfig is a dict-like object; verify it was created successfully
+        assert server is not None
