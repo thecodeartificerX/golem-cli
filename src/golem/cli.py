@@ -340,6 +340,15 @@ def version() -> None:
     console.print(f"Architecture {info['architecture']}")
     console.print(f"Python {info['python']}")
     console.print(f"Platform {info['platform']}")
+    # Count test functions in tests/ directory
+    tests_dir = Path(__file__).parent.parent.parent / "tests"
+    if tests_dir.exists():
+        test_count = sum(
+            1 for p in tests_dir.glob("test_*.py")
+            for line in p.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("def test_") or line.strip().startswith("async def test_")
+        )
+        console.print(f"Tests {test_count}")
 
 
 @app.command()
