@@ -182,6 +182,8 @@ async def _handle_list_tickets(store: TicketStore, args: dict[str, object]) -> d
 
 
 async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
+    import sys
+
     checks_raw = args.get("checks") or []
     infra_raw = args.get("infrastructure_checks") or []
     result = run_qa(
@@ -189,6 +191,10 @@ async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
         checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
         infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
     )
+    passed = sum(1 for c in result.checks if c.passed)
+    total = len(result.checks)
+    status = "PASSED" if result.passed else "FAILED"
+    print(f"[QA] {status} — {passed}/{total} checks passed", file=sys.stderr)
     return {"content": [{"type": "text", "text": json.dumps(asdict(result))}]}
 
 
