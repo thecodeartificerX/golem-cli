@@ -182,6 +182,8 @@ async def _handle_list_tickets(store: TicketStore, args: dict[str, object]) -> d
 
 
 async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
+    import sys
+
     checks_raw = args.get("checks") or []
     infra_raw = args.get("infrastructure_checks") or []
     result = run_qa(
@@ -189,6 +191,10 @@ async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
         checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
         infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
     )
+    passed = sum(1 for c in result.checks if c.passed)
+    total = len(result.checks)
+    status = "PASSED" if result.passed else "FAILED"
+    print(f"[QA] {status} — {passed}/{total} checks passed", file=sys.stderr)
     return {"content": [{"type": "text", "text": json.dumps(asdict(result))}]}
 
 
@@ -307,6 +313,26 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
         handler=_handle_run_qa,
     )
     return create_sdk_mcp_server("golem-qa", tools=[qa_tool])
+
+
+def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
+    """Create an MCP server for writers with run_qa + update_ticket tools."""
+    store = TicketStore(golem_dir / "tickets")
+    tools = [
+        SdkMcpTool(
+            name="run_qa",
+            description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
+            input_schema=_RUN_QA_INPUT_SCHEMA,
+            handler=_handle_run_qa,
+        ),
+        SdkMcpTool(
+            name="update_ticket",
+            description="Update a ticket's status and append a history event.",
+            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
+            handler=partial(_handle_update_ticket, store),
+        ),
+    ]
+    return create_sdk_mcp_server("golem-writer", tools=tools)
 
 
 async def handle_tool_call(

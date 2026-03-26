@@ -62,15 +62,17 @@ Each writer gets:
 - Its ticket ID
 - The worktree path as its working directory
 
-Wait for all writers to report `ready_for_review` before reviewing.
+**Ticket update:** For each writer ticket, call `mcp__golem__update_ticket` to set status to `in_progress` with note "Writer dispatched" BEFORE spawning the writer.
+
+Wait for all writers to complete before reviewing.
 
 ---
 
 ### Phase 5: Review Work
 
-When a writer updates a ticket to `ready_for_review`:
-1. Read the completion report in the ticket history
-2. Read the changed files
+When a writer completes:
+1. Call `mcp__golem__update_ticket` to set status to `ready_for_review` with the writer's completion summary
+2. Read the changed files in the worktree
 3. Compare against acceptance criteria and plan
 
 **If LGTM:** Call `mcp__golem__update_ticket` to set status to `approved` with your approval note.
@@ -83,7 +85,7 @@ Do not ask the writer to re-implement from scratch. Give surgical feedback.
 
 ### Phase 6: Integration (after all tickets approved)
 
-After all individual tickets are approved:
+After all individual tickets are approved, update each ticket to `done` via `mcp__golem__update_ticket`:
 
 1. **Commit worktrees**: call `mcp__golem__commit_worktree` for each worktree with a descriptive message
 2. **Merge branches**: call `mcp__golem__merge_branches` to merge all group branches into a single integration branch
@@ -110,27 +112,35 @@ The smoke test session should:
 
 ---
 
-### Phase 8: Create PR
+### Phase 8: Merge to Main and Create PR
 
-Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch.
+**CRITICAL:** You MUST merge the integration branch into `main` before creating a PR. The run is NOT complete until `main` contains all the new code.
 
-Then create a PR with:
-- Title: `golem: <spec title>`
-- Body: full run report including completed tickets, QA results, integration review notes
-- Base branch: `main` (or the configured target)
+1. Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch
+2. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
+3. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
+4. Verify main has the new commits: `git log --oneline -3`
+5. Create a PR with:
+   - Title: `golem: <spec title>`
+   - Body: full run report including completed tickets, QA results, integration review notes
+   - Base branch: `main`
+
+If you skip the merge to main, the entire pipeline has failed — the user gets no code.
 
 ---
 
 ## Tool Reference
 
-- `create_ticket(type, title, assigned_to, context)` → ticket_id
-- `update_ticket(ticket_id, status, note, agent)` → None
+All tools use the `mcp__golem__` prefix:
+
+- `mcp__golem__create_ticket(type, title, assigned_to, ...)` → ticket_id
+- `mcp__golem__update_ticket(ticket_id, status, note, agent)` → None
 - `mcp__golem__read_ticket(ticket_id)` → ticket JSON
 - `mcp__golem__list_tickets(status_filter?, assigned_to_filter?)` → list of tickets
-- `run_qa(worktree_path, checks, infrastructure_checks)` → QAResult JSON
-- `create_worktree(group_id, branch, base_branch, path, repo_root)` → None
-- `merge_branches(group_branches, target_branch, repo_root)` → result JSON
-- `commit_worktree(worktree_path, task_id, description)` → committed bool
+- `mcp__golem__run_qa(worktree_path, checks, infrastructure_checks)` → QAResult JSON
+- `mcp__golem__create_worktree(group_id, branch, base_branch, path, repo_root)` → None
+- `mcp__golem__merge_branches(group_branches, target_branch, repo_root)` → result JSON
+- `mcp__golem__commit_worktree(worktree_path, task_id, description)` → committed bool
 
 ---
 
@@ -144,3 +154,5 @@ Then create a PR with:
 - Do not approve work that doesn't meet the acceptance criteria
 - Do integration review inline — you have full context
 - Spawn UX smoke test only for web projects
+- If a writer fails or times out, create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
+- Never leave the pipeline in an incomplete state — if something fails, either fix it or report exactly what failed and what remains

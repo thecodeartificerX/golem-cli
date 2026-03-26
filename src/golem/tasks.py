@@ -1,3 +1,10 @@
+"""v1 task graph data layer (LEGACY).
+
+This module is from the v1 flat task graph architecture. It is no longer
+imported by any v2 module (tickets.py replaces it). Kept for backward
+compatibility with the v1 test suite (test_tasks.py).
+"""
+
 from __future__ import annotations
 
 import asyncio

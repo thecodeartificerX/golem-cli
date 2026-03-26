@@ -6,12 +6,15 @@ A standalone CLI tool that autonomously executes markdown design specs. Parses s
 ## Quick Start
 ```bash
 uv sync                          # Install dependencies
-uv run golem run spec.md         # Execute a spec
-uv run golem plan spec.md        # Dry run — generate tasks.json only
-uv run golem status              # Check current run progress
-uv run golem resume              # Resume interrupted run
-uv run golem clean               # Clean up .golem/ state
-uv run golem version             # Show version, Python, platform info
+uv run golem run spec.md         # Execute a spec (full pipeline)
+uv run golem plan spec.md        # Dry run — planner only, no Tech Lead
+uv run golem status              # Ticket status table (color-coded)
+uv run golem history             # Chronological event timeline
+uv run golem inspect TICKET-001  # Full details of a single ticket
+uv run golem logs -f             # Tail progress.log (follow mode)
+uv run golem resume              # Resume interrupted run from tickets
+uv run golem clean               # Remove .golem/ + golem/* branches
+uv run golem version             # Version, architecture, Python, platform
 uv run golem ui                  # Launch web dashboard (port 9664)
 .\Golem.ps1                      # PowerShell ops dashboard (setup + server + TUI)
 uv run pytest                    # Run tests
@@ -97,18 +100,22 @@ tests/
   test_tools.py         ← Tech Lead tool dispatch
   test_qa.py            ← QA checks, autofix, infra detection
   test_writer.py        ← Writer prompt building and spawning
-  test_worktree.py      ← Git worktree operations
+  test_worktree.py      ← Git worktree operations + merge conflict handling
+  test_tech_lead.py     ← Self-healing merge + worktree cleanup
   test_validator.py     ← Subprocess env helpers
-  test_config.py        ← GolemConfig, setting_sources, sdk_env
+  test_config.py        ← GolemConfig, setting_sources, validation
+  test_cli.py           ← Spec validation, infra check detection
+  test_progress.py      ← Progress event logging (v2 milestones)
   test_ui.py            ← UI server endpoints, SSE, helpers
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 ```
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest`
-- **Focus on:** task graph logic, state machine transitions, deterministic validation, git operations
+- **Run:** `uv run pytest` (150+ tests)
+- **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
+- **Test count:** `uv run golem version` shows the current test count
 
 ### Claude Agent SDK Gotchas
 - **Use `permission_mode="bypassPermissions"`** for all SDK sessions — `acceptEdits` blocks headless file writes
@@ -119,7 +126,12 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Capture `AssistantMessage` text blocks as fallback** — `ResultMessage.result` may be empty; check both
 - **Validator PASS detection must be fuzzy** — AI models prefix preamble before "PASS:"; search anywhere, not just `startswith`
 - **Run `uv sync` in worktrees after creation** — new worktrees lack venv; module imports fail without it
-- **Verbose SDK streaming** — `planner.py`, `worker.py`, `validator.py` print `[PLANNER]`/`[WORKER]`/`[VALIDATOR]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
+- **MCP tool naming** — SDK exposes tools as `mcp__<server>__<name>` (e.g. `mcp__golem__create_ticket`). Prompts must use the full prefixed name, not bare names
+- **Planner self-healing fallback** — if planner doesn't call `create_ticket` via MCP, `run_planner()` creates a fallback ticket programmatically
+- **Tech Lead self-healing merge** — if Tech Lead doesn't merge integration→main, `_ensure_merged_to_main()` does it after the session
+- **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with 10s delay
+- **Worktree cleanup on error** — Tech Lead cleans orphaned worktrees in `finally` block on session failure
+- **Verbose SDK streaming** — `planner.py`, `tech_lead.py`, `writer.py` print `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
 
 ### FastAPI / UI Gotchas
 - **Pydantic models must be module-level** — defining `BaseModel` subclasses inside `create_app()` breaks FastAPI's annotation resolution; requests get 422 instead of binding to the body
@@ -130,12 +142,24 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Golem.ps1 uses polling loop, not `WaitForExit()`** — .NET `WaitForExit()` swallows Ctrl+C; poll `$proc.HasExited` with `Start-Sleep -Milliseconds 300` instead; `try/finally` kills child process on exit
 
 ## Key Design Decisions
-- **Deterministic Python orchestrator** — the execution loop is plain Python, not an AI agent. Claude fires only for planning, coding, and reviewing.
-- **Sessions are ephemeral** — worker and validator sessions are killed after each task. Fresh context every time.
-- **`tasks.json` is the source of truth** — shared across all worktrees, serialized writes via `asyncio.Lock`.
-- **`depends_on` is intra-group only** — cross-group dependencies are handled by merging groups.
-- **Two-tier validation** — deterministic checks (free) run before AI review (tokens).
-- **Fail-forward** — blocked tasks don't stop the run.
+- **Ticket-driven agent hierarchy (v2)** — Planner → Tech Lead → Writer pairs. Communication via structured JSON tickets in `.golem/tickets/`.
+- **Planner spawns sub-agents** — Explorer (Haiku) + Researcher (Sonnet) sub-agents write to `.golem/research/`, planner synthesizes into `.golem/plans/` and `.golem/references/`.
+- **Tech Lead is persistent** — reads plans, creates worktrees, dispatches writers, reviews work, merges, creates PR. Single long-running SDK session.
+- **Writers are ephemeral** — spawned per ticket, run in worktrees, have QA + ticket update tools via MCP.
+- **Deterministic QA first** — `run_qa()` runs subprocess checks (ruff, tests) before any AI review.
+- **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
+- **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
+
+## Overnight Improvements (feat/overnight-improvements branch)
+100+ tasks shipped overnight (2026-03-27), including:
+- SDK stderr streaming, retry logic, error wrapping for all agents
+- Self-healing: planner ticket fallback, tech lead merge-to-main, worktree cleanup
+- New CLI commands: `history`, `inspect`, `logs`, enhanced `status`/`clean`/`version`
+- Config validation, spec validation, progress event logging
+- 180+ tests (up from 106), all passing
+- Version bumped to 0.2.0
+
+See `docs/overnight-log.md` for the full task list and commit hashes.
 
 ## Do NOT
 - Use `pip` directly — use `uv` for everything

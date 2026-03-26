@@ -127,3 +127,102 @@ async def test_concurrent_creates_no_corruption() -> None:
         # Verify all files exist
         for ticket_id in ids:
             assert (Path(tmpdir) / "tickets" / f"{ticket_id}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_read_case_insensitive() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Case Test"))
+        # ticket_id is uppercase (TICKET-001), try reading with lowercase
+        loaded = await store.read(ticket_id.lower())
+        assert loaded.title == "Case Test"
+
+
+@pytest.mark.asyncio
+async def test_list_tickets_combined_filters() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        t1 = _make_ticket("Task 1", assigned_to="writer")
+        t2 = _make_ticket("Task 2", assigned_to="writer")
+        t3 = _make_ticket("Task 3", assigned_to="tech_lead")
+        await store.create(t1)
+        tid2 = await store.create(t2)
+        await store.create(t3)
+        # Update t2 to in_progress
+        await store.update(tid2, "in_progress", "started", agent="writer")
+        # Filter: status=in_progress AND assigned_to=writer
+        result = await store.list_tickets(status_filter="in_progress", assigned_to_filter="writer")
+        assert len(result) == 1
+        assert result[0].title == "Task 2"
+
+
+@pytest.mark.asyncio
+async def test_update_case_insensitive() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Update Test"))
+        # Update using lowercase ID
+        await store.update(ticket_id.lower(), "in_progress", "Started work", agent="writer")
+        loaded = await store.read(ticket_id)
+        assert loaded.status == "in_progress"
+        assert len(loaded.history) == 2  # created + status_changed
+        assert loaded.history[-1].action == "status_changed_to_in_progress"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_updates_no_corruption() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ticket_id = await store.create(_make_ticket("Concurrent Update"))
+
+        async def _update(i: int) -> None:
+            await store.update(ticket_id, "in_progress", f"Update {i}", agent=f"agent-{i}")
+
+        await asyncio.gather(*[_update(i) for i in range(5)])
+        loaded = await store.read(ticket_id)
+        # 1 created event + 5 update events = 6 total
+        assert len(loaded.history) == 6
+        assert loaded.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_ticket_id_format() -> None:
+    """Ticket IDs must be uppercase TICKET-NNN format."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        tid = await store.create(_make_ticket("Format Test"))
+        assert tid.startswith("TICKET-")
+        num_part = tid.split("-")[1]
+        assert len(num_part) == 3
+        assert num_part.isdigit()
+
+
+@pytest.mark.asyncio
+async def test_full_context_roundtrip() -> None:
+    """All TicketContext fields survive create → read roundtrip."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = TicketStore(Path(tmpdir) / "tickets")
+        ctx = TicketContext(
+            plan_file="/path/to/plan.md",
+            files={"src/app.py": "print('hello')\n", "tests/test.py": "pass\n"},
+            references=["/ref/a.md", "/ref/b.md"],
+            blueprint="Full blueprint text here",
+            acceptance=["Tests pass", "Lint clean"],
+            qa_checks=["uv run pytest", "ruff check ."],
+            parallelism_hints=["tests independent", "lint independent"],
+        )
+        ticket = Ticket(
+            id="", type="task", title="Full Context", status="pending",
+            priority="high", created_by="test", assigned_to="writer",
+            context=ctx,
+        )
+        tid = await store.create(ticket)
+        loaded = await store.read(tid)
+        assert loaded.context.plan_file == "/path/to/plan.md"
+        assert loaded.context.files == {"src/app.py": "print('hello')\n", "tests/test.py": "pass\n"}
+        assert loaded.context.references == ["/ref/a.md", "/ref/b.md"]
+        assert loaded.context.blueprint == "Full blueprint text here"
+        assert loaded.context.acceptance == ["Tests pass", "Lint clean"]
+        assert loaded.context.qa_checks == ["uv run pytest", "ruff check ."]
+        assert loaded.context.parallelism_hints == ["tests independent", "lint independent"]

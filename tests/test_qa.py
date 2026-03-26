@@ -53,6 +53,14 @@ def test_run_qa_summary_format() -> None:
         assert "exit 1" in result.summary or "Failed" in result.summary
 
 
+def test_run_qa_summary_all_pass() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0", "echo ok"], [])
+        assert "2/2" in result.summary
+        # Should not mention "Failed" when all pass
+        assert "Failed" not in result.summary or "0" in result.summary
+
+
 def test_run_autofix_runs_ruff() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch("subprocess.run") as mock_run:
@@ -61,6 +69,23 @@ def test_run_autofix_runs_ruff() -> None:
             calls = [str(c.args[0]) for c in mock_run.call_args_list]
             assert any("ruff check --fix" in c for c in calls)
             assert any("ruff format" in c for c in calls)
+
+
+def test_run_autofix_runs_prettier() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            run_autofix(tmpdir, ["npx prettier --check ."])
+            calls = [str(c.args[0]) for c in mock_run.call_args_list]
+            assert any("prettier --write" in c for c in calls)
+
+
+def test_run_autofix_noop_no_matching_checks() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("subprocess.run") as mock_run:
+            run_autofix(tmpdir, ["echo hello"])
+            # Should not call subprocess at all — no ruff or prettier
+            mock_run.assert_not_called()
 
 
 def test_detect_infrastructure_checks_finds_ruff() -> None:
@@ -87,3 +112,11 @@ def test_infrastructure_checks_run_first() -> None:
         # infra check should appear before spec check in results
         assert result.checks[0].tool == infra[0]
         assert result.checks[1].tool == spec[0]
+
+
+def test_run_qa_empty_checks() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, [], [])
+        assert result.passed is True
+        assert result.checks == []
+        assert "0/0" in result.summary or result.summary == ""

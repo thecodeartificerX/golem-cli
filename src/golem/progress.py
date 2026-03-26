@@ -37,3 +37,35 @@ class ProgressLogger:
     def log_final_validation(self, passed: bool) -> None:
         result = "PASSED" if passed else "FAILED"
         self._write(f"FINAL_VALIDATION {result}")
+
+    # -- v2 pipeline events --
+
+    def log_planner_start(self) -> None:
+        self._write("PLANNER_START")
+
+    def log_planner_complete(self, ticket_id: str) -> None:
+        self._write(f"PLANNER_COMPLETE ticket={ticket_id}")
+
+    def log_tech_lead_start(self, ticket_id: str) -> None:
+        self._write(f"TECH_LEAD_START ticket={ticket_id}")
+
+    def log_tech_lead_complete(self, elapsed_s: float | None = None) -> None:
+        if elapsed_s is not None:
+            mins, secs = divmod(int(elapsed_s), 60)
+            self._write(f"TECH_LEAD_COMPLETE elapsed={mins}m{secs}s")
+        else:
+            self._write("TECH_LEAD_COMPLETE")
+
+    def log_ticket_created(self, ticket_id: str, title: str) -> None:
+        self._write(f"TICKET_CREATED {ticket_id} title={title!r}")
+
+    def log_writer_dispatched(self, ticket_id: str) -> None:
+        self._write(f"WRITER_DISPATCHED {ticket_id}")
+
+    def log_qa_result(self, ticket_id: str, passed: bool, summary: str) -> None:
+        result = "PASSED" if passed else "FAILED"
+        short = summary[:200].replace("\n", " ")
+        self._write(f"QA_{result} {ticket_id} {short}")
+
+    def log_merge_complete(self, branch: str) -> None:
+        self._write(f"MERGE_COMPLETE branch={branch}")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from golem.worktree import commit_task, create_worktree, delete_worktree, list_worktrees
+from golem.worktree import commit_task, create_worktree, delete_worktree, list_worktrees, merge_group_branches
 
 
 def _init_git_repo(path: Path) -> None:
@@ -85,3 +85,91 @@ def test_list_worktrees_includes_main() -> None:
         assert len(worktrees) >= 1
         repo_resolved = str(repo.resolve())
         assert any(repo_resolved in str(Path(wt).resolve()) for wt in worktrees)
+
+
+def test_merge_group_branches_conflict() -> None:
+    """merge_group_branches returns (False, conflict_info) on conflicts."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        # Create two branches that both modify the same file
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        _git("checkout", "-b", "branch-a")
+        (repo / "README.md").write_text("branch A content", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "branch-a change")
+
+        _git("checkout", "main")
+        _git("checkout", "-b", "branch-b")
+        (repo / "README.md").write_text("branch B content", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "branch-b change")
+
+        _git("checkout", "main")
+
+        # First merge succeeds, second conflicts
+        success, conflict_info = merge_group_branches(
+            ["branch-a", "branch-b"], "integration", repo,
+        )
+        assert success is False
+        assert "branch-b" in conflict_info
+
+
+def test_merge_group_branches_clean() -> None:
+    """merge_group_branches returns (True, '') when branches don't conflict."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Two branches touching different files
+        _git("checkout", "-b", "branch-x")
+        (repo / "file_x.txt").write_text("content x", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "add file_x")
+
+        _git("checkout", "main")
+        _git("checkout", "-b", "branch-y")
+        (repo / "file_y.txt").write_text("content y", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "add file_y")
+
+        _git("checkout", "main")
+
+        success, conflict_info = merge_group_branches(
+            ["branch-x", "branch-y"], "integration", repo,
+        )
+        assert success is True
+        assert conflict_info == ""
+
+
+def test_merge_group_branches_skips_nonexistent() -> None:
+    """merge_group_branches skips branches that don't exist."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Create one real branch, reference one that doesn't exist
+        _git("checkout", "-b", "branch-real")
+        (repo / "real.txt").write_text("real", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "real branch")
+        _git("checkout", "main")
+
+        success, conflict_info = merge_group_branches(
+            ["branch-real", "branch-nonexistent"], "integration", repo,
+        )
+        # Should succeed — nonexistent branch is skipped
+        assert success is True
+        assert conflict_info == ""

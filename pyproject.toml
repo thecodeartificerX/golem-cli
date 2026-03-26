@@ -1,7 +1,7 @@
 [project]
 name = "golem-cli"
-version = "0.1.0"
-description = "Autonomous spec executor with parallel workers, validators, and feedback loops"
+version = "0.2.0"
+description = "Autonomous spec executor with ticket-driven agent hierarchy"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"

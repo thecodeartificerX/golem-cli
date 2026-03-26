@@ -87,8 +87,8 @@ class TicketStore:
     async def create(self, ticket: Ticket) -> str:
         async with self._lock:
             self._dir.mkdir(parents=True, exist_ok=True)
-            # Find next ID
-            existing = sorted(self._dir.glob("TICKET-*.json"))
+            # Find next ID (case-insensitive count to handle mixed-case files)
+            existing = sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-"))
             next_num = len(existing) + 1
             ticket_id = f"TICKET-{next_num:03d}"
             ticket.id = ticket_id
@@ -106,9 +106,18 @@ class TicketStore:
             return ticket_id
 
     async def read(self, ticket_id: str) -> Ticket:
-        path = self._dir / f"{ticket_id}.json"
+        path = self._resolve_path(ticket_id)
         data = json.loads(path.read_text(encoding="utf-8"))
         return _ticket_from_dict(data)
+
+    def _resolve_path(self, ticket_id: str) -> Path:
+        """Resolve ticket file path with case-insensitive fallback."""
+        path = self._dir / f"{ticket_id}.json"
+        if not path.exists():
+            for candidate in self._dir.glob("*.json"):
+                if candidate.stem.upper() == ticket_id.upper():
+                    return candidate
+        return path
 
     async def update(
         self,
@@ -119,7 +128,7 @@ class TicketStore:
         agent: str = "system",
     ) -> None:
         async with self._lock:
-            path = self._dir / f"{ticket_id}.json"
+            path = self._resolve_path(ticket_id)
             data = json.loads(path.read_text(encoding="utf-8"))
             ticket = _ticket_from_dict(data)
             ticket.status = status
@@ -142,7 +151,7 @@ class TicketStore:
         if not self._dir.exists():
             return []
         tickets: list[Ticket] = []
-        for path in sorted(self._dir.glob("TICKET-*.json")):
+        for path in sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-")):
             data = json.loads(path.read_text(encoding="utf-8"))
             ticket = _ticket_from_dict(data)
             if status_filter is not None and ticket.status != status_filter:

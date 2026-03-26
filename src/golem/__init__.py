@@ -1,3 +1,3 @@
-"""Golem — Autonomous spec executor with parallel workers, validators, and feedback loops."""
+"""Golem — Autonomous spec executor with ticket-driven agent hierarchy."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

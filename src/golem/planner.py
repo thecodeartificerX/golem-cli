@@ -1,8 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import (
+    AssistantMessage,
+    CLIConnectionError,
+    CLINotFoundError,
+    ClaudeAgentOptions,
+    ClaudeSDKError,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    query,
+)
+
+_MAX_RETRIES = 2
+_RETRY_DELAY_S = 10
 
 from golem.config import GolemConfig, sdk_env
 from golem.tickets import TicketStore
@@ -53,23 +68,54 @@ async def run_planner(
     prompt = template.replace("{spec_content}", spec_content)
     prompt = prompt.replace("{project_context}", project_context or "(none)")
     prompt = prompt.replace("{golem_dir}", str(golem_dir))
+    infra_checks_str = "\n".join(f"- `{c}`" for c in config.infrastructure_checks) if config.infrastructure_checks else "(none detected)"
+    prompt = prompt.replace("{infrastructure_checks}", infra_checks_str)
 
     # Build in-process MCP server with ticket tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
 
-    async for _message in query(
-        prompt=prompt,
-        options=ClaudeAgentOptions(
-            model=config.planner_model,
-            cwd=str(cwd),
-            tools={"type": "preset", "preset": "claude_code"},
-            mcp_servers={"golem": mcp_server},
-            max_turns=50,
-            permission_mode="bypassPermissions",
-            env=sdk_env(),
-        ),
-    ):
-        pass  # SDK routes tool calls to MCP server automatically
+    last_error: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            async for message in query(
+                prompt=prompt,
+                options=ClaudeAgentOptions(
+                    model=config.planner_model,
+                    cwd=str(cwd),
+                    tools={"type": "preset", "preset": "claude_code"},
+                    mcp_servers={"golem": mcp_server},
+                    max_turns=50,
+                    permission_mode="bypassPermissions",
+                    env=sdk_env(),
+                ),
+            ):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            preview = block.text[:120].replace("\n", " ")
+                            print(f"[PLANNER] {preview}", file=sys.stderr)
+                        elif isinstance(block, ToolUseBlock):
+                            print(f"[PLANNER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+                elif isinstance(message, ResultMessage) and message.result:
+                    preview = message.result[:120].replace("\n", " ")
+                    print(f"[PLANNER] result: {preview}", file=sys.stderr)
+            break  # Success — exit retry loop
+        except CLINotFoundError:
+            raise RuntimeError(
+                "Planner failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
+            ) from None
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            last_error = e
+            if attempt < _MAX_RETRIES:
+                print(
+                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {_RETRY_DELAY_S}s...",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(_RETRY_DELAY_S)
+            else:
+                raise RuntimeError(
+                    f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
+                ) from None
 
     # Verify plans/overview.md was created
     overview_path = golem_dir / "plans" / "overview.md"
@@ -83,8 +129,6 @@ async def run_planner(
     store = TicketStore(golem_dir / "tickets")
     all_tickets = await store.list_tickets()
     if not all_tickets:
-        import sys
-
         print("[PLANNER] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
         # Self-heal: create the ticket the planner should have created
         overview = golem_dir / "plans" / "overview.md"
