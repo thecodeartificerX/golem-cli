@@ -110,6 +110,17 @@ def run(
     _validate_spec(spec)
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
+
+    # Warn if stale state exists from a previous run
+    tickets_dir = golem_dir / "tickets"
+    if tickets_dir.exists() and any(tickets_dir.glob("*.json")):
+        if not force:
+            console.print("[yellow]Warning: .golem/ has existing tickets from a previous run.[/yellow]")
+            console.print("  Run 'golem clean' first, or use --force to overwrite.")
+            raise typer.Exit(1)
+        console.print("[yellow]--force: overwriting existing .golem/ state[/yellow]")
+        shutil.rmtree(golem_dir, ignore_errors=True)
+
     _create_golem_dirs(golem_dir)
 
     config = load_config(golem_dir)
