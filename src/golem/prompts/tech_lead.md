@@ -62,15 +62,17 @@ Each writer gets:
 - Its ticket ID
 - The worktree path as its working directory
 
-Wait for all writers to report `ready_for_review` before reviewing.
+**Ticket update:** For each writer ticket, call `mcp__golem__update_ticket` to set status to `in_progress` with note "Writer dispatched" BEFORE spawning the writer.
+
+Wait for all writers to complete before reviewing.
 
 ---
 
 ### Phase 5: Review Work
 
-When a writer updates a ticket to `ready_for_review`:
-1. Read the completion report in the ticket history
-2. Read the changed files
+When a writer completes:
+1. Call `mcp__golem__update_ticket` to set status to `ready_for_review` with the writer's completion summary
+2. Read the changed files in the worktree
 3. Compare against acceptance criteria and plan
 
 **If LGTM:** Call `mcp__golem__update_ticket` to set status to `approved` with your approval note.
@@ -83,7 +85,7 @@ Do not ask the writer to re-implement from scratch. Give surgical feedback.
 
 ### Phase 6: Integration (after all tickets approved)
 
-After all individual tickets are approved:
+After all individual tickets are approved, update each ticket to `done` via `mcp__golem__update_ticket`:
 
 1. **Commit worktrees**: call `mcp__golem__commit_worktree` for each worktree with a descriptive message
 2. **Merge branches**: call `mcp__golem__merge_branches` to merge all group branches into a single integration branch
