@@ -548,6 +548,40 @@ def test_log_buffer_max_len_respected() -> None:
     assert len(ui_module.log_buffer) <= 200
 
 
+@pytest.mark.asyncio
+async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
+    """tail_progress_log reads lines incrementally using seek position."""
+    from unittest.mock import MagicMock
+
+    from golem.ui import tail_progress_log
+
+    golem_dir = tmp_path
+    log_path = golem_dir / "progress.log"
+    log_path.write_text(
+        "[2026-03-27T10:00:00Z] PLANNER_START spec=test.md\n",
+        encoding="utf-8",
+    )
+
+    # Set up a fake process that exits after one iteration
+    fake_proc = MagicMock()
+    fake_proc.returncode = None
+    ui_module.current_process = fake_proc
+
+    # Run one iteration then stop (set returncode after brief delay)
+    async def stop_after_delay() -> None:
+        await asyncio.sleep(0.8)
+        fake_proc.returncode = 0
+
+    import asyncio
+    task = asyncio.create_task(stop_after_delay())
+    await tail_progress_log(golem_dir)
+    await task
+
+    # Should have parsed the log line
+    assert len(ui_module.log_buffer) >= 1
+    assert ui_module.log_buffer[0]["verb"] == "PLANNER_START"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/browse/file — native file dialog
 # ---------------------------------------------------------------------------
