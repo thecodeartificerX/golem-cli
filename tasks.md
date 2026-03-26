@@ -24,7 +24,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `worktree.py:create_pr()` is completely untested. Mock `subprocess.run` for `gh pr create` and verify: success returns PR URL, failure raises RuntimeError, draft flag passes `--draft`.
 **Done when:** `uv run pytest` passes with 3 new tests.
 
-#### [ ] 114. Test `golem status` with real tickets — Verify table rendering
+#### [x] 114. Test `golem status` with real tickets — Verify table rendering (DONE: 17592ff)
 **Size:** Small | **Files:** `tests/test_cli.py`
 **What:** Create tickets in a temp `.golem/tickets/` dir, invoke the status command, verify the table contains ticket IDs, titles, and status values in the output.
 **Done when:** `uv run pytest` passes.
