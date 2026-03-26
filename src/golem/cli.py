@@ -642,6 +642,34 @@ def diff(
     console.print(result.stdout)
 
 
+@app.command(name="reset-ticket")
+def reset_ticket(
+    ticket_id: str = typer.Argument(..., help="Ticket ID to reset (e.g. TICKET-001)"),
+) -> None:
+    """Reset a single ticket's status back to pending."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
+
+    async def _reset_async() -> None:
+        store = TicketStore(tickets_dir)
+        try:
+            ticket = await store.read(ticket_id)
+        except (FileNotFoundError, KeyError):
+            console.print(f"[red]Ticket {ticket_id} not found.[/red]")
+            raise typer.Exit(1)
+
+        old_status = ticket.status
+        await store.update(ticket_id, "pending", f"Reset from {old_status} to pending", agent="cli")
+        console.print(f"[green]Reset {ticket_id} from {old_status} to pending.[/green]")
+
+    asyncio.run(_reset_async())
+
+
 @app.command(name="list-specs")
 def list_specs() -> None:
     """List all .md files in the project that look like specs."""
