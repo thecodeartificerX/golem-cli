@@ -301,7 +301,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `run_tech_lead()` hardcodes `max_turns=100`. Add config field and wire it.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 167. Config — Show effective config at `golem run` start
+#### [x] 167. Config — Show effective config at `golem run` start (DONE: c830546)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Print key config values (models, max_parallel, max_worker_turns) at the start of a run for debugging.
 **Done when:** `uv run pytest` passes.
