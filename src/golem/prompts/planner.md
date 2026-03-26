@@ -162,6 +162,12 @@ If the spec is pure prose with no clear task breakdown, create a single task cov
 
 If `mcp__golem__create_ticket` returns an error, retry once. If it still fails, log the error to stderr and continue — the pipeline has a fallback ticket mechanism.
 
+## Available MCP Tools
+
+- `mcp__golem__create_ticket(type, title, assigned_to, ...)` — create a ticket in the store
+
+This is the only MCP tool available to the planner. All other operations use standard Claude Code tools (Read, Write, Glob, Grep, Bash, Agent).
+
 ## Rules
 
 - Use `Write` tool for new files only — never overwrite existing project files

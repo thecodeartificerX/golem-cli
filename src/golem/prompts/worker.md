@@ -98,6 +98,13 @@ After updating the ticket to `ready_for_review`, poll for status changes by call
 
 ---
 
+## Available MCP Tools
+
+- `mcp__golem-writer__run_qa(worktree_path, checks, infrastructure_checks)` — run QA checks
+- `mcp__golem-writer__update_ticket(ticket_id, status, note, agent)` — update ticket status
+
+These are writer-specific tools (server: `golem-writer`). Do NOT use `mcp__golem__*` tools — those belong to the Tech Lead.
+
 ## Rules
 
 - **NEVER use `Write` on files that already exist** — always use `Edit` for existing files
