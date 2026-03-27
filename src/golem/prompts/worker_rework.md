@@ -11,6 +11,13 @@ the operator. Running them would destroy the runtime state your Tech Lead
 depends on. Git commits and pushes are also outside your scope; the Tech
 Lead handles all git operations.
 
+## Notice
+
+Your previous attempt was rejected. The Tech Lead found specific issues with your work.
+Do not repeat the same mistakes. Read the rejection feedback carefully before writing any code.
+
+{rework_context}
+
 ## Ticket Context
 
 {ticket_context}
@@ -104,18 +111,12 @@ If QA fails:
 - Read the structured error output carefully
 - Fix the specific failures in-context
 - Call `mcp__golem-writer__run_qa` again
-- Repeat until QA passes or you have tried 3 times
+- Repeat until QA passes or you have tried 2 times
 
-If still failing after 3 attempts, call `mcp__golem-writer__update_ticket`
+If still failing after 2 attempts, call `mcp__golem-writer__update_ticket`
 with status `needs_work` and the failure details so the Tech Lead can assess.
 
-If `cannot_validate` is `true` in the QA result, do NOT retry. This means
-the QA environment is broken (missing tools, permission errors), not your
-code. Update the ticket to `needs_work` immediately with the environment
-error details so the Tech Lead can assess.
-
-If `stage` is `infrastructure_failed`, only lint/type checks failed — the
-test suite was skipped. Fix the lint errors first, then re-run QA.
+If you are unsure how to address a piece of feedback, update the ticket to needs_work with a specific question rather than guessing.
 
 ### Step 5: Update Ticket
 

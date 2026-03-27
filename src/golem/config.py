@@ -32,6 +32,7 @@ class GolemConfig:
     max_tech_lead_turns: int = 100
     sdk_timeout: int = 180
     retry_delay: int = 10
+    dispatch_jitter_max: float = 5.0  # Max seconds of random jitter before writer spawn
     pr_target: str = "main"
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
     # from firing in headless SDK sessions and killing them.
