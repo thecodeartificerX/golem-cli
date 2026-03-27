@@ -7,12 +7,23 @@ A standalone CLI tool that autonomously executes markdown design specs. Uses a t
 ```bash
 uv sync                          # Install dependencies
 uv run golem run spec.md         # Execute a spec (full pipeline)
+uv run golem run spec.md --dry-run  # Planner only, skip Tech Lead
 uv run golem plan spec.md        # Dry run — planner only, no Tech Lead
 uv run golem status              # Ticket status table (color-coded)
 uv run golem history             # Chronological event timeline
 uv run golem inspect TICKET-001  # Full details of a single ticket
+uv run golem stats               # Ticket pass rate and counts
 uv run golem logs -f             # Tail progress.log (follow mode)
 uv run golem resume              # Resume interrupted run from tickets
+uv run golem diff                # Git diff from last run
+uv run golem export              # Zip .golem/ artifacts
+uv run golem pr                  # Create GitHub PR with ticket summaries
+uv run golem doctor              # Check environment (claude, uv, git, rg)
+uv run golem list-specs          # Find .md spec files in project
+uv run golem reset-ticket TICKET-001  # Reset ticket to pending
+uv run golem config show         # Print effective config as JSON
+uv run golem config set KEY VAL  # Set a config value
+uv run golem config reset        # Reset config to defaults
 uv run golem clean               # Remove .golem/ + golem/* branches
 uv run golem version             # Version, architecture, Python, platform
 uv run golem ui                  # Launch web dashboard (port 9664)
@@ -96,6 +107,7 @@ src/
       worker.md         ← Writer agent system prompt template
       tech_lead.md      ← Tech Lead agent system prompt template
 tests/
+  conftest.py           ← Shared fixtures (ticket factory, git repo, golem dir)
   __init__.py
   test_tasks.py         ← Task graph parsing and state machine
   test_planner.py       ← Planner directory creation and ticket output
@@ -116,10 +128,17 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (185 tests)
+- **Run:** `uv run pytest` (239 tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
+
+### Testing Gotchas
+- **Use `tmp_path` fixture, not `tempfile.TemporaryDirectory()`** — `monkeypatch.chdir()` inside a `with` block causes Windows PermissionError on cleanup (CWD holds the dir lock)
+- **Rich table wrapping breaks string assertions** — assert on short strings or individual words; Rich wraps/truncates cell content in narrow terminals
+- **Mock `run_planner`/`run_tech_lead` in CLI tests** — any test that proceeds past stale-state check will hang trying to start the Claude SDK
+- **SSE endpoint tests hang with TestClient** — use `async for` with early `break` + `aclose()`, not `client.get("/api/events")`
+- **`conftest.py` has shared fixtures** — `make_ticket`, `git_repo`, `golem_dir`, `write_ticket_json` — use these instead of redefining per-file
 
 ### Claude Agent SDK Gotchas
 - **Use `permission_mode="bypassPermissions"`** for all SDK sessions — `acceptEdits` blocks headless file writes
@@ -129,11 +148,13 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **SDK initialize timeout is monkey-patched to 180s** — the SDK hardcodes 60s with no public API to override; `planner.py` patches `Query.__init__.__defaults__` at import time
 - **Capture `AssistantMessage` text blocks as fallback** — `ResultMessage.result` may be empty; check both
 - **Validator PASS detection must be fuzzy** — AI models prefix preamble before "PASS:"; search anywhere, not just `startswith`
-- **Run `uv sync` in worktrees after creation** — new worktrees lack venv; module imports fail without it
+- **Worktrees auto-install deps** — `create_worktree()` runs `uv sync` (if pyproject.toml) or `npm/bun install` (if package.json) automatically; clears `VIRTUAL_ENV` to avoid conflicts
 - **MCP tool naming** — SDK exposes tools as `mcp__<server>__<name>` (e.g. `mcp__golem__create_ticket`). Prompts must use the full prefixed name, not bare names
 - **Planner self-healing fallback** — if planner doesn't call `create_ticket` via MCP, `run_planner()` creates a fallback ticket programmatically
 - **Tech Lead self-healing merge** — if Tech Lead doesn't merge integration→main, `_ensure_merged_to_main()` does it after the session
-- **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with 10s delay
+- **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with configurable `retry_delay` (default 10s)
+- **Config fields added in v0.2.1:** `max_tech_lead_turns` (100), `sdk_timeout` (180), `retry_delay` (10) — wired into tech_lead.py, planner.py, writer.py
+- **Config fields removed in v0.2.1:** `auto_pr`, `max_validator_turns` — were never used
 - **Worktree cleanup on error** — Tech Lead cleans orphaned worktrees in `finally` block on session failure
 - **Verbose SDK streaming** — `planner.py`, `tech_lead.py`, `writer.py` print `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
 - **`uv run` in worktrees fails if parent `VIRTUAL_ENV` set** — delete `.venv` and `unset VIRTUAL_ENV` before `uv sync` in worktrees
@@ -157,6 +178,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
 ## Version History
+- **v0.2.1** (2026-03-27) — Auto-dev session: 99 tasks, 239 tests, 12 new CLI commands, dead code cleanup, prompt improvements.
 - **v0.2.0** (2026-03-27) — v2 ticket-driven architecture, 185 tests, 112 overnight improvements. See `docs/overnight-log.md` for details.
 - **v0.1.0** (2026-03-25) — v1 flat task graph with executor loop.
 
