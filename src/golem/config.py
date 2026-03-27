@@ -115,7 +115,7 @@ def sdk_env() -> dict[str, str]:
     Clears ANTHROPIC_API_KEY so the spawned claude CLI uses its own
     OAuth auth instead of treating the env var as an external API key.
     """
-    return {"ANTHROPIC_API_KEY": "", "CLAUDECODE": ""}
+    return {"ANTHROPIC_API_KEY": "", "CLAUDECODE": "", "GOLEM_SDK_SESSION": "1"}
 
 
 def resolve_agent_options(
