@@ -46,6 +46,7 @@ class GolemConfig:
     infrastructure_checks: list[str] = field(default_factory=list)
     # Conductor
     conductor_enabled: bool = True
+    skip_tech_lead: bool = False
     planner_max_turns: int = 50  # FIX: was hardcoded in planner.py
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
@@ -78,6 +79,7 @@ class GolemConfig:
         self.max_tech_lead_turns = profile_dict.get("tech_lead_max_turns", self.max_tech_lead_turns)
         self.worker_model = profile_dict.get("worker_model", self.worker_model)
         self.max_worker_turns = profile_dict.get("worker_max_turns", self.max_worker_turns)
+        self.skip_tech_lead = profile_dict.get("skip_tech_lead", False)
 
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""

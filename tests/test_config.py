@@ -340,12 +340,14 @@ def test_apply_complexity_profile_trivial() -> None:
     cfg.apply_complexity_profile("TRIVIAL")
     assert cfg.planner_max_turns == 10
     assert "haiku" in cfg.planner_model
+    assert cfg.skip_tech_lead is True
 
 
 def test_apply_complexity_profile_unknown() -> None:
     cfg = GolemConfig()
     cfg.apply_complexity_profile("UNKNOWN")
     assert cfg.planner_max_turns == 50
+    assert cfg.skip_tech_lead is False
 
 
 def test_complexity_profiles_roundtrip() -> None:
