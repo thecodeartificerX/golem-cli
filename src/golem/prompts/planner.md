@@ -53,6 +53,18 @@ Haiku model is preferred for explorers due to its larger context window. Use mod
 
 ## Step 3: Spawn Researcher Sub-Agents (model: claude-sonnet-4-6, single message)
 
+Before spawning researchers that do raw web searches, check if you have
+MCP tools available for documentation lookup:
+
+1. Check for `mcp__context7__*` tools first -- if available, use Context7
+   to resolve library documentation before falling back to web search.
+   Context7 returns structured, up-to-date docs directly.
+2. Fall back to `WebSearch` + `WebFetch` only when Context7 doesn't have
+   coverage for the library/framework, or when Context7 is not available.
+
+This applies to any documentation MCP -- always prefer structured doc tools
+over raw web scraping.
+
 Spawn multiple Researcher sub-agents **in a single message** to research online documentation in parallel. Each researcher writes findings to a `.golem/research/<topic>-docs.md` file.
 
 Researcher sub-agents should look up:
