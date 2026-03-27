@@ -69,3 +69,6 @@ class ProgressLogger:
 
     def log_merge_complete(self, branch: str) -> None:
         self._write(f"MERGE_COMPLETE branch={branch}")
+
+    def log_classification(self, complexity: str, reasoning: str) -> None:
+        self._write(f"CLASSIFICATION complexity={complexity} reasoning={reasoning}")

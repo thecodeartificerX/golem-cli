@@ -96,7 +96,7 @@ async def run_planner(
                     tools={"type": "preset", "preset": "claude_code"},
                     mcp_servers=mcps,
                     setting_sources=sources,
-                    max_turns=50,
+                    max_turns=config.planner_max_turns,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),
                 ),

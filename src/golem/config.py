@@ -10,6 +10,17 @@ _KNOWN_MODEL_PREFIXES = ("claude-opus-", "claude-sonnet-", "claude-haiku-")
 
 
 @dataclass
+class ComplexityProfile:
+    planner_model: str = "claude-opus-4-6"
+    planner_max_turns: int = 50
+    tech_lead_model: str = "claude-opus-4-6"
+    tech_lead_max_turns: int = 100
+    worker_model: str = "claude-opus-4-6"
+    worker_max_turns: int = 50
+    skip_tech_lead: bool = False
+
+
+@dataclass
 class GolemConfig:
     max_parallel: int = 3
     max_retries: int = 2
@@ -32,6 +43,40 @@ class GolemConfig:
     # Always-on deterministic checks (lint, syntax). Populated at runtime by auto-detection,
     # not persisted to config.json. Agents cannot skip these.
     infrastructure_checks: list[str] = field(default_factory=list)
+    # Conductor
+    conductor_enabled: bool = True
+    planner_max_turns: int = 50  # FIX: was hardcoded in planner.py
+    # Complexity profiles (defaults provided, operator can override)
+    complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
+        "TRIVIAL": {"planner_model": "claude-haiku-4-5-20251001", "planner_max_turns": 10,
+                    "tech_lead_model": "", "tech_lead_max_turns": 0,
+                    "worker_model": "claude-sonnet-4-6", "worker_max_turns": 20,
+                    "skip_tech_lead": True},
+        "SIMPLE": {"planner_model": "claude-sonnet-4-6", "planner_max_turns": 20,
+                   "tech_lead_model": "claude-sonnet-4-6", "tech_lead_max_turns": 30,
+                   "worker_model": "claude-sonnet-4-6", "worker_max_turns": 30,
+                   "skip_tech_lead": False},
+        "STANDARD": {"planner_model": "claude-opus-4-6", "planner_max_turns": 50,
+                     "tech_lead_model": "claude-opus-4-6", "tech_lead_max_turns": 100,
+                     "worker_model": "claude-opus-4-6", "worker_max_turns": 50,
+                     "skip_tech_lead": False},
+        "CRITICAL": {"planner_model": "claude-opus-4-6", "planner_max_turns": 80,
+                     "tech_lead_model": "claude-opus-4-6", "tech_lead_max_turns": 150,
+                     "worker_model": "claude-opus-4-6", "worker_max_turns": 80,
+                     "skip_tech_lead": False},
+    })
+
+    def apply_complexity_profile(self, complexity: str) -> None:
+        """Mutate config fields based on the complexity profile."""
+        profile_dict = self.complexity_profiles.get(complexity)
+        if not profile_dict:
+            return  # STANDARD defaults already set
+        self.planner_model = profile_dict.get("planner_model", self.planner_model)
+        self.planner_max_turns = profile_dict.get("planner_max_turns", self.planner_max_turns)
+        self.tech_lead_model = profile_dict.get("tech_lead_model", self.tech_lead_model)
+        self.max_tech_lead_turns = profile_dict.get("tech_lead_max_turns", self.max_tech_lead_turns)
+        self.worker_model = profile_dict.get("worker_model", self.worker_model)
+        self.max_worker_turns = profile_dict.get("worker_max_turns", self.max_worker_turns)
 
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""
