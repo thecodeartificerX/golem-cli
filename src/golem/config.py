@@ -25,6 +25,10 @@ class GolemConfig:
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
     # from firing in headless SDK sessions and killing them.
     setting_sources: list[str] = field(default_factory=lambda: ["project"])
+    # Per-role setting source overrides (keys: "planner", "tech_lead", "writer")
+    agent_setting_sources: dict[str, list[str]] = field(default_factory=dict)
+    # Per-role extra MCP servers merged with golem's in-process MCP
+    extra_mcp_servers: dict[str, dict[str, dict[str, object]]] = field(default_factory=dict)
     # Always-on deterministic checks (lint, syntax). Populated at runtime by auto-detection,
     # not persisted to config.json. Agents cannot skip these.
     infrastructure_checks: list[str] = field(default_factory=list)
@@ -46,6 +50,44 @@ class GolemConfig:
         for src in self.setting_sources:
             if src not in valid_sources:
                 warnings.append(f"Unknown setting_source: {src!r} — valid values are {sorted(valid_sources)}")
+
+        # Validate agent_setting_sources
+        valid_roles = {"planner", "tech_lead", "writer"}
+        for role in self.agent_setting_sources:
+            if role not in valid_roles:
+                warnings.append(
+                    f"Unknown role in agent_setting_sources: {role!r}"
+                    f" — valid roles are {sorted(valid_roles)}"
+                )
+            for src in self.agent_setting_sources.get(role, []):
+                if src not in valid_sources:
+                    warnings.append(
+                        f"Unknown setting_source in agent_setting_sources[{role!r}]: {src!r}"
+                    )
+
+        # Validate extra_mcp_servers
+        for role in self.extra_mcp_servers:
+            if role not in valid_roles:
+                warnings.append(f"Unknown role in extra_mcp_servers: {role!r} — valid roles are {sorted(valid_roles)}")
+            for name, server_config in self.extra_mcp_servers.get(role, {}).items():
+                if not isinstance(server_config, dict):
+                    warnings.append(
+                        f"extra_mcp_servers[{role!r}][{name!r}] must be a dict,"
+                        f" got {type(server_config).__name__}"
+                    )
+                elif "command" not in server_config and "url" not in server_config:
+                    warnings.append(
+                        f"extra_mcp_servers[{role!r}][{name!r}] must have"
+                        " 'command' (stdio) or 'url' (sse/http)"
+                    )
+
+        # Warn if "user" appears in any setting sources (risk of plugin hooks)
+        all_sources = list(self.setting_sources)
+        for role_sources in self.agent_setting_sources.values():
+            all_sources.extend(role_sources)
+        if "user" in all_sources:
+            warnings.append("'user' in sources — user-level plugins/hooks may interfere with SDK sessions")
+
         return warnings
 
 
@@ -73,7 +115,20 @@ def sdk_env() -> dict[str, str]:
     Clears ANTHROPIC_API_KEY so the spawned claude CLI uses its own
     OAuth auth instead of treating the env var as an external API key.
     """
-    return {"ANTHROPIC_API_KEY": ""}
+    return {"ANTHROPIC_API_KEY": "", "CLAUDECODE": ""}
+
+
+def resolve_agent_options(
+    config: GolemConfig,
+    role: str,
+    golem_mcp: object,
+    golem_mcp_name: str = "golem",
+) -> tuple[list[str], dict[str, object]]:
+    """Return (setting_sources, mcp_servers) for the given agent role."""
+    sources = config.agent_setting_sources.get(role) or config.setting_sources
+    mcps: dict[str, object] = {golem_mcp_name: golem_mcp}
+    mcps.update(config.extra_mcp_servers.get(role, {}))
+    return sources, mcps
 
 
 _EPHEMERAL_FIELDS = {"infrastructure_checks"}

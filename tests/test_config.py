@@ -197,3 +197,127 @@ def test_load_config_ignores_unknown_fields() -> None:
         loaded = load_config(golem_dir)
         assert loaded.max_parallel == 2
         assert not hasattr(loaded, "unknown_future_field")
+
+
+# --- resolve_agent_options tests ---
+
+
+def test_resolve_agent_options_defaults() -> None:
+    """resolve_agent_options falls back to base setting_sources when role not in overrides."""
+    from golem.config import resolve_agent_options
+
+    config = GolemConfig()
+    mock_mcp = object()
+    sources, mcps = resolve_agent_options(config, "planner", mock_mcp)
+    assert sources == ["project"]
+    assert "golem" in mcps
+    assert mcps["golem"] is mock_mcp
+
+
+def test_resolve_agent_options_with_role_override() -> None:
+    """resolve_agent_options uses role-specific sources when configured."""
+    from golem.config import resolve_agent_options
+
+    config = GolemConfig(agent_setting_sources={"writer": ["project", "user"]})
+    mock_mcp = object()
+    sources, mcps = resolve_agent_options(config, "writer", mock_mcp)
+    assert sources == ["project", "user"]
+
+
+def test_resolve_agent_options_with_extra_mcps() -> None:
+    """resolve_agent_options merges extra MCPs with golem MCP."""
+    from golem.config import resolve_agent_options
+
+    config = GolemConfig(
+        extra_mcp_servers={
+            "planner": {"context7": {"command": "npx", "args": ["-y", "ctx7"]}},
+        },
+    )
+    mock_mcp = object()
+    sources, mcps = resolve_agent_options(config, "planner", mock_mcp)
+    assert "golem" in mcps
+    assert "context7" in mcps
+    assert mcps["context7"]["command"] == "npx"
+
+
+def test_resolve_agent_options_custom_mcp_name() -> None:
+    """resolve_agent_options uses custom golem_mcp_name for writer."""
+    from golem.config import resolve_agent_options
+
+    config = GolemConfig()
+    mock_mcp = object()
+    sources, mcps = resolve_agent_options(
+        config, "writer", mock_mcp, golem_mcp_name="golem-writer",
+    )
+    assert "golem-writer" in mcps
+    assert "golem" not in mcps
+
+
+# --- New field defaults ---
+
+
+def test_golem_config_new_field_defaults() -> None:
+    config = GolemConfig()
+    assert config.agent_setting_sources == {}
+    assert config.extra_mcp_servers == {}
+
+
+# --- Roundtrip with new fields ---
+
+
+def test_save_load_roundtrip_new_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config = GolemConfig(
+            agent_setting_sources={"writer": ["project", "user"]},
+            extra_mcp_servers={"planner": {"ctx7": {"command": "npx"}}},
+        )
+        save_config(config, golem_dir)
+        loaded = load_config(golem_dir)
+        assert loaded.agent_setting_sources == {"writer": ["project", "user"]}
+        assert loaded.extra_mcp_servers == {"planner": {"ctx7": {"command": "npx"}}}
+
+
+# --- sdk_env CLAUDECODE fix ---
+
+
+def test_sdk_env_clears_claudecode() -> None:
+    env = sdk_env()
+    assert env.get("CLAUDECODE") == ""
+
+
+# --- Validation new fields ---
+
+
+def test_validate_unknown_role_in_agent_setting_sources() -> None:
+    config = GolemConfig(agent_setting_sources={"unknown_role": ["project"]})
+    warnings = config.validate()
+    assert any("unknown_role" in w for w in warnings)
+
+
+def test_validate_unknown_role_in_extra_mcp_servers() -> None:
+    config = GolemConfig(
+        extra_mcp_servers={"bad_role": {"ctx7": {"command": "npx"}}},
+    )
+    warnings = config.validate()
+    assert any("bad_role" in w for w in warnings)
+
+
+def test_validate_mcp_missing_command_or_url() -> None:
+    config = GolemConfig(
+        extra_mcp_servers={"planner": {"bad": {"args": ["x"]}}},
+    )
+    warnings = config.validate()
+    assert any("command" in w and "url" in w for w in warnings)
+
+
+def test_validate_user_in_sources_warns() -> None:
+    config = GolemConfig(setting_sources=["project", "user"])
+    warnings = config.validate()
+    assert any("user" in w.lower() and "plugin" in w.lower() for w in warnings)
+
+
+def test_validate_user_in_agent_sources_warns() -> None:
+    config = GolemConfig(agent_setting_sources={"writer": ["project", "user"]})
+    warnings = config.validate()
+    assert any("user" in w.lower() for w in warnings)

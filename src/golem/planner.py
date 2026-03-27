@@ -19,7 +19,7 @@ from claude_agent_sdk import (
 _MAX_RETRIES = 2
 _RETRY_DELAY_S = 10
 
-from golem.config import GolemConfig, sdk_env
+from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 
@@ -83,6 +83,7 @@ async def run_planner(
 
     # Build in-process MCP server with ticket tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
+    sources, mcps = resolve_agent_options(config, "planner", mcp_server)
 
     last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
@@ -93,7 +94,8 @@ async def run_planner(
                     model=config.planner_model,
                     cwd=str(cwd),
                     tools={"type": "preset", "preset": "claude_code"},
-                    mcp_servers={"golem": mcp_server},
+                    mcp_servers=mcps,
+                    setting_sources=sources,
                     max_turns=50,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),
