@@ -19,7 +19,7 @@ from claude_agent_sdk import (
     query,
 )
 
-from golem.config import GolemConfig, sdk_env
+from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
@@ -121,6 +121,7 @@ async def run_tech_lead(
 
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
+    sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
     _session_failed = False
     last_error: Exception | None = None
 
@@ -132,7 +133,8 @@ async def run_tech_lead(
                     model=config.tech_lead_model,
                     cwd=str(project_root),
                     tools={"type": "preset", "preset": "claude_code"},
-                    mcp_servers={"golem": mcp_server},
+                    mcp_servers=mcps,
+                    setting_sources=sources,
                     max_turns=config.max_tech_lead_turns,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),

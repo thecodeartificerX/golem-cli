@@ -19,7 +19,7 @@ from claude_agent_sdk import (
     query,
 )
 
-from golem.config import GolemConfig, sdk_env
+from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.tickets import Ticket
 from golem.tools import create_writer_mcp_server
 
@@ -84,6 +84,9 @@ async def spawn_writer_pair(
     result_text = ""
 
     writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
+    sources, mcps = resolve_agent_options(
+        config, "writer", writer_server, golem_mcp_name="golem-writer",
+    )
 
     last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
@@ -94,7 +97,8 @@ async def spawn_writer_pair(
                     model=config.worker_model,
                     cwd=worktree_path,
                     tools={"type": "preset", "preset": "claude_code"},
-                    mcp_servers={"golem-writer": writer_server},
+                    mcp_servers=mcps,
+                    setting_sources=sources,
                     max_turns=config.max_worker_turns,
                     permission_mode="bypassPermissions",
                     env=sdk_env(),
