@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -125,4 +128,46 @@ def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, 
     result = _run(cmd, cwd=repo_root, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"gh pr create failed: {result.stderr}")
-    return result.stdout.strip()
+    pr_url = result.stdout.strip()
+
+    # Verify PR exists (GitHub API eventual consistency)
+    verify_pr(pr_url, repo_root)
+
+    return pr_url
+
+
+def verify_pr(pr_url: str, repo_root: Path, poll_attempts: int = 6, poll_interval: float = 5.0) -> None:
+    """Verify a PR exists on GitHub by polling gh pr view.
+
+    Raises RuntimeError if the PR cannot be verified after all attempts.
+    GitHub's API is eventually consistent — a successful gh pr create does
+    not guarantee the PR is immediately queryable.
+    """
+    match = re.search(r"/pull/(\d+)", pr_url)
+    if not match:
+        raise RuntimeError(f"Could not extract PR number from URL: {pr_url}")
+    pr_number = match.group(1)
+
+    for attempt in range(poll_attempts):
+        result = _run(
+            ["gh", "pr", "view", pr_number, "--json", "state,url,number"],
+            cwd=repo_root, check=False,
+        )
+        if result.returncode == 0:
+            return  # PR confirmed to exist
+
+        stderr = result.stderr.lower()
+        if "could not resolve" in stderr or "no pull requests" in stderr:
+            if attempt < poll_attempts - 1:
+                time.sleep(poll_interval)
+                continue
+            raise RuntimeError(
+                f"PR verification failed: {pr_url} does not exist on GitHub "
+                f"after {poll_attempts} attempts ({poll_attempts * poll_interval}s)"
+            )
+
+        # Other gh errors (auth, network)
+        if attempt < poll_attempts - 1:
+            time.sleep(poll_interval)
+            continue
+        raise RuntimeError(f"gh pr view failed after {poll_attempts} attempts: {result.stderr}")

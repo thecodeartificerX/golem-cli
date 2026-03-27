@@ -334,6 +334,20 @@ def test_resolve_agent_options_empty_list_override() -> None:
     assert sources == []
 
 
+def test_dispatch_jitter_max_default() -> None:
+    config = GolemConfig()
+    assert config.dispatch_jitter_max == 5.0
+
+
+def test_dispatch_jitter_max_roundtrip() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config = GolemConfig(dispatch_jitter_max=3.5)
+        save_config(config, golem_dir)
+        loaded = load_config(golem_dir)
+        assert loaded.dispatch_jitter_max == 3.5
+
+
 def test_resolve_plugins_for_role_reads_project(tmp_path: Path) -> None:
     """resolve_plugins_for_role reads project .claude/settings.json."""
     from golem.config import resolve_plugins_for_role

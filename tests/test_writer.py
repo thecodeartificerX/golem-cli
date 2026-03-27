@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from golem.config import GolemConfig
-from golem.tickets import Ticket, TicketContext
+from golem.tickets import Ticket, TicketContext, TicketEvent
 from golem.writer import build_writer_prompt, spawn_writer_pair
 
 
@@ -131,6 +131,94 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]
+
+
+def test_build_prompt_first_attempt() -> None:
+    """rework_count=0: iteration placeholder resolved to '1', rework_context is empty."""
+    ticket = _make_ticket_with_context()
+    prompt = build_writer_prompt(ticket, rework_count=0)
+    assert "{iteration}" not in prompt
+    assert "{rework_context}" not in prompt
+    assert "Previous Rejection" not in prompt
+
+
+def test_build_prompt_rework() -> None:
+    """rework_count=2, notes=['fix lint', 'wrong file'] -> iteration=3, both notes in prompt."""
+    ticket = _make_ticket_with_context()
+    notes = ["fix lint errors", "wrong file modified"]
+    prompt = build_writer_prompt(ticket, rework_count=2, rework_notes=notes)
+    assert "{iteration}" not in prompt
+    assert "{rework_context}" not in prompt
+    assert "fix lint errors" in prompt
+    assert "wrong file modified" in prompt
+
+
+def test_build_prompt_rework_limits_notes() -> None:
+    """With 5 rework notes, only the last 3 appear in the prompt."""
+    ticket = _make_ticket_with_context()
+    notes = ["n1", "n2", "n3", "n4", "n5"]
+    prompt = build_writer_prompt(ticket, rework_count=5, rework_notes=notes)
+    assert "n3" in prompt
+    assert "n4" in prompt
+    assert "n5" in prompt
+    assert "n1" not in prompt
+    assert "n2" not in prompt
+
+
+def test_get_rework_info_counts_needs_work() -> None:
+    """_get_rework_info counts needs_work events and extracts notes."""
+    from golem.writer import _get_rework_info
+
+    ticket = _make_ticket_with_context()
+    ticket.history = [
+        TicketEvent(ts="2026-01-01T00:00:00+00:00", agent="tl", action="status_changed_to_needs_work", note="fix lint"),
+        TicketEvent(ts="2026-01-01T00:01:00+00:00", agent="tl", action="approved", note=""),
+        TicketEvent(ts="2026-01-01T00:02:00+00:00", agent="tl", action="status_changed_to_needs_work", note="wrong file"),
+    ]
+    count, notes = _get_rework_info(ticket)
+    assert count == 2
+    assert notes == ["fix lint", "wrong file"]
+
+
+def test_get_rework_info_empty_history() -> None:
+    """_get_rework_info returns (0, []) for a ticket with no history."""
+    from golem.writer import _get_rework_info
+
+    ticket = _make_ticket_with_context()
+    # Ticket from _make_ticket_with_context has empty history by default
+    count, notes = _get_rework_info(ticket)
+    assert count == 0
+    assert notes == []
+
+
+@pytest.mark.asyncio
+async def test_jitter_skip_in_test_mode() -> None:
+    """With GOLEM_TEST_MODE=1, no asyncio.sleep is called for jitter."""
+    import os
+
+    slept_durations: list[float] = []
+
+    async def fake_sleep(n: float) -> None:
+        slept_durations.append(n)
+
+    async def fake_query(*args, **kwargs):  # type: ignore[misc]
+        return
+        yield
+
+    ticket = _make_ticket_with_context()
+    config = GolemConfig(dispatch_jitter_max=10.0)
+
+    with patch("golem.writer.query", side_effect=fake_query), \
+         patch("asyncio.sleep", side_effect=fake_sleep), \
+         patch.dict(os.environ, {"GOLEM_TEST_MODE": "1"}):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            golem_dir = Path(tmpdir) / ".golem"
+            (golem_dir / "tickets").mkdir(parents=True)
+            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+
+    # asyncio.sleep may be called for retry_delay but NOT for jitter (which is 10.0s max)
+    jitter_sleeps = [d for d in slept_durations if d >= 1.0]
+    assert len(jitter_sleeps) == 0, f"Jitter sleep called in test mode: {slept_durations}"
 
 
 @pytest.mark.asyncio

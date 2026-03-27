@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import random
 import sys
 from pathlib import Path
 
@@ -26,9 +28,28 @@ from golem.tools import create_writer_mcp_server
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
 
-def build_writer_prompt(ticket: Ticket) -> str:
-    """Build writer prompt from ticket context, stripping empty sections."""
-    template = _WRITER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
+def _get_rework_info(ticket: Ticket) -> tuple[int, list[str]]:
+    """Count needs_work events and extract rejection notes from ticket history."""
+    rework_count = 0
+    rework_notes: list[str] = []
+    for event in ticket.history:
+        if "needs_work" in (event.action or "").lower() or (
+            event.note and "needs_work" in event.note.lower()
+        ):
+            rework_count += 1
+            if event.note:
+                rework_notes.append(event.note)
+    return rework_count, rework_notes
+
+
+def build_writer_prompt(ticket: Ticket, rework_count: int = 0, rework_notes: list[str] | None = None) -> str:
+    """Build writer prompt from ticket context, with optional rework context."""
+    template_name = "worker_rework.md" if rework_count > 0 else "worker.md"
+    template_path = Path(__file__).parent / "prompts" / template_name
+    # Fall back to worker.md if rework template doesn't exist yet
+    if not template_path.exists():
+        template_path = _WRITER_PROMPT_TEMPLATE
+    template = template_path.read_text(encoding="utf-8")
     ctx = ticket.context
 
     # Build substitution values
@@ -51,6 +72,17 @@ def build_writer_prompt(ticket: Ticket) -> str:
     qa_checks = "\n".join(f"- `{q}`" for q in ctx.qa_checks) if ctx.qa_checks else ""
     parallelism_hints = "\n".join(f"- {h}" for h in ctx.parallelism_hints) if ctx.parallelism_hints else ""
 
+    # Build rework context string
+    rework_context = ""
+    if rework_count > 0 and rework_notes:
+        rework_context = "## Previous Rejection Feedback\n\n"
+        for i, note in enumerate(rework_notes[-3:], 1):  # Last 3 rejections
+            rework_context += f"### Attempt {i} Feedback\n{note}\n\n"
+        rework_context += (
+            f"This is attempt {rework_count + 1}. "
+            "Address ALL previous feedback before submitting.\n"
+        )
+
     replacements = {
         "ticket_context": ticket_context,
         "plan_section": plan_section,
@@ -60,6 +92,8 @@ def build_writer_prompt(ticket: Ticket) -> str:
         "acceptance": acceptance,
         "qa_checks": qa_checks,
         "parallelism_hints": parallelism_hints,
+        "iteration": str(rework_count + 1),
+        "rework_context": rework_context,
     }
 
     prompt = template
@@ -80,7 +114,16 @@ async def spawn_writer_pair(
 
     Returns the writer's result text.
     """
-    prompt = build_writer_prompt(ticket)
+    rework_count, rework_notes = _get_rework_info(ticket)
+    prompt = build_writer_prompt(ticket, rework_count=rework_count, rework_notes=rework_notes)
+
+    # Stagger parallel writer spawns to reduce I/O contention on uv cache
+    jitter = config.dispatch_jitter_max
+    if jitter > 0 and os.environ.get("GOLEM_TEST_MODE") != "1":
+        delay = random.uniform(0, jitter)
+        print(f"[JUNIOR DEV] {ticket.id}: jitter delay {delay:.1f}s", file=sys.stderr)
+        await asyncio.sleep(delay)
+
     result_text = ""
 
     writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
