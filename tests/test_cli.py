@@ -895,3 +895,47 @@ def test_preflight_force_bypasses_errors(
     runner = CliRunner()
     result = runner.invoke(app, ["preflight", str(spec), "--force"])
     assert result.exit_code == 0
+
+
+def test_stats_shows_cost_breakdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """stats command displays cost table when AGENT_COST events exist."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "tickets").mkdir()
+    log = golem_dir / "progress.log"
+    log.write_text(
+        "[2026-03-27T12:00:00Z] AGENT_COST role=lead_architect cost=$0.042300 "
+        "input_tokens=15200 output_tokens=3800 cache_read=8500 turns=12 duration=45s\n",
+        encoding="utf-8",
+    )
+    # Write a ticket so stats doesn't exit early with "No tickets found"
+    _write_ticket_json(golem_dir / "tickets", "TICKET-001", "Test task", "done")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["stats"])
+    assert result.exit_code == 0
+    assert "lead_architect" in result.output or "Run Economics" in result.output
+
+
+def test_stats_handles_no_cost_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """stats command works without AGENT_COST events in progress.log."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "tickets").mkdir()
+    _write_ticket_json(golem_dir / "tickets", "TICKET-001", "Test task", "done")
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["stats"])
+    assert result.exit_code == 0

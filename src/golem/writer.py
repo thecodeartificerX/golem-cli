@@ -4,6 +4,7 @@ import asyncio
 import os
 import random
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _MAX_RETRIES = 2
@@ -22,8 +23,20 @@ from claude_agent_sdk import (
 )
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
+from golem.progress import ProgressLogger
 from golem.tickets import Ticket
 from golem.tools import create_writer_mcp_server
+
+
+@dataclass
+class WriterResult:
+    result_text: str = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
 
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
 
@@ -109,10 +122,10 @@ async def spawn_writer_pair(
     worktree_path: str,
     config: GolemConfig,
     golem_dir: Path | None = None,
-) -> str:
+) -> WriterResult:
     """Spawn a writer SDK session for the given ticket in the worktree.
 
-    Returns the writer's result text.
+    Returns a WriterResult with result text and cost/token data.
     """
     rework_count, rework_notes = _get_rework_info(ticket)
     prompt = build_writer_prompt(ticket, rework_count=rework_count, rework_notes=rework_notes)
@@ -130,6 +143,13 @@ async def spawn_writer_pair(
     sources, mcps = resolve_agent_options(
         config, "writer", writer_server, golem_mcp_name="golem-writer",
     )
+
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
 
     last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
@@ -156,6 +176,13 @@ async def spawn_writer_pair(
                         elif isinstance(block, ToolUseBlock):
                             print(f"[JUNIOR DEV] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
                 elif isinstance(message, ResultMessage):
+                    cost_usd = message.total_cost_usd or 0.0
+                    usage = message.usage or {}
+                    input_tokens = usage.get("input_tokens", 0)
+                    output_tokens = usage.get("output_tokens", 0)
+                    cache_read = usage.get("cache_read_input_tokens", 0)
+                    num_turns = message.num_turns
+                    duration_ms = message.duration_ms
                     if message.result:
                         result_text = message.result
                         preview = message.result[:120].replace("\n", " ")
@@ -178,4 +205,22 @@ async def spawn_writer_pair(
                     f"Writer failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
-    return result_text
+    log_dir = golem_dir if golem_dir else Path(worktree_path)
+    ProgressLogger(log_dir).log_agent_cost(
+        role=f"junior_dev/{ticket.id}",
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read=cache_read,
+        turns=num_turns,
+        duration_s=duration_ms // 1000,
+    )
+    return WriterResult(
+        result_text=result_text,
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read,
+        num_turns=num_turns,
+        duration_ms=duration_ms,
+    )

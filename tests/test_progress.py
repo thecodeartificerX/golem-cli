@@ -165,3 +165,31 @@ def test_log_guidance_received() -> None:
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
         assert "GUIDANCE_RECEIVED" in content
         assert "adjust scope" in content
+
+
+def test_log_agent_cost_format() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_agent_cost(
+            role="lead_architect",
+            cost_usd=0.0423,
+            input_tokens=15200,
+            output_tokens=3800,
+            cache_read=8500,
+            turns=12,
+            duration_s=45,
+        )
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "AGENT_COST" in content
+        assert "role=lead_architect" in content
+        assert "cost=$" in content
+        assert "input_tokens=15200" in content
+        assert "output_tokens=3800" in content
+
+
+def test_log_run_cost_summary_format() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_run_cost_summary(2.134567)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "RUN_COST total=$" in content

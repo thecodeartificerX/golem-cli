@@ -76,3 +76,22 @@ class ProgressLogger:
 
     def log_classification(self, complexity: str, reasoning: str) -> None:
         self._write(f"CLASSIFICATION complexity={complexity} reasoning={reasoning}")
+
+    def log_agent_cost(
+        self,
+        role: str,
+        cost_usd: float,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read: int = 0,
+        turns: int = 0,
+        duration_s: int = 0,
+    ) -> None:
+        self._write(
+            f"AGENT_COST role={role} cost=${cost_usd:.6f} "
+            f"input_tokens={input_tokens} output_tokens={output_tokens} "
+            f"cache_read={cache_read} turns={turns} duration={duration_s}s"
+        )
+
+    def log_run_cost_summary(self, total_cost_usd: float) -> None:
+        self._write(f"RUN_COST total=${total_cost_usd:.6f}")
