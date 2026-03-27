@@ -16,7 +16,7 @@ from pathlib import Path
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server
 
 from golem.config import GolemConfig
-from golem.qa import run_qa
+from golem.qa import QAResult, run_qa
 from golem.tickets import Ticket, TicketContext, TicketStore
 from golem.worktree import commit_task, create_worktree, merge_group_branches
 
@@ -191,18 +191,26 @@ async def _handle_list_tickets(store: TicketStore, args: dict[str, object]) -> d
 
 async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
     import sys
+    try:
+        checks_raw = args.get("checks") or []
+        infra_raw = args.get("infrastructure_checks") or []
+        result = run_qa(
+            worktree_path=str(args["worktree_path"]),
+            checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
+            infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
+        )
+    except Exception as e:
+        # Safety net: always return valid QAResult JSON — never let an exception
+        # propagate as a malformed MCP response
+        result = QAResult(
+            passed=False, checks=[], summary=f"QA runner crashed: {e}",
+            cannot_validate=True, stage="crashed",
+        )
 
-    checks_raw = args.get("checks") or []
-    infra_raw = args.get("infrastructure_checks") or []
-    result = run_qa(
-        worktree_path=str(args["worktree_path"]),
-        checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
-        infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
-    )
     passed = sum(1 for c in result.checks if c.passed)
     total = len(result.checks)
-    status = "PASSED" if result.passed else "FAILED"
-    print(f"[QA] {status} — {passed}/{total} checks passed", file=sys.stderr)
+    status = "PASSED" if result.passed else ("CANNOT_VALIDATE" if result.cannot_validate else "FAILED")
+    print(f"[QA] {status} -- {passed}/{total} checks passed", file=sys.stderr)
     return {"content": [{"type": "text", "text": json.dumps(asdict(result))}]}
 
 
