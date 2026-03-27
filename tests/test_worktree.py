@@ -4,7 +4,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -233,7 +233,7 @@ def test_create_worktree_branch_already_exists() -> None:
         delete_worktree(wt_path, repo)
 
 
-def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_pr returns the PR URL on success."""
     from unittest.mock import MagicMock
 
@@ -244,7 +244,7 @@ def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
 
-    url = create_pr(
+    url = await create_pr(
         branch="feat/my-feature",
         title="My Feature",
         body="Description here",
@@ -254,7 +254,7 @@ def test_create_pr_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert url == "https://github.com/owner/repo/pull/42"
 
 
-def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_pr raises RuntimeError when gh fails."""
     from unittest.mock import MagicMock
 
@@ -266,7 +266,7 @@ def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: fake_result)
 
     with pytest.raises(RuntimeError, match="gh pr create failed"):
-        create_pr(
+        await create_pr(
             branch="feat/broken",
             title="Broken",
             body="",
@@ -275,17 +275,17 @@ def test_create_pr_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
-def test_verify_pr_success() -> None:
+async def test_verify_pr_success() -> None:
     """verify_pr does not raise when gh pr view returns valid JSON."""
     mock_result = MagicMock()
     mock_result.returncode = 0
     mock_result.stdout = json.dumps({"state": "OPEN", "url": "https://github.com/o/r/pull/1", "number": 1})
 
     with patch("golem.worktree._run", return_value=mock_result):
-        verify_pr("https://github.com/o/r/pull/1", Path("/tmp"))  # Should not raise
+        await verify_pr("https://github.com/o/r/pull/1", Path("/tmp"))  # Should not raise
 
 
-def test_verify_pr_not_found_retries() -> None:
+async def test_verify_pr_not_found_retries() -> None:
     """verify_pr retries and succeeds when gh fails first then returns valid JSON."""
     fail_result = MagicMock()
     fail_result.returncode = 1
@@ -296,41 +296,41 @@ def test_verify_pr_not_found_retries() -> None:
     ok_result.stdout = json.dumps({"state": "OPEN", "url": "https://github.com/o/r/pull/5", "number": 5})
 
     with patch("golem.worktree._run", side_effect=[fail_result, fail_result, ok_result]), \
-         patch("time.sleep"):
-        verify_pr("https://github.com/o/r/pull/5", Path("/tmp"), poll_attempts=6, poll_interval=0)
+         patch("asyncio.sleep", new=AsyncMock()):
+        await verify_pr("https://github.com/o/r/pull/5", Path("/tmp"), poll_attempts=6, poll_interval=0)
 
 
-def test_verify_pr_not_found_all_retries() -> None:
+async def test_verify_pr_not_found_all_retries() -> None:
     """verify_pr raises RuntimeError after all poll_attempts fail."""
     fail_result = MagicMock()
     fail_result.returncode = 1
     fail_result.stderr = "could not resolve to a PullRequest"
 
     with patch("golem.worktree._run", return_value=fail_result), \
-         patch("time.sleep"):
+         patch("asyncio.sleep", new=AsyncMock()):
         with pytest.raises(RuntimeError, match="PR verification failed"):
-            verify_pr("https://github.com/o/r/pull/7", Path("/tmp"), poll_attempts=3, poll_interval=0)
+            await verify_pr("https://github.com/o/r/pull/7", Path("/tmp"), poll_attempts=3, poll_interval=0)
 
 
-def test_verify_pr_invalid_url() -> None:
+async def test_verify_pr_invalid_url() -> None:
     """verify_pr raises RuntimeError when URL has no /pull/NNN segment."""
     with pytest.raises(RuntimeError, match="Could not extract PR number"):
-        verify_pr("https://github.com/o/r/issues/42", Path("/tmp"))
+        await verify_pr("https://github.com/o/r/issues/42", Path("/tmp"))
 
 
-def test_verify_pr_gh_auth_error() -> None:
+async def test_verify_pr_gh_auth_error() -> None:
     """verify_pr raises RuntimeError after all attempts with an auth error."""
     auth_fail = MagicMock()
     auth_fail.returncode = 1
     auth_fail.stderr = "authentication required: run gh auth login"
 
     with patch("golem.worktree._run", return_value=auth_fail), \
-         patch("time.sleep"):
+         patch("asyncio.sleep", new=AsyncMock()):
         with pytest.raises(RuntimeError, match="gh pr view failed after"):
-            verify_pr("https://github.com/o/r/pull/3", Path("/tmp"), poll_attempts=2, poll_interval=0)
+            await verify_pr("https://github.com/o/r/pull/3", Path("/tmp"), poll_attempts=2, poll_interval=0)
 
 
-def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_pr passes --draft when draft=True."""
     from unittest.mock import MagicMock
 
@@ -346,7 +346,7 @@ def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    url = create_pr(
+    url = await create_pr(
         branch="feat/draft",
         title="Draft PR",
         body="WIP",

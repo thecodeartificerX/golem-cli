@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import subprocess
-import time
 from pathlib import Path
 
 
@@ -116,7 +116,7 @@ def merge_group_branches(group_branches: list[str], target_branch: str, repo_roo
     return True, ""
 
 
-def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, pr_target: str = "main") -> str:
+async def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, pr_target: str = "main") -> str:
     """Create a GitHub PR using gh CLI. Returns the PR URL.
 
     Requires `gh` (GitHub CLI) to be installed and authenticated.
@@ -131,12 +131,12 @@ def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, 
     pr_url = result.stdout.strip()
 
     # Verify PR exists (GitHub API eventual consistency)
-    verify_pr(pr_url, repo_root)
+    await verify_pr(pr_url, repo_root)
 
     return pr_url
 
 
-def verify_pr(pr_url: str, repo_root: Path, poll_attempts: int = 6, poll_interval: float = 5.0) -> None:
+async def verify_pr(pr_url: str, repo_root: Path, poll_attempts: int = 6, poll_interval: float = 5.0) -> None:
     """Verify a PR exists on GitHub by polling gh pr view.
 
     Raises RuntimeError if the PR cannot be verified after all attempts.
@@ -159,7 +159,7 @@ def verify_pr(pr_url: str, repo_root: Path, poll_attempts: int = 6, poll_interva
         stderr = result.stderr.lower()
         if "could not resolve" in stderr or "no pull requests" in stderr:
             if attempt < poll_attempts - 1:
-                time.sleep(poll_interval)
+                await asyncio.sleep(poll_interval)
                 continue
             raise RuntimeError(
                 f"PR verification failed: {pr_url} does not exist on GitHub "
@@ -168,6 +168,6 @@ def verify_pr(pr_url: str, repo_root: Path, poll_attempts: int = 6, poll_interva
 
         # Other gh errors (auth, network)
         if attempt < poll_attempts - 1:
-            time.sleep(poll_interval)
+            await asyncio.sleep(poll_interval)
             continue
         raise RuntimeError(f"gh pr view failed after {poll_attempts} attempts: {result.stderr}")
