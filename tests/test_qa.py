@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from golem.qa import detect_infrastructure_checks, run_autofix, run_qa
+from golem.qa import _run_single_check, detect_infrastructure_checks, run_autofix, run_qa
+from golem.tools import _handle_run_qa
 
 
 def test_run_qa_all_pass() -> None:
@@ -178,3 +180,94 @@ def test_detect_infrastructure_checks_finds_npm_test() -> None:
         pkg.write_text(json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
         checks = detect_infrastructure_checks(Path(tmpdir))
         assert "npm test" in checks
+
+
+def test_two_stage_skips_spec_checks_on_infra_failure(tmp_path: Path) -> None:
+    """Infra check fails -> spec checks not run -> stage='infrastructure_failed'."""
+    result = run_qa(str(tmp_path), checks=["exit 0"], infrastructure_checks=["exit 1"])
+    assert result.stage == "infrastructure_failed"
+    # Only the infra check ran — spec check was skipped
+    assert len(result.checks) == 1
+    assert result.passed is False
+
+
+def test_two_stage_runs_spec_checks_on_infra_pass(tmp_path: Path) -> None:
+    """Infra check passes -> spec checks run -> stage='complete'."""
+    result = run_qa(str(tmp_path), checks=["exit 0"], infrastructure_checks=["exit 0"])
+    assert result.stage == "complete"
+    assert len(result.checks) == 2
+    assert result.passed is True
+
+
+def test_cannot_validate_on_file_not_found(tmp_path: Path) -> None:
+    """FileNotFoundError on subprocess.run sets cannot_validate=True on QACheck."""
+    with patch("subprocess.run", side_effect=FileNotFoundError("binary not found")):
+        check = _run_single_check("fake-binary", str(tmp_path))
+    assert check.cannot_validate is True
+    assert check.passed is False
+
+
+def test_cannot_validate_on_os_error(tmp_path: Path) -> None:
+    """OSError on subprocess.run sets cannot_validate=True on QACheck."""
+    with patch("subprocess.run", side_effect=OSError("permission denied")):
+        check = _run_single_check("locked-cmd", str(tmp_path))
+    assert check.cannot_validate is True
+    assert check.passed is False
+
+
+def test_cannot_validate_propagates_to_result(tmp_path: Path) -> None:
+    """QAResult.cannot_validate=True when any check has cannot_validate=True."""
+    with patch("subprocess.run", side_effect=FileNotFoundError("not found")):
+        result = run_qa(str(tmp_path), checks=["missing-tool"], infrastructure_checks=[])
+    assert result.cannot_validate is True
+    assert result.passed is False
+
+
+def test_timeout_is_not_cannot_validate(tmp_path: Path) -> None:
+    """TimeoutExpired -> passed=False but cannot_validate=False (real failure, not env issue)."""
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 120)):
+        check = _run_single_check("slow-cmd", str(tmp_path))
+    assert check.passed is False
+    assert check.cannot_validate is False
+
+
+def test_crash_safety_in_handle_run_qa(tmp_path: Path) -> None:
+    """_handle_run_qa never raises — returns valid QAResult JSON even when run_qa crashes."""
+    import asyncio
+
+    async def run() -> None:
+        with patch("golem.tools.run_qa", side_effect=RuntimeError("runner exploded")):
+            result = await _handle_run_qa({"worktree_path": str(tmp_path), "checks": []})
+        text = result["content"][0]["text"]
+        data = json.loads(text)
+        assert data["cannot_validate"] is True
+        assert data["stage"] == "crashed"
+        assert data["passed"] is False
+
+    asyncio.run(run())
+
+
+def test_detect_infrastructure_checks_consolidated(tmp_path: Path) -> None:
+    """The consolidated detect_infrastructure_checks detects ruff, mypy, npm lint, npm test, tsc, cargo test."""
+    # ruff via pyproject.toml
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 120\n", encoding="utf-8")
+    checks = detect_infrastructure_checks(tmp_path)
+    assert "ruff check ." in checks
+
+    # npm lint + npm test via package.json
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"lint": "eslint src", "test": "jest"}}), encoding="utf-8"
+    )
+    checks = detect_infrastructure_checks(tmp_path)
+    assert "npm run lint" in checks
+    assert "npm test" in checks
+
+    # tsc via tsconfig.json
+    (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
+    checks = detect_infrastructure_checks(tmp_path)
+    assert "npx tsc --noEmit" in checks
+
+    # cargo test via Cargo.toml
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "test"\n', encoding="utf-8")
+    checks = detect_infrastructure_checks(tmp_path)
+    assert "cargo test" in checks

@@ -103,6 +103,14 @@ If QA fails:
 If still failing after 3 attempts, call `mcp__golem-writer__update_ticket`
 with status `needs_work` and the failure details so the Tech Lead can assess.
 
+If `cannot_validate` is `true` in the QA result, do NOT retry. This means
+the QA environment is broken (missing tools, permission errors), not your
+code. Update the ticket to `needs_work` immediately with the environment
+error details so the Tech Lead can assess.
+
+If `stage` is `infrastructure_failed`, only lint/type checks failed — the
+test suite was skipped. Fix the lint errors first, then re-run QA.
+
 ### Step 5: Update Ticket
 
 When QA passes (status: `qa_passed`):

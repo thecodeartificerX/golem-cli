@@ -15,6 +15,7 @@ class QACheck:
     passed: bool
     stdout: str
     stderr: str
+    cannot_validate: bool = False  # True when check failed due to environment, not code
 
 
 @dataclass
@@ -22,6 +23,8 @@ class QAResult:
     passed: bool
     checks: list[QACheck] = field(default_factory=list)
     summary: str = ""
+    cannot_validate: bool = False  # True when any check has cannot_validate=True
+    stage: str = "complete"        # "infrastructure_failed" | "complete" | "crashed"
 
 
 def detect_infrastructure_checks(project_root: Path) -> list[str]:
@@ -59,61 +62,88 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
     return checks
 
 
-def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[str]) -> QAResult:
-    """Run infrastructure checks first, then spec checks. Returns structured QAResult."""
-    env = _subprocess_env()
-    all_checks: list[QACheck] = []
-    failed_tools: list[str] = []
+def _classify_check(cmd: str) -> str:
+    if "ruff" in cmd or "lint" in cmd or "eslint" in cmd:
+        return "lint"
+    if "tsc" in cmd or "mypy" in cmd or "pyright" in cmd:
+        return "lint"
+    if "pytest" in cmd or "jest" in cmd or "npm test" in cmd:
+        return "test"
+    return "acceptance"
 
-    for cmd in infrastructure_checks + checks:
-        normalized = _normalize_cmd(cmd)
-        try:
-            result = subprocess.run(
-                normalized,
-                shell=True,
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                env=env,
-                timeout=120,
-            )
-            passed = result.returncode == 0
-        except subprocess.TimeoutExpired:
-            passed = False
-            result = type("R", (), {"returncode": -1, "stdout": "", "stderr": f"Timed out after 120s: {cmd}"})()  # type: ignore[assignment]
-        # Determine check type from command
-        if "ruff" in cmd or "lint" in cmd or "eslint" in cmd:
-            check_type = "lint"
-        elif "tsc" in cmd or "mypy" in cmd or "pyright" in cmd:
-            check_type = "lint"
-        elif "pytest" in cmd or "jest" in cmd or "npm test" in cmd:
-            check_type = "test"
-        else:
-            check_type = "acceptance"
 
-        all_checks.append(QACheck(
-            type=check_type,
-            tool=cmd,
-            passed=passed,
-            stdout=result.stdout,
-            stderr=result.stderr,
-        ))
-        if not passed:
-            failed_tools.append(cmd)
+def _run_single_check(cmd: str, worktree_path: str) -> QACheck:
+    check_type = _classify_check(cmd)
+    try:
+        result = subprocess.run(
+            _normalize_cmd(cmd), shell=True, capture_output=True, text=True,
+            encoding="utf-8", timeout=120, cwd=worktree_path, env=_subprocess_env(),
+        )
+        return QACheck(
+            type=check_type, tool=cmd,
+            passed=result.returncode == 0,
+            stdout=result.stdout, stderr=result.stderr,
+        )
+    except subprocess.TimeoutExpired:
+        return QACheck(
+            type=check_type, tool=cmd, passed=False,
+            stdout="", stderr="Command timed out after 120 seconds",
+        )
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        return QACheck(
+            type=check_type, tool=cmd, passed=False,
+            stdout="", stderr=f"Environment error: {e}",
+            cannot_validate=True,
+        )
+    except Exception as e:
+        return QACheck(
+            type=check_type, tool=cmd, passed=False,
+            stdout="", stderr=f"Unexpected error: {e}",
+            cannot_validate=True,
+        )
 
-    total = len(all_checks)
-    passed_count = sum(1 for c in all_checks if c.passed)
-    if failed_tools:
-        summary = f"{passed_count}/{total} checks passed. Failed: {failed_tools}"
-    else:
-        summary = f"{passed_count}/{total} checks passed."
+
+def _build_result(checks: list[QACheck], stage: str) -> QAResult:
+    passed_count = sum(1 for c in checks if c.passed)
+    failed = [c.tool for c in checks if not c.passed and not c.cannot_validate]
+    env_failed = [c.tool for c in checks if c.cannot_validate]
+    has_cannot_validate = any(c.cannot_validate for c in checks)
+
+    parts = [f"{passed_count}/{len(checks)} checks passed"]
+    if failed:
+        parts.append(f"Failed: {failed}")
+    if env_failed:
+        parts.append(f"Environment errors: {env_failed}")
+    if stage == "infrastructure_failed":
+        parts.append("Spec checks skipped (infrastructure failed)")
 
     return QAResult(
-        passed=len(failed_tools) == 0,
-        checks=all_checks,
-        summary=summary,
+        passed=len(failed) == 0 and not has_cannot_validate,
+        checks=checks, summary=". ".join(parts),
+        cannot_validate=has_cannot_validate, stage=stage,
     )
+
+
+def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[str] | None = None) -> QAResult:
+    """Run infrastructure checks first (fast gate), then spec checks. Returns structured QAResult."""
+    all_checks: list[QACheck] = []
+    infra = infrastructure_checks or []
+
+    # Phase 1: Infrastructure checks (fast gate)
+    for cmd in infra:
+        check = _run_single_check(cmd, worktree_path)
+        all_checks.append(check)
+
+    infra_failed = any(not c.passed for c in all_checks)
+    if infra_failed:
+        return _build_result(all_checks, stage="infrastructure_failed")
+
+    # Phase 2: Spec checks (only if infra passed)
+    for cmd in checks:
+        check = _run_single_check(cmd, worktree_path)
+        all_checks.append(check)
+
+    return _build_result(all_checks, stage="complete")
 
 
 def run_autofix(worktree_path: str, infrastructure_checks: list[str]) -> None:

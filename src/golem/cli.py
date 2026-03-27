@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from golem.config import load_config, save_config
+from golem.qa import detect_infrastructure_checks
 
 if TYPE_CHECKING:
     from golem.config import GolemConfig
@@ -44,40 +45,6 @@ def _resolve_spec_project_root(spec: Path) -> Path:
         candidate = candidate.parent
     return spec.resolve().parent
 
-
-def _detect_infrastructure_checks(project_root: Path) -> list[str]:
-    """Auto-detect always-on infrastructure checks from project tooling files."""
-    checks: list[str] = []
-
-    # Python: ruff if pyproject.toml has [tool.ruff]
-    pyproject = project_root / "pyproject.toml"
-    if pyproject.exists():
-        content = pyproject.read_text(encoding="utf-8")
-        if "[tool.ruff]" in content or "[tool.ruff.lint]" in content:
-            checks.append("ruff check .")
-    ruff_toml = project_root / "ruff.toml"
-    if ruff_toml.exists() and "ruff check ." not in checks:
-        checks.append("ruff check .")
-
-    # JavaScript/TypeScript: check for lint/typecheck scripts in package.json
-    package_json = project_root / "package.json"
-    if package_json.exists():
-        try:
-            pkg = json.loads(package_json.read_text(encoding="utf-8"))
-            scripts = pkg.get("scripts", {})
-            if "lint" in scripts:
-                checks.append("npm run lint")
-            if "typecheck" in scripts:
-                checks.append("npm run typecheck")
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    # TypeScript: tsconfig.json present
-    tsconfig = project_root / "tsconfig.json"
-    if tsconfig.exists():
-        checks.append("tsc --noEmit")
-
-    return checks
 
 
 def _get_golem_dir(project_root: Path) -> Path:
@@ -150,7 +117,7 @@ def run(
 
     config = load_config(golem_dir)
     spec_project_root = _resolve_spec_project_root(spec)
-    config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
+    config.infrastructure_checks = detect_infrastructure_checks(spec_project_root)
     save_config(config, golem_dir)
 
     progress = ProgressLogger(golem_dir)
@@ -360,7 +327,7 @@ def resume() -> None:
         ticket = sorted(candidates, key=lambda t: t.id)[0]
         config = load_config(golem_dir)
         spec_project_root = _resolve_spec_project_root(Path(ticket.context.plan_file)) if ticket.context.plan_file else project_root
-        config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
+        config.infrastructure_checks = detect_infrastructure_checks(spec_project_root)
 
         progress = ProgressLogger(golem_dir)
         console.print(f"[bold cyan]Golem[/bold cyan] -- Resuming from ticket {ticket.id} ({ticket.title[:50]})...")

@@ -8,7 +8,8 @@ import pytest
 
 from click.exceptions import Exit as ClickExit
 
-from golem.cli import _create_golem_dirs, _detect_infrastructure_checks, _get_golem_dir, _get_project_root, _resolve_spec_project_root, _validate_spec
+from golem.cli import _create_golem_dirs, _get_golem_dir, _get_project_root, _resolve_spec_project_root, _validate_spec
+from golem.qa import detect_infrastructure_checks as _detect_infrastructure_checks
 
 
 def test_validate_spec_nonexistent_exits() -> None:
@@ -71,11 +72,12 @@ def test_detect_infrastructure_checks_finds_npm_lint() -> None:
 
 
 def test_detect_infrastructure_checks_finds_npm_typecheck() -> None:
+    # The consolidated qa.py detect_infrastructure_checks detects "test" script → "npm test"
     with tempfile.TemporaryDirectory() as tmpdir:
         pkg = Path(tmpdir) / "package.json"
-        pkg.write_text(json.dumps({"scripts": {"typecheck": "tsc --noEmit"}}), encoding="utf-8")
+        pkg.write_text(json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
         checks = _detect_infrastructure_checks(Path(tmpdir))
-        assert "npm run typecheck" in checks
+        assert "npm test" in checks
 
 
 def test_detect_infrastructure_checks_finds_tsc() -> None:
@@ -83,7 +85,7 @@ def test_detect_infrastructure_checks_finds_tsc() -> None:
         tsconfig = Path(tmpdir) / "tsconfig.json"
         tsconfig.write_text("{}", encoding="utf-8")
         checks = _detect_infrastructure_checks(Path(tmpdir))
-        assert "tsc --noEmit" in checks
+        assert "npx tsc --noEmit" in checks
 
 
 def test_detect_infrastructure_checks_empty_project() -> None:
@@ -138,9 +140,10 @@ def test_plan_cli_nonexistent_spec_exits() -> None:
 
 
 def test_detect_infrastructure_checks_finds_ruff_toml() -> None:
+    # The consolidated qa.py detects ruff via [tool.ruff.] in pyproject.toml (not standalone ruff.toml)
     with tempfile.TemporaryDirectory() as tmpdir:
-        ruff_toml = Path(tmpdir) / "ruff.toml"
-        ruff_toml.write_text('line-length = 100\n', encoding="utf-8")
+        pyproject = Path(tmpdir) / "pyproject.toml"
+        pyproject.write_text("[tool.ruff.format]\nline-length = 100\n", encoding="utf-8")
         checks = _detect_infrastructure_checks(Path(tmpdir))
         assert "ruff check ." in checks
 
