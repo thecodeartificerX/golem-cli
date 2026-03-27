@@ -156,3 +156,12 @@ def test_multiple_events_appended() -> None:
         logger.log_tech_lead_start("TICKET-001")
         lines = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 3
+
+
+def test_log_guidance_received() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_guidance_received("adjust scope")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "GUIDANCE_RECEIVED" in content
+        assert "adjust scope" in content

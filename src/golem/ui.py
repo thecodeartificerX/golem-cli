@@ -47,6 +47,10 @@ class RunRequest(BaseModel):
     project_root: str = ""  # if empty, derive from spec's parent (backward-compatible)
 
 
+class GuidanceRequest(BaseModel):
+    text: str
+
+
 # ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
@@ -405,6 +409,69 @@ def create_app() -> FastAPI:
             return {"status": "nothing_to_clean"}
         shutil.rmtree(golem_dir, ignore_errors=True)
         return {"status": "cleaned"}
+
+    @app.post("/api/guidance")
+    async def send_guidance(req: GuidanceRequest) -> dict[str, object]:
+        """Send operator guidance to the running Tech Lead."""
+        from fastapi.responses import JSONResponse
+
+        from golem.tickets import Ticket, TicketContext, TicketStore
+
+        if not req.text.strip():
+            return JSONResponse({"error": "Guidance text cannot be empty"}, status_code=422)
+
+        if current_process is None or current_process.returncode is not None:
+            return JSONResponse({"error": "No run in progress"}, status_code=400)
+
+        golem_dir = Path(current_cwd) / ".golem" if current_cwd else None
+        if not golem_dir or not golem_dir.exists():
+            return JSONResponse({"error": "No .golem directory found"}, status_code=400)
+
+        store = TicketStore(golem_dir / "tickets")
+
+        # Find existing pending guidance ticket or create new one
+        tickets = await store.list_tickets()
+        guidance_ticket = None
+        for t in tickets:
+            if t.type == "guidance" and t.status == "pending":
+                guidance_ticket = t
+                break
+
+        if guidance_ticket:
+            await store.update(
+                ticket_id=guidance_ticket.id,
+                status="pending",
+                note=req.text,
+                agent="operator",
+            )
+        else:
+            ticket = Ticket(
+                id="",
+                type="guidance",
+                title="Operator Guidance",
+                status="pending",
+                priority="high",
+                created_by="operator",
+                assigned_to="tech_lead",
+                context=TicketContext(),
+            )
+            ticket_id = await store.create(ticket)
+            await store.update(
+                ticket_id=ticket_id,
+                status="pending",
+                note=req.text,
+                agent="operator",
+            )
+
+        # Log to progress
+        progress_path = golem_dir / "progress.log"
+        if progress_path.exists():
+            from golem.progress import ProgressLogger
+
+            logger = ProgressLogger(golem_dir)
+            logger.log_guidance_received(req.text[:100])
+
+        return {"ok": True, "message": "Guidance sent"}
 
     @app.get("/api/config")
     async def api_config() -> dict[str, object]:
