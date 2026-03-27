@@ -743,3 +743,152 @@ def test_status_with_real_tickets(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert "Logging" in result.output
     assert "in_progress" in result.output
     assert "pending" in result.output
+
+
+# --- Dot-notation config set ---
+
+
+def test_config_set_dot_notation_creates_nested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "config.json").write_text("{}", encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "config", "set",
+            "extra_mcp_servers.planner.context7",
+            '{"command":"npx","args":["-y","ctx7"]}',
+        ],
+    )
+    assert result.exit_code == 0
+    config = json.loads((golem_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["extra_mcp_servers"]["planner"]["context7"]["command"] == "npx"
+
+
+def test_config_set_dot_notation_null_deletes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "config.json").write_text(
+        '{"extra_mcp_servers":{"planner":{"ctx7":{"command":"npx"}}}}',
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        app, ["config", "set", "extra_mcp_servers.planner.ctx7", "null"],
+    )
+    assert result.exit_code == 0
+    config = json.loads((golem_dir / "config.json").read_text(encoding="utf-8"))
+    assert "ctx7" not in config["extra_mcp_servers"]["planner"]
+
+
+def test_config_set_agent_setting_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "config.json").write_text("{}", encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["config", "set", "agent_setting_sources.writer", '["project","user"]'],
+    )
+    assert result.exit_code == 0
+    config = json.loads((golem_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["agent_setting_sources"]["writer"] == ["project", "user"]
+
+
+# --- Preflight command ---
+
+
+def test_preflight_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    # Clear env vars that would cause preflight errors
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo something.\n", encoding="utf-8",
+    )
+    (tmp_path / ".git").mkdir()
+    runner = CliRunner()
+    result = runner.invoke(app, ["preflight", str(spec)])
+    assert result.exit_code == 0
+    assert "Pre-Flight" in result.output
+    assert "Planner" in result.output
+
+
+def test_preflight_detects_mcp_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo something.\n", encoding="utf-8",
+    )
+    (tmp_path / ".git").mkdir()
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    config_data = {
+        "extra_mcp_servers": {"planner": {"golem": {"command": "bad"}}},
+    }
+    (golem_dir / "config.json").write_text(
+        json.dumps(config_data), encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(app, ["preflight", str(spec)])
+    assert result.exit_code != 0  # Error blocks
+    assert "collides" in result.output.lower() or "collision" in result.output.lower()
+
+
+def test_preflight_force_bypasses_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo something.\n", encoding="utf-8",
+    )
+    (tmp_path / ".git").mkdir()
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    config_data = {
+        "extra_mcp_servers": {"planner": {"golem": {"command": "bad"}}},
+    }
+    (golem_dir / "config.json").write_text(
+        json.dumps(config_data), encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(app, ["preflight", str(spec), "--force"])
+    assert result.exit_code == 0
