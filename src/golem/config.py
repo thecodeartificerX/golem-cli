@@ -125,10 +125,139 @@ def resolve_agent_options(
     golem_mcp_name: str = "golem",
 ) -> tuple[list[str], dict[str, object]]:
     """Return (setting_sources, mcp_servers) for the given agent role."""
-    sources = config.agent_setting_sources.get(role) or config.setting_sources
+    sources = config.agent_setting_sources.get(role, config.setting_sources)
     mcps: dict[str, object] = {golem_mcp_name: golem_mcp}
     mcps.update(config.extra_mcp_servers.get(role, {}))
     return sources, mcps
+
+
+def run_preflight_checks(
+    config: GolemConfig,
+    project_root: Path,
+) -> tuple[list[str], list[str], list[str]]:
+    """Run pre-flight pitfall detection. Returns (errors, warnings, infos)."""
+    import os
+    import shutil
+    import subprocess
+
+    errors: list[str] = []
+    warnings_list: list[str] = []
+    infos: list[str] = []
+
+    # MCP name collision with golem built-ins
+    builtin_names = {"golem", "golem-writer", "golem-qa"}
+    for role, servers in config.extra_mcp_servers.items():
+        for name in servers:
+            if name in builtin_names:
+                errors.append(
+                    f"extra_mcp_servers[{role}].{name} collides with golem built-in MCP name"
+                )
+
+    # Stdio MCP command not found on PATH
+    for role, servers in config.extra_mcp_servers.items():
+        for name, srv in servers.items():
+            if isinstance(srv, dict) and "command" in srv:
+                cmd = srv["command"]
+                if not shutil.which(cmd):
+                    errors.append(f"extra_mcp_servers[{role}].{name}: command {cmd!r} not found on PATH")
+
+    # CLAUDECODE env var (running inside Claude Code)
+    if os.environ.get("CLAUDECODE"):
+        errors.append("CLAUDECODE env var is set -- running inside Claude Code session")
+
+    # ANTHROPIC_API_KEY set (overrides OAuth)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        warnings_list.append("ANTHROPIC_API_KEY env var is set -- may override OAuth")
+
+    # "user" in setting sources
+    all_sources = list(config.setting_sources)
+    for role_sources in config.agent_setting_sources.values():
+        all_sources.extend(role_sources)
+    if "user" in all_sources:
+        warnings_list.append("'user' in setting sources -- user-level plugins/hooks may interfere")
+
+    # claude-mem detection — warn if any role with "user" sources would load it
+    if "user" in all_sources:
+        user_settings_path = Path.home() / ".claude" / "settings.json"
+        if user_settings_path.exists():
+            try:
+                user_data = json.loads(user_settings_path.read_text(encoding="utf-8"))
+                enabled = user_data.get("enabledPlugins", {})
+                for plugin_key, val in enabled.items():
+                    if "claude-mem" in plugin_key and val is True:
+                        warnings_list.append(
+                            f"{plugin_key} is enabled at user level -- SessionEnd hook may interfere"
+                        )
+                        break
+            except Exception:
+                pass
+
+    # No .claude/settings.json in project
+    if not (project_root / ".claude" / "settings.json").exists():
+        if "project" in config.setting_sources:
+            infos.append("No .claude/settings.json found in project root")
+
+    # .env files present in project root
+    env_files = [f.name for f in project_root.glob(".env*") if f.is_file()]
+    if env_files:
+        infos.append(f".env files present in project root: {', '.join(sorted(env_files))}")
+
+    # Dirty git working tree
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if result.stdout.strip():
+            warnings_list.append("Dirty git working tree (uncommitted changes)")
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # Existing golem/* branches
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--list", "golem/*"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if result.stdout.strip():
+            warnings_list.append("Existing golem/* branches from previous run")
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    return errors, warnings_list, infos
+
+
+def resolve_plugins_for_role(
+    config: GolemConfig,
+    role: str,
+    project_root: Path,
+) -> tuple[list[str], list[str]]:
+    """Return (project_plugins, user_plugins) that would load for this role."""
+    sources = config.agent_setting_sources.get(role, config.setting_sources)
+    project_plugins: list[str] = []
+    user_plugins: list[str] = []
+
+    if "project" in sources:
+        settings_path = project_root / ".claude" / "settings.json"
+        if settings_path.exists():
+            try:
+                data = json.loads(settings_path.read_text(encoding="utf-8"))
+                enabled = data.get("enabledPlugins", {})
+                project_plugins = [k for k, v in enabled.items() if v is True]
+            except Exception:
+                pass
+
+    if "user" in sources:
+        user_settings = Path.home() / ".claude" / "settings.json"
+        if user_settings.exists():
+            try:
+                data = json.loads(user_settings.read_text(encoding="utf-8"))
+                enabled = data.get("enabledPlugins", {})
+                user_plugins = [k for k, v in enabled.items() if v is True]
+            except Exception:
+                pass
+
+    return project_plugins, user_plugins
 
 
 _EPHEMERAL_FIELDS = {"infrastructure_checks"}

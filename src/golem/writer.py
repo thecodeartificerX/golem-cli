@@ -109,14 +109,14 @@ async def spawn_writer_pair(
                         if isinstance(block, TextBlock):
                             result_text = block.text
                             preview = block.text[:120].replace("\n", " ")
-                            print(f"[WRITER] {preview}", file=sys.stderr)
+                            print(f"[JUNIOR DEV] {preview}", file=sys.stderr)
                         elif isinstance(block, ToolUseBlock):
-                            print(f"[WRITER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+                            print(f"[JUNIOR DEV] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
                 elif isinstance(message, ResultMessage):
                     if message.result:
                         result_text = message.result
                         preview = message.result[:120].replace("\n", " ")
-                        print(f"[WRITER] result: {preview}", file=sys.stderr)
+                        print(f"[JUNIOR DEV] result: {preview}", file=sys.stderr)
             break  # Success
         except CLINotFoundError:
             raise RuntimeError(
@@ -126,7 +126,7 @@ async def spawn_writer_pair(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[WRITER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
+                    f"[JUNIOR DEV] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
                 await asyncio.sleep(config.retry_delay)

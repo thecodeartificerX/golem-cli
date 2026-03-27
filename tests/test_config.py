@@ -160,10 +160,10 @@ def test_validate_unknown_setting_source_warns() -> None:
     assert any("typo" in w for w in warnings)
 
 
-def test_validate_valid_setting_sources_no_warnings() -> None:
+def test_validate_valid_setting_sources_no_unknown_source_warnings() -> None:
     config = GolemConfig(setting_sources=["project", "user"])
     warnings = config.validate()
-    assert not any("setting_source" in w.lower() for w in warnings)
+    assert not any("unknown setting_source" in w.lower() for w in warnings)
 
 
 def test_validate_known_models_no_warnings() -> None:
@@ -265,17 +265,15 @@ def test_golem_config_new_field_defaults() -> None:
 # --- Roundtrip with new fields ---
 
 
-def test_save_load_roundtrip_new_fields() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        golem_dir = Path(tmpdir)
-        config = GolemConfig(
-            agent_setting_sources={"writer": ["project", "user"]},
-            extra_mcp_servers={"planner": {"ctx7": {"command": "npx"}}},
-        )
-        save_config(config, golem_dir)
-        loaded = load_config(golem_dir)
-        assert loaded.agent_setting_sources == {"writer": ["project", "user"]}
-        assert loaded.extra_mcp_servers == {"planner": {"ctx7": {"command": "npx"}}}
+def test_save_load_roundtrip_new_fields(tmp_path: Path) -> None:
+    config = GolemConfig(
+        agent_setting_sources={"writer": ["project", "user"]},
+        extra_mcp_servers={"planner": {"ctx7": {"command": "npx"}}},
+    )
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.agent_setting_sources == {"writer": ["project", "user"]}
+    assert loaded.extra_mcp_servers == {"planner": {"ctx7": {"command": "npx"}}}
 
 
 # --- sdk_env CLAUDECODE fix ---
@@ -321,3 +319,32 @@ def test_validate_user_in_agent_sources_warns() -> None:
     config = GolemConfig(agent_setting_sources={"writer": ["project", "user"]})
     warnings = config.validate()
     assert any("user" in w.lower() for w in warnings)
+
+
+def test_resolve_agent_options_empty_list_override() -> None:
+    """Empty list [] is a valid override meaning 'no setting sources' — not a fallback."""
+    from golem.config import resolve_agent_options
+
+    config = GolemConfig(
+        setting_sources=["project"],
+        agent_setting_sources={"writer": []},
+    )
+    mock_mcp = object()
+    sources, mcps = resolve_agent_options(config, "writer", mock_mcp)
+    assert sources == []
+
+
+def test_resolve_plugins_for_role_reads_project(tmp_path: Path) -> None:
+    """resolve_plugins_for_role reads project .claude/settings.json."""
+    from golem.config import resolve_plugins_for_role
+
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        '{"enabledPlugins": {"frontend-design@official": true, "disabled@x": false}}',
+        encoding="utf-8",
+    )
+    config = GolemConfig(setting_sources=["project"])
+    proj, usr = resolve_plugins_for_role(config, "writer", tmp_path)
+    assert "frontend-design@official" in proj
+    assert "disabled@x" not in proj

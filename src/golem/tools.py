@@ -330,7 +330,7 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
 
 
 def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
-    """Create an MCP server for writers with run_qa + update_ticket tools."""
+    """Create an MCP server for Junior Devs with run_qa + update_ticket + read_ticket tools."""
     store = TicketStore(golem_dir / "tickets")
     tools = [
         SdkMcpTool(
@@ -344,6 +344,12 @@ def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
             description="Update a ticket's status and append a history event.",
             input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
             handler=partial(_handle_update_ticket, store),
+        ),
+        SdkMcpTool(
+            name="read_ticket",
+            description="Read a ticket by ID. Used to poll for Tech Lead review status.",
+            input_schema=_READ_TICKET_INPUT_SCHEMA,
+            handler=partial(_handle_read_ticket, store),
         ),
     ]
     return create_sdk_mcp_server("golem-writer", tools=tools)

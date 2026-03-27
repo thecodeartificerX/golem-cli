@@ -457,42 +457,23 @@ def create_app() -> FastAPI:
             "writer": ["run_qa", "update_ticket"],
         }
 
+        from golem.config import resolve_plugins_for_role, run_preflight_checks
+
         roles: dict[str, dict[str, object]] = {}
         for role in ("planner", "tech_lead", "writer"):
-            sources = (
-                config.agent_setting_sources.get(role)
-                or config.setting_sources
-            )
+            sources = config.agent_setting_sources.get(role, config.setting_sources)
             extras = config.extra_mcp_servers.get(role, {})
+            proj_plugins, usr_plugins = resolve_plugins_for_role(config, role, project_root)
             roles[role] = {
                 "setting_sources": sources,
                 "golem_tools": golem_tools[role],
                 "extra_mcps": {n: s for n, s in extras.items()},
+                "project_plugins": proj_plugins,
+                "user_plugins": usr_plugins,
             }
 
-        # Pitfall detection
-        errors: list[str] = []
-        warnings_list: list[str] = []
-        infos: list[str] = []
-
-        builtin_names = {"golem", "golem-writer", "golem-qa"}
-        for role, servers in config.extra_mcp_servers.items():
-            for name in servers:
-                if name in builtin_names:
-                    errors.append(f"MCP name collision: {role}.{name}")
-
-        import shutil
-        for role, servers in config.extra_mcp_servers.items():
-            for name, srv in servers.items():
-                if isinstance(srv, dict) and "command" in srv:
-                    if not shutil.which(srv["command"]):
-                        errors.append(
-                            f"{role}.{name}: command"
-                            f" {srv['command']!r} not found"
-                        )
-
-        if not (project_root / ".claude" / "settings.json").exists():
-            infos.append("No .claude/settings.json in project root")
+        # Pitfall detection — reuse shared logic
+        errors, warnings_list, infos = run_preflight_checks(config, project_root)
 
         return {
             "spec": str(spec),

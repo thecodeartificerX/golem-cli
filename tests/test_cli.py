@@ -520,8 +520,8 @@ def test_logs_with_existing_progress_log(tmp_path: Path, monkeypatch: pytest.Mon
     golem_dir.mkdir()
     log_path = golem_dir / "progress.log"
     log_path.write_text(
-        "2026-03-27 10:00:00 | PLANNER_START | spec=test.md\n"
-        "2026-03-27 10:05:00 | PLANNER_COMPLETE | tickets=3\n"
+        "2026-03-27 10:00:00 | LEAD_ARCHITECT_START | spec=test.md\n"
+        "2026-03-27 10:05:00 | LEAD_ARCHITECT_COMPLETE | tickets=3\n"
         "2026-03-27 10:06:00 | TECH_LEAD_START | ticket=TICKET-001\n",
         encoding="utf-8",
     )
@@ -531,8 +531,8 @@ def test_logs_with_existing_progress_log(tmp_path: Path, monkeypatch: pytest.Mon
     result = runner.invoke(app, ["logs"])
 
     assert result.exit_code == 0
-    assert "PLANNER_START" in result.output
-    assert "PLANNER_COMPLETE" in result.output
+    assert "LEAD_ARCHITECT_START" in result.output
+    assert "LEAD_ARCHITECT_COMPLETE" in result.output
     assert "TECH_LEAD_START" in result.output
 
 

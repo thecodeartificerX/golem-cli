@@ -105,12 +105,12 @@ async def run_planner(
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             preview = block.text[:120].replace("\n", " ")
-                            print(f"[PLANNER] {preview}", file=sys.stderr)
+                            print(f"[LEAD ARCHITECT] {preview}", file=sys.stderr)
                         elif isinstance(block, ToolUseBlock):
-                            print(f"[PLANNER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
+                            print(f"[LEAD ARCHITECT] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
                 elif isinstance(message, ResultMessage) and message.result:
                     preview = message.result[:120].replace("\n", " ")
-                    print(f"[PLANNER] result: {preview}", file=sys.stderr)
+                    print(f"[LEAD ARCHITECT] result: {preview}", file=sys.stderr)
             break  # Success — exit retry loop
         except CLINotFoundError:
             raise RuntimeError(
@@ -120,7 +120,7 @@ async def run_planner(
             last_error = e
             if attempt < _MAX_RETRIES:
                 print(
-                    f"[PLANNER] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
+                    f"[LEAD ARCHITECT] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
                     file=sys.stderr,
                 )
                 await asyncio.sleep(config.retry_delay)
@@ -141,7 +141,7 @@ async def run_planner(
     store = TicketStore(golem_dir / "tickets")
     all_tickets = await store.list_tickets()
     if not all_tickets:
-        print("[PLANNER] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
+        print("[LEAD ARCHITECT] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
         # Self-heal: create the ticket the planner should have created
         overview = golem_dir / "plans" / "overview.md"
         blueprint = overview.read_text(encoding="utf-8")[:500] if overview.exists() else ""

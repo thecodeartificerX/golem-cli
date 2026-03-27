@@ -558,7 +558,7 @@ async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
     golem_dir = tmp_path
     log_path = golem_dir / "progress.log"
     log_path.write_text(
-        "[2026-03-27T10:00:00Z] PLANNER_START spec=test.md\n",
+        "[2026-03-27T10:00:00Z] LEAD_ARCHITECT_START spec=test.md\n",
         encoding="utf-8",
     )
 
@@ -579,7 +579,7 @@ async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
 
     # Should have parsed the log line
     assert len(ui_module.log_buffer) >= 1
-    assert ui_module.log_buffer[0]["verb"] == "PLANNER_START"
+    assert ui_module.log_buffer[0]["verb"] == "LEAD_ARCHITECT_START"
 
 
 @pytest.mark.asyncio

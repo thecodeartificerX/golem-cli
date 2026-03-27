@@ -11,7 +11,7 @@ def test_log_planner_start_writes_event() -> None:
         logger = ProgressLogger(Path(tmpdir))
         logger.log_planner_start()
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
-        assert "PLANNER_START" in content
+        assert "LEAD_ARCHITECT_START" in content
 
 
 def test_log_planner_complete_includes_ticket_id() -> None:
@@ -19,7 +19,7 @@ def test_log_planner_complete_includes_ticket_id() -> None:
         logger = ProgressLogger(Path(tmpdir))
         logger.log_planner_complete("TICKET-001")
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
-        assert "PLANNER_COMPLETE" in content
+        assert "LEAD_ARCHITECT_COMPLETE" in content
         assert "TICKET-001" in content
 
 
@@ -71,7 +71,7 @@ def test_log_writer_dispatched() -> None:
         logger = ProgressLogger(Path(tmpdir))
         logger.log_writer_dispatched("TICKET-003")
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
-        assert "WRITER_DISPATCHED TICKET-003" in content
+        assert "JUNIOR_DEV_DISPATCHED TICKET-003" in content
 
 
 def test_log_merge_complete() -> None:
