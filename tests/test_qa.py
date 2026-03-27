@@ -139,13 +139,14 @@ def test_run_autofix_both_ruff_and_prettier() -> None:
 def test_qa_check_type_classification() -> None:
     """QACheck.type is lint for ruff, test for pytest, acceptance for custom commands."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        result = run_qa(tmpdir, ["exit 0"], ["ruff check ."])
-        # Infrastructure check 'ruff check .' should be lint type
+        # Test infrastructure check type classification
+        result = run_qa(tmpdir, [], ["ruff check ."])
         ruff_check = result.checks[0]
         assert ruff_check.type == "lint"
 
-        # Custom command 'exit 0' should be acceptance type
-        custom_check = result.checks[1]
+        # Test custom command type classification (no infra checks so it runs)
+        result2 = run_qa(tmpdir, ["exit 0"], [])
+        custom_check = result2.checks[0]
         assert custom_check.type == "acceptance"
 
 
