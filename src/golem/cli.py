@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from golem.conductor import classify_spec
 from golem.config import load_config, save_config
 from golem.qa import detect_infrastructure_checks
 
@@ -21,6 +22,7 @@ from golem.planner import run_planner
 from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
 from golem.tickets import TicketStore
+from golem.writer import spawn_writer_pair
 
 app = typer.Typer(
     name="golem",
@@ -86,6 +88,7 @@ def run(
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
+    no_classify: bool = typer.Option(False, "--no-classify", help="Skip complexity classification, run STANDARD pipeline"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR.
 
@@ -118,6 +121,20 @@ def run(
     config = load_config(golem_dir)
     spec_project_root = _resolve_spec_project_root(spec)
     config.infrastructure_checks = detect_infrastructure_checks(spec_project_root)
+
+    if no_classify:
+        config.conductor_enabled = False
+
+    # Default classification (used when conductor_enabled is False)
+    from golem.conductor import ClassificationResult
+    classification = ClassificationResult("STANDARD", "conductor disabled", 1.0)
+
+    if config.conductor_enabled and not force:
+        spec_text = spec.read_text(encoding="utf-8")
+        classification = classify_spec(spec_text, "")
+        console.print(f"  Complexity: [bold]{classification.complexity}[/bold] ({classification.reasoning})")
+        config.apply_complexity_profile(classification.complexity)
+
     save_config(config, golem_dir)
 
     progress = ProgressLogger(golem_dir)
@@ -131,6 +148,7 @@ def run(
         console.print(f"  Infra:   {', '.join(config.infrastructure_checks)}")
 
     async def _run_async() -> None:
+        progress.log_classification(classification.complexity, classification.reasoning)
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
         t_plan = time.monotonic()
@@ -138,7 +156,7 @@ def run(
         plan_elapsed = time.monotonic() - t_plan
         plan_m, plan_s = divmod(int(plan_elapsed), 60)
         progress.log_planner_complete(ticket_id)
-        console.print(f"  Lead Architect completed in {plan_m}m {plan_s}s — ticket: {ticket_id}")
+        console.print(f"  Lead Architect completed in {plan_m}m {plan_s}s -- ticket: {ticket_id}")
 
         # Show ticket summary before handing off
         store = TicketStore(golem_dir / "tickets")
@@ -151,6 +169,13 @@ def run(
 
         if dry_run:
             console.print("[bold yellow]--dry-run: Lead Architect done. Skipping Tech Lead.[/bold yellow]")
+            return
+
+        # Check if Tech Lead should be skipped (TRIVIAL complexity)
+        profile = config.complexity_profiles.get(classification.complexity, {})
+        if profile.get("skip_tech_lead"):
+            console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
+            await spawn_writer_pair(ticket, str(project_root), config, golem_dir)
             return
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")

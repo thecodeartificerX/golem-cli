@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import tempfile
 from pathlib import Path
 
-from golem.config import GolemConfig, load_config, save_config, sdk_env
+from golem.config import ComplexityProfile, GolemConfig, load_config, save_config, sdk_env
 
 
 def test_golem_config_defaults() -> None:
@@ -332,6 +333,25 @@ def test_resolve_agent_options_empty_list_override() -> None:
     mock_mcp = object()
     sources, mcps = resolve_agent_options(config, "writer", mock_mcp)
     assert sources == []
+
+
+def test_apply_complexity_profile_trivial() -> None:
+    cfg = GolemConfig()
+    cfg.apply_complexity_profile("TRIVIAL")
+    assert cfg.planner_max_turns == 10
+    assert "haiku" in cfg.planner_model
+
+
+def test_apply_complexity_profile_unknown() -> None:
+    cfg = GolemConfig()
+    cfg.apply_complexity_profile("UNKNOWN")
+    assert cfg.planner_max_turns == 50
+
+
+def test_complexity_profiles_roundtrip() -> None:
+    cfg = GolemConfig()
+    as_dict = dataclasses.asdict(cfg)
+    assert set(as_dict["complexity_profiles"].keys()) == {"TRIVIAL", "SIMPLE", "STANDARD", "CRITICAL"}
 
 
 def test_resolve_plugins_for_role_reads_project(tmp_path: Path) -> None:

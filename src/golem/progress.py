@@ -73,3 +73,6 @@ class ProgressLogger:
     def log_guidance_received(self, note: str) -> None:
         """Log that operator guidance was received."""
         self._write(f"GUIDANCE_RECEIVED note={note}")
+
+    def log_classification(self, complexity: str, reasoning: str) -> None:
+        self._write(f"CLASSIFICATION complexity={complexity} reasoning={reasoning}")
