@@ -193,3 +193,19 @@ def test_log_run_cost_summary_format() -> None:
         logger.log_run_cost_summary(2.134567)
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
         assert "RUN_COST total=$" in content
+
+
+def test_sum_agent_costs_empty_log() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        assert logger.sum_agent_costs() == 0.0
+
+
+def test_sum_agent_costs_multiple_entries() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_agent_cost("lead_architect", 0.05, 10000, 2000)
+        logger.log_agent_cost("tech_lead", 0.12, 30000, 5000)
+        logger.log_agent_cost("junior_dev/TICKET-001", 0.03, 8000, 1500)
+        total = logger.sum_agent_costs()
+        assert abs(total - 0.20) < 0.001

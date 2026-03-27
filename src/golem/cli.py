@@ -192,10 +192,16 @@ def run(
             return
 
         # Check if Tech Lead should be skipped (TRIVIAL complexity)
-        profile = config.complexity_profiles.get(classification.complexity, {})
-        if profile.get("skip_tech_lead"):
+        if config.skip_tech_lead:
             console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
-            await spawn_writer_pair(ticket, str(project_root), config, golem_dir)
+            writer_result = await spawn_writer_pair(ticket, str(project_root), config, golem_dir)
+            total_cost = (planner_result.cost_usd or 0.0) + (writer_result.cost_usd or 0.0)
+            progress.log_run_cost_summary(total_cost)
+            if total_cost > 0:
+                console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")
+            elapsed = time.monotonic() - t0
+            mins, secs = divmod(int(elapsed), 60)
+            console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
             return
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
@@ -204,7 +210,7 @@ def run(
         elapsed = time.monotonic() - t0
         mins, secs = divmod(int(elapsed), 60)
         progress.log_tech_lead_complete(elapsed_s=elapsed)
-        total_cost = (planner_result.cost_usd or 0.0) + (tech_lead_result.cost_usd or 0.0)
+        total_cost = progress.sum_agent_costs()
         progress.log_run_cost_summary(total_cost)
         if total_cost > 0:
             console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -95,3 +96,14 @@ class ProgressLogger:
 
     def log_run_cost_summary(self, total_cost_usd: float) -> None:
         self._write(f"RUN_COST total=${total_cost_usd:.6f}")
+
+    def sum_agent_costs(self) -> float:
+        """Sum all AGENT_COST entries in the progress log."""
+        total = 0.0
+        if not self._path.exists():
+            return total
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            m = re.search(r"AGENT_COST.*cost=\$([0-9.]+)", line)
+            if m:
+                total += float(m.group(1))
+        return total
