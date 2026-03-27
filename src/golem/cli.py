@@ -88,6 +88,25 @@ def _get_project_root() -> Path:
     return Path.cwd()
 
 
+def _parse_cost_events(golem_dir: Path) -> list[dict[str, str]]:
+    """Parse AGENT_COST events from progress.log."""
+    log_path = golem_dir / "progress.log"
+    if not log_path.exists():
+        return []
+    events: list[dict[str, str]] = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        if "AGENT_COST" not in line:
+            continue
+        parts = line.split("AGENT_COST", 1)[1].strip()
+        event: dict[str, str] = {}
+        for pair in parts.split():
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                event[k] = v
+        events.append(event)
+    return events
+
+
 def _create_golem_dirs(golem_dir: Path) -> None:
     for subdir in ("tickets", "research", "plans", "references", "reports", "worktrees"):
         (golem_dir / subdir).mkdir(parents=True, exist_ok=True)
@@ -167,7 +186,8 @@ def run(
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
         t_plan = time.monotonic()
-        ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        planner_result = await run_planner(spec, golem_dir, config, project_root)
+        ticket_id = planner_result.ticket_id
         plan_elapsed = time.monotonic() - t_plan
         plan_m, plan_s = divmod(int(plan_elapsed), 60)
         progress.log_planner_complete(ticket_id)
@@ -188,10 +208,14 @@ def run(
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)
-        await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        tech_lead_result = await run_tech_lead(ticket_id, golem_dir, config, project_root)
         elapsed = time.monotonic() - t0
         mins, secs = divmod(int(elapsed), 60)
         progress.log_tech_lead_complete(elapsed_s=elapsed)
+        total_cost = (planner_result.cost_usd or 0.0) + (tech_lead_result.cost_usd or 0.0)
+        progress.log_run_cost_summary(total_cost)
+        if total_cost > 0:
+            console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")
         console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
 
         # Final summary
@@ -235,7 +259,8 @@ def plan(
 
     async def _plan_async() -> None:
         console.print("[bold cyan]Golem[/bold cyan] — Planning (dry run)...")
-        ticket_id = await run_planner(spec, golem_dir, config, project_root)
+        planner_result = await run_planner(spec, golem_dir, config, project_root)
+        ticket_id = planner_result.ticket_id
         console.print(f"[bold green]Plan complete.[/bold green] Ticket: {ticket_id}")
 
         # Show plan summary
@@ -685,6 +710,43 @@ def stats() -> None:
         # Event count
         event_count = sum(len(t.history) for t in tickets)
         console.print(f"  Total events:   {event_count}")
+
+        cost_events = _parse_cost_events(golem_dir)
+        if cost_events:
+            cost_table = Table(title="Run Economics", show_header=True, header_style="bold cyan")
+            cost_table.add_column("Role", style="dim")
+            cost_table.add_column("Cost", justify="right")
+            cost_table.add_column("Details", style="dim")
+
+            role_totals: dict[str, float] = {}
+            role_details: dict[str, dict[str, int]] = {}
+            for event in cost_events:
+                role = event.get("role", "unknown")
+                cost_str = event.get("cost", "$0").lstrip("$")
+                try:
+                    cost = float(cost_str)
+                except ValueError:
+                    cost = 0.0
+                role_totals[role] = role_totals.get(role, 0.0) + cost
+                if role not in role_details:
+                    role_details[role] = {"input_tokens": 0, "output_tokens": 0, "turns": 0}
+                try:
+                    role_details[role]["input_tokens"] += int(event.get("input_tokens", 0))
+                    role_details[role]["output_tokens"] += int(event.get("output_tokens", 0))
+                    role_details[role]["turns"] += int(event.get("turns", 0))
+                except ValueError:
+                    pass
+
+            run_total = sum(role_totals.values())
+            for role, cost in sorted(role_totals.items()):
+                d = role_details.get(role, {})
+                in_k = d.get("input_tokens", 0) / 1000
+                out_k = d.get("output_tokens", 0) / 1000
+                turns = d.get("turns", 0)
+                details = f"{in_k:.1f}K in / {out_k:.1f}K out / {turns} turns"
+                cost_table.add_row(role, f"${cost:.4f}", details)
+            cost_table.add_row("Total", f"${run_total:.4f}", "", style="bold")
+            console.print(cost_table)
 
     asyncio.run(_stats_async())
 

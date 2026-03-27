@@ -160,3 +160,16 @@ async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
 
         assert len(captured_mcp_dir) == 1
         assert captured_mcp_dir[0] == Path(tmpdir)
+
+
+def test_writer_result_dataclass() -> None:
+    """WriterResult has expected fields with correct defaults."""
+    from golem.writer import WriterResult
+    r = WriterResult()
+    assert r.result_text == ""
+    assert r.cost_usd == 0.0
+    assert r.input_tokens == 0
+    assert r.output_tokens == 0
+    assert r.cache_read_tokens == 0
+    assert r.num_turns == 0
+    assert r.duration_ms == 0

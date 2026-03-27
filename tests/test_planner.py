@@ -126,4 +126,17 @@ async def _run_planner_helper(
     repo_root: Path,
 ) -> str:
     from golem.planner import run_planner
-    return await run_planner(spec_path, golem_dir, config, repo_root)
+    return (await run_planner(spec_path, golem_dir, config, repo_root)).ticket_id
+
+
+def test_planner_result_dataclass() -> None:
+    """PlannerResult has expected fields with correct defaults."""
+    from golem.planner import PlannerResult
+    r = PlannerResult(ticket_id="TICKET-001")
+    assert r.ticket_id == "TICKET-001"
+    assert r.cost_usd == 0.0
+    assert r.input_tokens == 0
+    assert r.output_tokens == 0
+    assert r.cache_read_tokens == 0
+    assert r.num_turns == 0
+    assert r.duration_ms == 0

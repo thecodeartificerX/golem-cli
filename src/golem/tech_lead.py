@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _MAX_RETRIES = 2
@@ -20,9 +21,20 @@ from claude_agent_sdk import (
 )
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
+from golem.progress import ProgressLogger
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
+
+
+@dataclass
+class TechLeadResult:
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
 
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
@@ -93,7 +105,7 @@ async def run_tech_lead(
     golem_dir: Path,
     config: GolemConfig,
     project_root: Path,
-) -> None:
+) -> TechLeadResult:
     """Spawn persistent Tech Lead session that orchestrates writers and creates a PR.
 
     The Tech Lead reads plans, creates worktrees, spawns writer pairs, reviews work,
@@ -124,6 +136,12 @@ async def run_tech_lead(
     sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
     _session_failed = False
     last_error: Exception | None = None
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
 
     for attempt in range(_MAX_RETRIES + 1):
         try:
@@ -147,9 +165,17 @@ async def run_tech_lead(
                             print(f"[TECH LEAD] {preview}", file=sys.stderr)
                         elif isinstance(block, ToolUseBlock):
                             print(f"[TECH LEAD] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-                elif isinstance(message, ResultMessage) and message.result:
-                    preview = message.result[:120].replace("\n", " ")
-                    print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
+                elif isinstance(message, ResultMessage):
+                    cost_usd = message.total_cost_usd or 0.0
+                    usage = message.usage or {}
+                    input_tokens = usage.get("input_tokens", 0)
+                    output_tokens = usage.get("output_tokens", 0)
+                    cache_read = usage.get("cache_read_input_tokens", 0)
+                    num_turns = message.num_turns
+                    duration_ms = message.duration_ms
+                    if message.result:
+                        preview = message.result[:120].replace("\n", " ")
+                        print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
             break  # Success — exit retry loop
         except CLINotFoundError:
             _session_failed = True
@@ -172,5 +198,24 @@ async def run_tech_lead(
                     f"Tech Lead failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
+    ProgressLogger(golem_dir).log_agent_cost(
+        role="tech_lead",
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read=cache_read,
+        turns=num_turns,
+        duration_s=duration_ms // 1000,
+    )
+
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     _ensure_merged_to_main(project_root)
+
+    return TechLeadResult(
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read,
+        num_turns=num_turns,
+        duration_ms=duration_ms,
+    )

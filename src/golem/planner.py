@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -20,8 +21,20 @@ _MAX_RETRIES = 2
 _RETRY_DELAY_S = 10
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
+from golem.progress import ProgressLogger
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
+
+
+@dataclass
+class PlannerResult:
+    ticket_id: str
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
 
 _PLANNER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "planner.md"
 
@@ -43,7 +56,7 @@ async def run_planner(
     golem_dir: Path,
     config: GolemConfig,
     repo_root: Path | None = None,
-) -> str:
+) -> PlannerResult:
     """Spawn Opus planner session that writes plans/ + references/ and creates a ticket.
 
     Retries up to 2 times on CLIConnectionError/ClaudeSDKError with configurable delay.
@@ -51,7 +64,7 @@ async def run_planner(
     If the planner doesn't call create_ticket via MCP, a self-healing fallback creates
     a ticket programmatically from AssistantMessage text blocks.
 
-    Returns the ticket_id string created by the planner.
+    Returns a PlannerResult with ticket_id and cost/token data.
     """
     try:
         spec_content = spec_path.read_text(encoding="utf-8")
@@ -85,6 +98,13 @@ async def run_planner(
     mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
     sources, mcps = resolve_agent_options(config, "planner", mcp_server)
 
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read: int = 0
+    num_turns: int = 0
+    duration_ms: int = 0
+
     last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
@@ -108,9 +128,17 @@ async def run_planner(
                             print(f"[LEAD ARCHITECT] {preview}", file=sys.stderr)
                         elif isinstance(block, ToolUseBlock):
                             print(f"[LEAD ARCHITECT] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-                elif isinstance(message, ResultMessage) and message.result:
-                    preview = message.result[:120].replace("\n", " ")
-                    print(f"[LEAD ARCHITECT] result: {preview}", file=sys.stderr)
+                elif isinstance(message, ResultMessage):
+                    cost_usd = message.total_cost_usd or 0.0
+                    usage = message.usage or {}
+                    input_tokens = usage.get("input_tokens", 0)
+                    output_tokens = usage.get("output_tokens", 0)
+                    cache_read = usage.get("cache_read_input_tokens", 0)
+                    num_turns = message.num_turns
+                    duration_ms = message.duration_ms
+                    if message.result:
+                        preview = message.result[:120].replace("\n", " ")
+                        print(f"[LEAD ARCHITECT] result: {preview}", file=sys.stderr)
             break  # Success — exit retry loop
         except CLINotFoundError:
             raise RuntimeError(
@@ -165,8 +193,42 @@ async def run_planner(
             history=[],
         )
         ticket_id = await store.create(ticket)
-        return ticket_id
+        ProgressLogger(golem_dir).log_agent_cost(
+            role="lead_architect",
+            cost_usd=cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read=cache_read,
+            turns=num_turns,
+            duration_s=duration_ms // 1000,
+        )
+        return PlannerResult(
+            ticket_id=ticket_id,
+            cost_usd=cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read,
+            num_turns=num_turns,
+            duration_ms=duration_ms,
+        )
 
     # Return the last ticket created (by ID sort — TICKET-001, TICKET-002, etc.)
     last_ticket = sorted(all_tickets, key=lambda t: t.id)[-1]
-    return last_ticket.id
+    ProgressLogger(golem_dir).log_agent_cost(
+        role="lead_architect",
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read=cache_read,
+        turns=num_turns,
+        duration_s=duration_ms // 1000,
+    )
+    return PlannerResult(
+        ticket_id=last_ticket.id,
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read,
+        num_turns=num_turns,
+        duration_ms=duration_ms,
+    )
