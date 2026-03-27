@@ -7,6 +7,7 @@ A standalone CLI tool that autonomously executes markdown design specs. Uses a t
 ```bash
 uv sync                          # Install dependencies
 uv run golem run spec.md         # Execute a spec (full pipeline)
+uv run golem run spec.md --no-classify  # Skip complexity classification
 uv run golem run spec.md --dry-run  # Planner only, skip Tech Lead
 uv run golem plan spec.md        # Dry run — planner only, no Tech Lead
 uv run golem status              # Ticket status table (color-coded)
@@ -45,9 +46,6 @@ Created by `golem run` in the project root (gitignored):
 - `references/` — curated external docs for writers
 - `progress.log` — timestamped execution events
 - `worktrees/` — git worktrees per parallel group
-
-## The Spec
-The original design spec has been implemented and removed. For architecture and design context, read this `CLAUDE.md` and the source code directly.
 
 ## Coding Conventions
 
@@ -97,6 +95,7 @@ src/
     dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
     worktree.py         ← Git worktree creation/management/merge
     tasks.py            ← v1 legacy (unused by v2, kept for test compat)
+    conductor.py        ← Spec complexity classifier (TRIVIAL/SIMPLE/STANDARD/CRITICAL)
     config.py           ← Settings, defaults, model configuration
     progress.py         ← Human-readable progress.log writer
     tui.py              ← Pre-run settings screen + live dashboard
@@ -105,6 +104,7 @@ src/
     prompts/
       planner.md        ← Planner system prompt template
       worker.md         ← Writer agent system prompt template
+      worker_rework.md  ← Escalated prompt for rejected rework attempts
       tech_lead.md      ← Tech Lead agent system prompt template
 tests/
   conftest.py           ← Shared fixtures (ticket factory, git repo, golem dir)
@@ -123,21 +123,28 @@ tests/
   test_progress.py      ← Progress event logging (v2 milestones)
   test_version.py       ← Version info and architecture string
   test_ui.py            ← UI server endpoints, SSE, helpers
+  test_conductor.py     ← Complexity classification tests
+  test_hooks.py         ← PreToolUse hook script tests
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
+.claude/
+  hooks/
+    block-golem-cli.py          ← Blocks golem CLI commands in SDK sessions
+    block-dangerous-git.py      ← Blocks destructive git ops in SDK sessions
+    block-ask-user-question.py  ← Blocks AskUserQuestion in headless sessions
 ```
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (239 tests)
+- **Run:** `uv run pytest` (314 tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
 
 ### Testing Gotchas
 - **Use `tmp_path` fixture, not `tempfile.TemporaryDirectory()`** — `monkeypatch.chdir()` inside a `with` block causes Windows PermissionError on cleanup (CWD holds the dir lock)
+- **Use `monkeypatch.setattr` for UI module globals** — never assign `ui_module.current_process` or `ui_module.current_cwd` directly in tests; monkeypatch ensures cleanup even on failure
 - **Rich table wrapping breaks string assertions** — assert on short strings or individual words; Rich wraps/truncates cell content in narrow terminals
 - **Mock `run_planner`/`run_tech_lead` in CLI tests** — any test that proceeds past stale-state check will hang trying to start the Claude SDK
-- **SSE endpoint tests hang with TestClient** — use `async for` with early `break` + `aclose()`, not `client.get("/api/events")`
 - **`conftest.py` has shared fixtures** — `make_ticket`, `git_repo`, `golem_dir`, `write_ticket_json` — use these instead of redefining per-file
 
 ### Claude Agent SDK Gotchas
@@ -153,8 +160,9 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Planner self-healing fallback** — if planner doesn't call `create_ticket` via MCP, `run_planner()` creates a fallback ticket programmatically
 - **Tech Lead self-healing merge** — if Tech Lead doesn't merge integration→main, `_ensure_merged_to_main()` does it after the session
 - **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with configurable `retry_delay` (default 10s)
-- **Config fields added in v0.2.1:** `max_tech_lead_turns` (100), `sdk_timeout` (180), `retry_delay` (10) — wired into tech_lead.py, planner.py, writer.py
-- **Config fields removed in v0.2.1:** `auto_pr`, `max_validator_turns` — were never used
+- **Agent functions return result dataclasses** — `run_planner()` → `PlannerResult`, `run_tech_lead()` → `TechLeadResult`, `spawn_writer_pair()` → `WriterResult` — each has `cost_usd`, `input_tokens`, `output_tokens`, `turns`, `duration_s`
+- **`ResultMessage.usage` is `dict[str, Any] | None`** — guard with `usage = message.usage or {}` then `.get("input_tokens", 0)` etc.
+- **`create_pr()` and `verify_pr()` are async** — use `await`; `verify_pr` uses `asyncio.sleep` for polling, not `time.sleep`
 - **Worktree cleanup on error** — Tech Lead cleans orphaned worktrees in `finally` block on session failure
 - **Verbose SDK streaming** — `planner.py`, `tech_lead.py`, `writer.py` print `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
 - **`uv run` in worktrees fails if parent `VIRTUAL_ENV` set** — delete `.venv` and `unset VIRTUAL_ENV` before `uv sync` in worktrees
@@ -173,12 +181,14 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Planner spawns sub-agents** — Explorer (Haiku) + Researcher (Sonnet) sub-agents write to `.golem/research/`, planner synthesizes into `.golem/plans/` and `.golem/references/`.
 - **Tech Lead is persistent** — reads plans, creates worktrees, dispatches writers, reviews work, merges, creates PR. Single long-running SDK session.
 - **Writers are ephemeral** — spawned per ticket, run in worktrees, have QA + ticket update tools via MCP.
-- **Deterministic QA first** — `run_qa()` runs subprocess checks (ruff, tests) before any AI review.
+- **Two-stage QA pipeline** — `run_qa()` runs infrastructure checks first (fast gate); if any fail, spec checks are skipped. `QACheck`/`QAResult` have `cannot_validate` and `stage` fields.
+- **PreToolUse safety hooks** — `.claude/hooks/` contains Python scripts that block dangerous agent operations (golem CLI, destructive git, AskUserQuestion) in headless SDK sessions, gated by `GOLEM_SDK_SESSION=1` env var.
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
 ## Version History
-- **v0.2.1** (2026-03-27) — Auto-dev session: 99 tasks, 239 tests, 12 new CLI commands, dead code cleanup, prompt improvements.
+- **v0.2.2** (2026-03-27) — ZeroShot-inspired features: safety hooks, two-stage QA, run economics, complexity conductor, live operator guidance, dispatch hardening. 314 tests. New config: `dispatch_jitter_max`, `conductor_enabled`, `skip_tech_lead`, `planner_max_turns`, `complexity_profiles`.
+- **v0.2.1** (2026-03-27) — Auto-dev session: 99 tasks, 239 tests, 12 new CLI commands, dead code cleanup, prompt improvements. Config added: `max_tech_lead_turns`, `sdk_timeout`, `retry_delay`. Removed: `auto_pr`, `max_validator_turns`.
 - **v0.2.0** (2026-03-27) — v2 ticket-driven architecture, 185 tests, 112 overnight improvements. See `docs/overnight-log.md` for details.
 - **v0.1.0** (2026-03-25) — v1 flat task graph with executor loop.
 
