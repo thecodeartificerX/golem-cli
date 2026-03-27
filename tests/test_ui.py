@@ -278,21 +278,17 @@ def test_run_endpoint_nonexistent_path_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_run_endpoint_conflict_when_run_active(client: TestClient, spec_file: Path) -> None:
+def test_run_endpoint_conflict_when_run_active(client: TestClient, spec_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/run while a run is active must return 409."""
-    # Simulate an active process: create a mock process with returncode=None
     from unittest.mock import MagicMock
 
     mock_proc = MagicMock()
     mock_proc.returncode = None  # Signals an active (not-yet-exited) process
 
-    ui_module.current_process = mock_proc  # type: ignore[assignment]
+    monkeypatch.setattr(ui_module, "current_process", mock_proc)
 
     response = client.post("/api/run", json={"spec_path": str(spec_file)})
     assert response.status_code == 409
-
-    # Cleanup: reset so the autouse fixture doesn't need special handling
-    ui_module.current_process = None
 
 
 def test_run_endpoint_valid_spec_starts_run(client: TestClient, spec_file: Path) -> None:
@@ -402,20 +398,17 @@ async def test_events_generator_idle_when_no_process() -> None:
     assert "idle" in first
 
 
-async def test_events_generator_running_when_process_active() -> None:
+async def test_events_generator_running_when_process_active(monkeypatch: pytest.MonkeyPatch) -> None:
     """With an active process, the first event from event_stream() must report state=running."""
     from unittest.mock import MagicMock
 
     mock_proc = MagicMock()
     mock_proc.returncode = None  # Process still alive
-    ui_module.current_process = mock_proc  # type: ignore[assignment]
+    monkeypatch.setattr(ui_module, "current_process", mock_proc)
 
-    try:
-        events = await _collect_initial_events(max_events=1)
-        first = events[0]
-        assert "running" in first
-    finally:
-        ui_module.current_process = None
+    events = await _collect_initial_events(max_events=1)
+    first = events[0]
+    assert "running" in first
 
 
 async def test_events_generator_replays_log_buffer() -> None:
@@ -549,7 +542,7 @@ def test_log_buffer_max_len_respected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
+async def test_tail_progress_log_reads_new_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """tail_progress_log reads lines incrementally using seek position."""
     from unittest.mock import MagicMock
 
@@ -565,7 +558,7 @@ async def test_tail_progress_log_reads_new_lines(tmp_path: Path) -> None:
     # Set up a fake process that exits after one iteration
     fake_proc = MagicMock()
     fake_proc.returncode = None
-    ui_module.current_process = fake_proc
+    monkeypatch.setattr(ui_module, "current_process", fake_proc)
 
     # Run one iteration then stop (set returncode after brief delay)
     async def stop_after_delay() -> None:
@@ -882,7 +875,7 @@ def test_guidance_endpoint_rejects_empty_text(client: TestClient) -> None:
     assert resp.status_code in (400, 422)
 
 
-def test_guidance_endpoint_creates_ticket(tmp_path: Path) -> None:
+def test_guidance_endpoint_creates_ticket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/guidance with a running process must create a guidance ticket."""
     import asyncio
     from unittest.mock import MagicMock
@@ -900,16 +893,12 @@ def test_guidance_endpoint_creates_ticket(tmp_path: Path) -> None:
     # Simulate running process
     mock_proc = MagicMock()
     mock_proc.returncode = None
-    ui_module.current_process = mock_proc  # type: ignore[assignment]
-    ui_module.current_cwd = str(tmp_path)
+    monkeypatch.setattr(ui_module, "current_process", mock_proc)
+    monkeypatch.setattr(ui_module, "current_cwd", str(tmp_path))
 
     app = create_app()
     client = TestClient(app, raise_server_exceptions=True)
     resp = client.post("/api/guidance", json={"text": "focus on the auth module"})
-
-    # Restore state
-    ui_module.current_process = None
-    ui_module.current_cwd = None
 
     assert resp.status_code == 200
     assert resp.json().get("ok") is True
@@ -923,7 +912,7 @@ def test_guidance_endpoint_creates_ticket(tmp_path: Path) -> None:
     assert guidance_tickets[0].assigned_to == "tech_lead"
 
 
-def test_guidance_endpoint_appends_to_existing(tmp_path: Path) -> None:
+def test_guidance_endpoint_appends_to_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/guidance twice must produce one ticket with 2+ history events."""
     import asyncio
     from unittest.mock import MagicMock
@@ -938,16 +927,13 @@ def test_guidance_endpoint_appends_to_existing(tmp_path: Path) -> None:
 
     mock_proc = MagicMock()
     mock_proc.returncode = None
-    ui_module.current_process = mock_proc  # type: ignore[assignment]
-    ui_module.current_cwd = str(tmp_path)
+    monkeypatch.setattr(ui_module, "current_process", mock_proc)
+    monkeypatch.setattr(ui_module, "current_cwd", str(tmp_path))
 
     app = create_app()
     client = TestClient(app, raise_server_exceptions=True)
     client.post("/api/guidance", json={"text": "first message"})
     client.post("/api/guidance", json={"text": "second message"})
-
-    ui_module.current_process = None
-    ui_module.current_cwd = None
 
     store = TicketStore(golem_dir / "tickets")
     tickets = asyncio.run(store.list_tickets())
