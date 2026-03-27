@@ -6,12 +6,16 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from golem.config import load_config, save_config
+
+if TYPE_CHECKING:
+    from golem.config import GolemConfig
 from golem.planner import run_planner
 from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
@@ -978,3 +982,215 @@ def config_set(
     save_config(config, golem_dir)
     display = getattr(config, top_key) if len(parts) == 1 else value
     console.print(f"[green]Set {key} = {display}[/green]")
+
+
+def _run_preflight_checks(
+    config: GolemConfig,
+    project_root: Path,
+    spec: Path,
+) -> tuple[list[str], list[str], list[str]]:
+    """Returns (errors, warnings, infos)."""
+
+    errors: list[str] = []
+    warnings_list: list[str] = []
+    infos: list[str] = []
+
+    # MCP name collision with golem built-ins
+    builtin_names = {"golem", "golem-writer", "golem-qa"}
+    for role, servers in config.extra_mcp_servers.items():
+        for name in servers:
+            if name in builtin_names:
+                errors.append(
+                    f"extra_mcp_servers[{role}].{name} collides with"
+                    " golem built-in MCP name"
+                )
+
+    # Stdio MCP command not found
+    import shutil as _shutil
+
+    for role, servers in config.extra_mcp_servers.items():
+        for name, srv in servers.items():
+            if isinstance(srv, dict) and "command" in srv:
+                cmd = srv["command"]
+                if not _shutil.which(cmd):
+                    errors.append(
+                        f"extra_mcp_servers[{role}].{name}:"
+                        f" command {cmd!r} not found on PATH"
+                    )
+
+    # CLAUDECODE env var
+    import os as _os
+
+    if _os.environ.get("CLAUDECODE"):
+        errors.append(
+            "CLAUDECODE env var is set -- running inside Claude Code session"
+        )
+
+    # ANTHROPIC_API_KEY
+    if _os.environ.get("ANTHROPIC_API_KEY"):
+        warnings_list.append(
+            "ANTHROPIC_API_KEY env var is set -- may override OAuth"
+        )
+
+    # "user" in setting sources
+    all_sources = list(config.setting_sources)
+    for role_sources in config.agent_setting_sources.values():
+        all_sources.extend(role_sources)
+    if "user" in all_sources:
+        warnings_list.append(
+            "'user' in setting sources -- user-level plugins/hooks may interfere"
+        )
+
+    # No .claude/settings.json
+    if not (project_root / ".claude" / "settings.json").exists():
+        if "project" in config.setting_sources:
+            infos.append("No .claude/settings.json found in project root")
+
+    # Dirty git working tree
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.stdout.strip():
+            warnings_list.append("Dirty git working tree (uncommitted changes)")
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # Existing golem/* branches
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--list", "golem/*"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.stdout.strip():
+            warnings_list.append(
+                "Existing golem/* branches from previous run"
+            )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    return errors, warnings_list, infos
+
+
+@app.command()
+def preflight(
+    spec: Path = typer.Argument(..., help="Path to spec markdown file"),
+    force: bool = typer.Option(False, "--force", help="Proceed despite errors"),
+) -> None:
+    """Pre-flight check: resolve effective tool ecosystem and detect pitfalls."""
+    from golem.config import GolemConfig
+
+    _validate_spec(spec)
+    project_root = _resolve_spec_project_root(spec)
+    golem_dir = _get_golem_dir(project_root)
+    config = (
+        load_config(golem_dir)
+        if (golem_dir / "config.json").exists()
+        else GolemConfig()
+    )
+
+    console.print(f"\n[bold]Golem Pre-Flight[/bold] -- {spec.name}")
+    console.print(f"Project: {project_root}\n")
+
+    # Setting sources
+    console.print("[bold]Setting Sources[/bold]")
+    console.print(f"  Base: {config.setting_sources}")
+    for role, sources in config.agent_setting_sources.items():
+        role_label = role.replace("_", " ").title()
+        console.print(f"  {role_label} override: {sources}")
+
+    # Per-role summary
+    golem_tools = {
+        "planner": [
+            "create_ticket", "update_ticket", "read_ticket", "list_tickets",
+        ],
+        "tech_lead": [
+            "create_ticket", "update_ticket", "read_ticket", "list_tickets",
+            "run_qa", "create_worktree", "merge_branches", "commit_worktree",
+        ],
+        "writer": ["run_qa", "update_ticket"],
+    }
+
+    for role in ("planner", "tech_lead", "writer"):
+        role_label = role.replace("_", " ").title()
+        sources = (
+            config.agent_setting_sources.get(role) or config.setting_sources
+        )
+        extras = config.extra_mcp_servers.get(role, {})
+
+        console.print(f"\n[bold]{role_label}[/bold]")
+        console.print(f"  Setting sources: {sources}")
+        console.print(f"  Golem MCP: {', '.join(golem_tools[role])}")
+
+        if extras:
+            for name, srv in extras.items():
+                srv_type = (
+                    "stdio"
+                    if isinstance(srv, dict) and "command" in srv
+                    else "sse/http"
+                )
+                cmd_or_url = (
+                    srv.get("command", srv.get("url", "?"))
+                    if isinstance(srv, dict)
+                    else "?"
+                )
+                console.print(
+                    f"  Extra MCP: {name} ({srv_type}: {cmd_or_url})"
+                )
+        else:
+            console.print("  Extra MCPs: (none)")
+
+        # Detect project plugins from .claude/settings.json
+        if "project" in sources:
+            settings_path = project_root / ".claude" / "settings.json"
+            if settings_path.exists():
+                try:
+                    import json as _json
+
+                    settings = _json.loads(
+                        settings_path.read_text(encoding="utf-8")
+                    )
+                    plugins = (
+                        list(settings.get("plugins", {}).keys())
+                        if isinstance(settings.get("plugins"), dict)
+                        else []
+                    )
+                    console.print(
+                        f"  Project plugins:"
+                        f" {', '.join(plugins) if plugins else '(none)'}"
+                    )
+                except Exception:
+                    console.print("  Project plugins: (error reading settings)")
+            else:
+                console.print("  Project plugins: (none)")
+
+    # Pitfall detection
+    errors, warnings_list, infos = _run_preflight_checks(
+        config, project_root, spec,
+    )
+
+    console.print("\n[bold]Pitfalls[/bold]")
+    for e in errors:
+        console.print(f"  [red][ERROR][/red] {e}")
+    for w in warnings_list:
+        console.print(f"  [yellow][WARN][/yellow] {w}")
+    for i in infos:
+        console.print(f"  [blue][INFO][/blue] {i}")
+    if not errors and not warnings_list and not infos:
+        console.print("  (none detected)")
+
+    total_errors = len(errors)
+    console.print(
+        f"\nResult: {total_errors} error{'s' if total_errors != 1 else ''}"
+        f" -- {'ready to run' if total_errors == 0 else 'blocked'}"
+    )
+
+    if total_errors > 0 and not force:
+        raise typer.Exit(1)

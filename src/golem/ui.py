@@ -420,6 +420,94 @@ def create_app() -> FastAPI:
             config = GolemConfig()
         return asdict(config)
 
+    @app.post("/api/preflight")
+    async def api_preflight(req: RunRequest) -> dict[str, object]:
+        """Run pre-flight checks and return the effective tool ecosystem."""
+        from golem.config import GolemConfig, load_config
+
+        spec = Path(req.spec_path)
+        if not spec.exists():
+            raise HTTPException(
+                status_code=404, detail=f"Spec not found: {req.spec_path}",
+            )
+
+        project_root = (
+            Path(req.project_root).resolve()
+            if req.project_root
+            else spec.resolve().parent
+        )
+        golem_dir = project_root / ".golem"
+        config = (
+            load_config(golem_dir)
+            if (golem_dir / "config.json").exists()
+            else GolemConfig()
+        )
+
+        # Build per-role info
+        golem_tools: dict[str, list[str]] = {
+            "planner": [
+                "create_ticket", "update_ticket", "read_ticket",
+                "list_tickets",
+            ],
+            "tech_lead": [
+                "create_ticket", "update_ticket", "read_ticket",
+                "list_tickets", "run_qa", "create_worktree",
+                "merge_branches", "commit_worktree",
+            ],
+            "writer": ["run_qa", "update_ticket"],
+        }
+
+        roles: dict[str, dict[str, object]] = {}
+        for role in ("planner", "tech_lead", "writer"):
+            sources = (
+                config.agent_setting_sources.get(role)
+                or config.setting_sources
+            )
+            extras = config.extra_mcp_servers.get(role, {})
+            roles[role] = {
+                "setting_sources": sources,
+                "golem_tools": golem_tools[role],
+                "extra_mcps": {n: s for n, s in extras.items()},
+            }
+
+        # Pitfall detection
+        errors: list[str] = []
+        warnings_list: list[str] = []
+        infos: list[str] = []
+
+        builtin_names = {"golem", "golem-writer", "golem-qa"}
+        for role, servers in config.extra_mcp_servers.items():
+            for name in servers:
+                if name in builtin_names:
+                    errors.append(f"MCP name collision: {role}.{name}")
+
+        import shutil
+        for role, servers in config.extra_mcp_servers.items():
+            for name, srv in servers.items():
+                if isinstance(srv, dict) and "command" in srv:
+                    if not shutil.which(srv["command"]):
+                        errors.append(
+                            f"{role}.{name}: command"
+                            f" {srv['command']!r} not found"
+                        )
+
+        if not (project_root / ".claude" / "settings.json").exists():
+            infos.append("No .claude/settings.json in project root")
+
+        return {
+            "spec": str(spec),
+            "project_root": str(project_root),
+            "setting_sources": config.setting_sources,
+            "agent_setting_sources": config.agent_setting_sources,
+            "roles": roles,
+            "pitfalls": {
+                "errors": errors,
+                "warnings": warnings_list,
+                "infos": infos,
+            },
+            "ready": len(errors) == 0,
+        }
+
     @app.get("/api/browse/file")
     async def api_browse_file(initial_dir: str = "") -> dict[str, str | None]:
         """Open a native OS file picker dialog filtered to .md files."""

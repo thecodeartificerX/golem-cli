@@ -712,6 +712,7 @@
       </div>
     </div>
 
+    <button class="ctrl-btn" id="init-btn">INITIALIZE</button>
     <button id="run-btn" disabled>CONSTRUCT</button>
 
     <div class="brand-sep"></div>
@@ -794,6 +795,7 @@
   const rootInput      = document.getElementById('root-path-input');
   const browseSpecBtn  = document.getElementById('browse-spec-btn');
   const browseRootBtn  = document.getElementById('browse-root-btn');
+  const initBtn        = document.getElementById('init-btn');
   const runBtn         = document.getElementById('run-btn');
   const connDot        = document.getElementById('conn-dot');
   const connLabel      = document.getElementById('conn-label');
@@ -1232,6 +1234,66 @@
     var data = await resp.json();
     if (data.path) {
       rootInput.value = data.path;
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // INITIALIZE (preflight) button
+  // -------------------------------------------------------------------------
+  initBtn.addEventListener('click', async function () {
+    const specPath = specInput.value.trim();
+    if (!specPath) { showError('Enter a spec path first'); return; }
+    initBtn.disabled = true;
+    initBtn.textContent = 'CHECKING...';
+    clearError();
+    try {
+      const body = { spec_path: specPath, project_root: rootInput.value.trim() };
+      const resp = await fetch('/api/preflight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        showError('Preflight failed: ' + (err.detail || resp.statusText));
+        return;
+      }
+      const data = await resp.json();
+      // Show results in console
+      const lines = ['[PREFLIGHT] Tool ecosystem resolved:'];
+      for (const [role, info] of Object.entries(data.roles || {})) {
+        lines.push(`  ${role}: sources=${JSON.stringify(info.setting_sources)}`
+          + ` tools=${info.golem_tools.length}`
+          + ` extra_mcps=${Object.keys(info.extra_mcps || {}).length}`);
+      }
+      const pitfalls = data.pitfalls || {};
+      (pitfalls.errors || []).forEach(e => lines.push('  [ERROR] ' + e));
+      (pitfalls.warnings || []).forEach(w => lines.push('  [WARN] ' + w));
+      (pitfalls.infos || []).forEach(i => lines.push('  [INFO] ' + i));
+      lines.push(data.ready ? '  Result: ready to run' : '  Result: BLOCKED');
+      lines.forEach(msg => {
+        if (consoleEmpty.parentNode) consoleEmpty.remove();
+        const el = document.createElement('div');
+        el.className = 'log-line verb-info';
+        const msgEl = document.createElement('span');
+        msgEl.className = 'log-msg';
+        msgEl.textContent = msg;
+        el.appendChild(msgEl);
+        consoleBody.appendChild(el);
+        logLineCount++;
+      });
+      logCountLabel.textContent = logLineCount + ' lines';
+      consoleBody.scrollTop = consoleBody.scrollHeight;
+      if (data.ready) {
+        runBtn.disabled = false;
+      } else {
+        showError('Preflight detected errors — fix them or use CLI --force');
+      }
+    } catch (err) {
+      showError('Preflight error: ' + err.message);
+    } finally {
+      initBtn.disabled = false;
+      initBtn.textContent = 'INITIALIZE';
     }
   });
 
