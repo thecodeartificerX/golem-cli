@@ -892,39 +892,89 @@ def config_reset(
 
 @config_app.command("set")
 def config_set(
-    key: str = typer.Argument(..., help="Config key (e.g. max_parallel, planner_model)"),
-    value: str = typer.Argument(..., help="New value"),
+    key: str = typer.Argument(
+        ..., help="Config key (e.g. max_parallel, extra_mcp_servers.planner.context7)",
+    ),
+    value: str = typer.Argument(..., help="New value (JSON-parsed for nested keys)"),
 ) -> None:
-    """Set a config value. Creates .golem/config.json if needed."""
+    """Set a config value. Supports dot-notation for nested fields."""
+    import json as _json
     from dataclasses import fields as dataclass_fields
 
     from golem.config import GolemConfig
-
-    valid_keys = {f.name for f in dataclass_fields(GolemConfig)}
-    if key not in valid_keys:
-        console.print(f"[red]Unknown config key: {key}[/red]")
-        console.print(f"  Valid keys: {', '.join(sorted(valid_keys))}")
-        raise typer.Exit(1)
 
     project_root = _get_project_root()
     golem_dir = _get_golem_dir(project_root)
     config = load_config(golem_dir)
 
-    # Type coercion based on the field type
-    field_type = type(getattr(config, key))
-    try:
-        if field_type is int:
-            typed_value = int(value)
-        elif field_type is bool:
-            typed_value = value.lower() in ("true", "1", "yes")
-        elif field_type is list:
-            typed_value = [v.strip() for v in value.split(",")]
-        else:
-            typed_value = value
-    except ValueError:
-        console.print(f"[red]Invalid value for {key}: expected {field_type.__name__}, got {value!r}[/red]")
+    parts = key.split(".")
+    top_key = parts[0]
+
+    # Validate top-level key exists on GolemConfig
+    valid_keys = {f.name for f in dataclass_fields(GolemConfig)}
+    if top_key not in valid_keys:
+        console.print(f"[red]Unknown config key: {top_key}[/red]")
+        console.print(f"  Valid keys: {', '.join(sorted(valid_keys))}")
         raise typer.Exit(1)
 
-    setattr(config, key, typed_value)
+    if len(parts) == 1:
+        # Simple top-level key — existing behavior with JSON parsing attempt
+        field_type = type(getattr(config, key))
+        try:
+            # Try JSON parse first for complex types
+            typed_value = _json.loads(value)
+        except (_json.JSONDecodeError, ValueError):
+            # Fall back to type coercion for simple types
+            try:
+                if field_type is int:
+                    typed_value = int(value)
+                elif field_type is bool:
+                    typed_value = value.lower() in ("true", "1", "yes")
+                else:
+                    typed_value = value
+            except ValueError:
+                console.print(
+                    f"[red]Invalid value for {key}: expected"
+                    f" {field_type.__name__}, got {value!r}[/red]"
+                )
+                raise typer.Exit(1)
+
+        if typed_value is None:
+            # Reset to default
+            default_config = GolemConfig()
+            typed_value = getattr(default_config, key)
+
+        setattr(config, key, typed_value)
+    else:
+        # Dot-notation: traverse/create nested dicts
+        try:
+            parsed_value = _json.loads(value)
+        except (_json.JSONDecodeError, ValueError):
+            parsed_value = value
+
+        obj = getattr(config, top_key)
+        if not isinstance(obj, dict):
+            console.print(
+                f"[red]{top_key} is not a dict -- dot-notation requires a dict field[/red]"
+            )
+            raise typer.Exit(1)
+
+        # Traverse/create intermediate dicts
+        current = obj
+        for part in parts[1:-1]:
+            if part not in current or not isinstance(current[part], dict):
+                current[part] = {}
+            current = current[part]
+
+        # Set or delete the final key
+        final_key = parts[-1]
+        if parsed_value is None:
+            current.pop(final_key, None)
+        else:
+            current[final_key] = parsed_value
+
+        setattr(config, top_key, obj)
+
     save_config(config, golem_dir)
-    console.print(f"[green]Set {key} = {typed_value!r}[/green]")
+    display = getattr(config, top_key) if len(parts) == 1 else value
+    console.print(f"[green]Set {key} = {display}[/green]")
