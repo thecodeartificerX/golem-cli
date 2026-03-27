@@ -860,3 +860,100 @@ def test_api_specs_returns_md_files(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # Should NOT include .golem or node_modules
     assert not any(".golem" in s for s in specs)
     assert not any("node_modules" in s for s in specs)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/guidance — operator guidance endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_guidance_endpoint_rejects_when_idle(client: TestClient) -> None:
+    """POST /api/guidance with no running process must return 400."""
+    # current_process is None (reset by autouse fixture)
+    resp = client.post("/api/guidance", json={"text": "please slow down"})
+    assert resp.status_code == 400
+    assert "No run" in resp.json().get("error", "")
+
+
+def test_guidance_endpoint_rejects_empty_text(client: TestClient) -> None:
+    """POST /api/guidance with empty text must return 422."""
+    resp = client.post("/api/guidance", json={"text": ""})
+    # Empty text rejected either by Pydantic (422) or by endpoint logic (422)
+    assert resp.status_code in (400, 422)
+
+
+def test_guidance_endpoint_creates_ticket(tmp_path: Path) -> None:
+    """POST /api/guidance with a running process must create a guidance ticket."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    import golem.ui as ui_module
+    from golem.tickets import TicketStore
+    from golem.ui import create_app
+
+    # Set up .golem dir with tickets subdir
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    # Create progress.log so the logger path check passes
+    (golem_dir / "progress.log").write_text("", encoding="utf-8")
+
+    # Simulate running process
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    ui_module.current_process = mock_proc  # type: ignore[assignment]
+    ui_module.current_cwd = str(tmp_path)
+
+    app = create_app()
+    client = TestClient(app, raise_server_exceptions=True)
+    resp = client.post("/api/guidance", json={"text": "focus on the auth module"})
+
+    # Restore state
+    ui_module.current_process = None
+    ui_module.current_cwd = None
+
+    assert resp.status_code == 200
+    assert resp.json().get("ok") is True
+
+    # Verify ticket was created
+    store = TicketStore(golem_dir / "tickets")
+    tickets = asyncio.run(store.list_tickets())
+    guidance_tickets = [t for t in tickets if t.type == "guidance"]
+    assert len(guidance_tickets) == 1
+    assert guidance_tickets[0].status == "pending"
+    assert guidance_tickets[0].assigned_to == "tech_lead"
+
+
+def test_guidance_endpoint_appends_to_existing(tmp_path: Path) -> None:
+    """POST /api/guidance twice must produce one ticket with 2+ history events."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    import golem.ui as ui_module
+    from golem.tickets import TicketStore
+    from golem.ui import create_app
+
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    (golem_dir / "progress.log").write_text("", encoding="utf-8")
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    ui_module.current_process = mock_proc  # type: ignore[assignment]
+    ui_module.current_cwd = str(tmp_path)
+
+    app = create_app()
+    client = TestClient(app, raise_server_exceptions=True)
+    client.post("/api/guidance", json={"text": "first message"})
+    client.post("/api/guidance", json={"text": "second message"})
+
+    ui_module.current_process = None
+    ui_module.current_cwd = None
+
+    store = TicketStore(golem_dir / "tickets")
+    tickets = asyncio.run(store.list_tickets())
+    guidance_tickets = [t for t in tickets if t.type == "guidance"]
+
+    # Should be exactly one ticket (second call appends to existing)
+    assert len(guidance_tickets) == 1
+    # History: created + first update + second update = at least 3 events
+    assert len(guidance_tickets[0].history) >= 3

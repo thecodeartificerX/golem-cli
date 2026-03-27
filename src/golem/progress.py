@@ -69,3 +69,7 @@ class ProgressLogger:
 
     def log_merge_complete(self, branch: str) -> None:
         self._write(f"MERGE_COMPLETE branch={branch}")
+
+    def log_guidance_received(self, note: str) -> None:
+        """Log that operator guidance was received."""
+        self._write(f"GUIDANCE_RECEIVED note={note}")

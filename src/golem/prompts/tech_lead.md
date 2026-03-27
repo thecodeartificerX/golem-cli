@@ -53,6 +53,23 @@ observability and cannot be reviewed or resumed.
 
 ---
 
+## Operator Guidance
+
+The operator may send guidance during your run via the ticket system.
+Before starting each new phase (after reading plans, after dispatching
+Junior Devs, after reviewing work), call `mcp__golem__list_tickets`
+and check for any ticket with `type=guidance` and `status=pending`.
+
+If you find a pending guidance ticket:
+1. Read it fully with `mcp__golem__read_ticket`
+2. Factor the operator's guidance into your next decision
+3. Update the ticket to `acknowledged` with a note confirming receipt
+
+Operator guidance takes priority over your default approach — the
+operator has context you do not have.
+
+---
+
 ## Junior Dev Dispatch
 
 Dispatch Junior Devs by running multiple Agent tool invocations in a

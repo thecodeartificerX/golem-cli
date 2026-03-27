@@ -302,6 +302,66 @@
     }
 
     /* -----------------------------------------------------------------------
+       Guidance Panel (shown during running state)
+    ----------------------------------------------------------------------- */
+    #guidance-panel {
+      display: none;
+      padding: 6px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #guidance-panel.visible {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #guidance-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--body-text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 5px 10px;
+      outline: none;
+      min-width: 0;
+      transition: border-color 0.15s ease;
+    }
+
+    #guidance-input::placeholder {
+      color: var(--dim-text);
+    }
+
+    #guidance-input:focus {
+      border-color: var(--accent-end);
+    }
+
+    #guidance-send {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding: 5px 14px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+
+    #guidance-send:hover {
+      border-color: var(--muted);
+      color: var(--body-text);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    /* -----------------------------------------------------------------------
        Main content: two-panel split
     ----------------------------------------------------------------------- */
     #main-content {
@@ -728,6 +788,14 @@
   <div id="error-banner"></div>
 
   <!-- =====================================================================
+       GUIDANCE PANEL (shown during running state)
+  ====================================================================== -->
+  <div id="guidance-panel">
+    <input type="text" id="guidance-input" placeholder="Send guidance to Tech Lead..." autocomplete="off">
+    <button id="guidance-send" onclick="sendGuidance()">SEND</button>
+  </div>
+
+  <!-- =====================================================================
        MAIN CONTENT
   ====================================================================== -->
   <div id="main-content">
@@ -845,6 +913,7 @@
   // State machine transitions
   // -------------------------------------------------------------------------
   function setState(state, detail) {
+    updateGuidancePanel(state);
     currentState = state;
     runStateBadge.className = state;
     runStateBadge.textContent = state.toUpperCase();
@@ -1355,6 +1424,53 @@
     } else {
       setState('error', { message: errMsg });
       showError(errMsg);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Operator Guidance
+  // -------------------------------------------------------------------------
+  function updateGuidancePanel(state) {
+    const panel = document.getElementById('guidance-panel');
+    if (!panel) return;
+    if (state === 'running') {
+      panel.classList.add('visible');
+    } else {
+      panel.classList.remove('visible');
+      const input = document.getElementById('guidance-input');
+      if (input) input.value = '';
+    }
+  }
+
+  function sendGuidance() {
+    const input = document.getElementById('guidance-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+
+    fetch('/api/guidance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text}),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        input.value = '';
+        addLog({type: 'log', data: {content: '[OPERATOR] Guidance sent: ' + text, level: 'info'}});
+      } else {
+        addLog({type: 'log', data: {content: '[ERROR] Guidance rejected: ' + (data.error || 'unknown'), level: 'error'}});
+      }
+    })
+    .catch(err => addLog({type: 'log', data: {content: '[ERROR] Failed to send guidance: ' + err, level: 'error'}}));
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const guidanceInput = document.getElementById('guidance-input');
+    if (guidanceInput) {
+      guidanceInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendGuidance();
+      });
     }
   });
 
