@@ -6,6 +6,7 @@ import os
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from golem.merge import MergeCoordinator
 from golem.ui import format_sse
 
 
@@ -132,22 +134,6 @@ class SessionManager:
         return True
 
 
-class MergeCoordinator:
-    """Stub merge coordinator — implemented in Spec 3."""
-
-    def __init__(self, golem_dir: Path) -> None:
-        self._golem_dir = golem_dir
-
-    async def enqueue(self, session_id: str) -> None:
-        """Enqueue a session for merge. (Stub — Spec 3)"""
-
-    async def process_queue(self) -> None:
-        """Process the merge queue. (Stub — Spec 3)"""
-
-    def get_queue_status(self) -> list[dict[str, str]]:
-        """Return current queue state. (Stub — Spec 3)"""
-        return []
-
 
 # ---------------------------------------------------------------------------
 # Server lifecycle helpers
@@ -175,7 +161,11 @@ def remove_server_json(golem_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def monitor_process(state: SessionState, sessions_dir: Path) -> None:
+async def monitor_process(
+    state: SessionState,
+    sessions_dir: Path,
+    coordinator: MergeCoordinator | None = None,
+) -> None:
     """Wait for a session's subprocess to exit and update session.json status."""
     if state.process is None:
         return
@@ -187,6 +177,8 @@ async def monitor_process(state: SessionState, sessions_dir: Path) -> None:
     session_dir = sessions_dir / state.id
     if exit_code == 0:
         state.status = "awaiting_merge"
+        if coordinator is not None:
+            await coordinator.enqueue(state.id)
     else:
         state.status = "failed"
 
@@ -262,7 +254,7 @@ def create_app() -> FastAPI:
     golem_dir = Path(os.environ.get("GOLEM_DIR", "")) or Path.cwd() / ".golem"
     sessions_dir = golem_dir / "sessions"
     session_mgr = SessionManager(sessions_dir)
-    merge_coordinator = MergeCoordinator(golem_dir)
+    merge_coordinator = MergeCoordinator(golem_dir, session_mgr)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -344,7 +336,7 @@ def create_app() -> FastAPI:
 
         # Start background tasks for this session
         state.background_tasks.append(asyncio.create_task(tail_progress_log(state, sessions_dir)))
-        state.background_tasks.append(asyncio.create_task(monitor_process(state, sessions_dir)))
+        state.background_tasks.append(asyncio.create_task(monitor_process(state, sessions_dir, merge_coordinator)))
 
         return {"session_id": session_id, "status": "running"}
 
@@ -649,5 +641,35 @@ def create_app() -> FastAPI:
             "pitfalls": {"errors": errors, "warnings": warnings_list, "infos": infos},
             "ready": len(errors) == 0,
         }
+
+    # ------------------------------------------------------------------
+    # Merge queue endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/merge-queue")
+    async def get_merge_queue() -> list[dict[str, object]]:
+        entries = merge_coordinator._read_queue()
+        return [dataclasses.asdict(e) for e in entries]
+
+    @app.post("/api/merge-queue/{session_id}")
+    async def enqueue_session(session_id: str) -> dict[str, str]:
+        await merge_coordinator.enqueue(session_id)
+        return {"status": "queued"}
+
+    @app.post("/api/merge-queue/{session_id}/approve")
+    async def approve_session(session_id: str) -> dict[str, str]:
+        await merge_coordinator.merge_pr(session_id)
+        await merge_coordinator.rebase_queued(session_id)
+        return {"status": "merged"}
+
+    @app.delete("/api/merge-queue/{session_id}")
+    async def dequeue_session(session_id: str) -> dict[str, str]:
+        await merge_coordinator.dequeue(session_id)
+        return {"status": "removed"}
+
+    @app.get("/api/conflicts")
+    async def get_conflicts() -> list[dict[str, object]]:
+        conflicts = await merge_coordinator.detect_conflicts()
+        return [dataclasses.asdict(c) for c in conflicts]
 
     return app

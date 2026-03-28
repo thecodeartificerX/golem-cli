@@ -388,3 +388,103 @@ async def test_monitor_process_updates_status(tmp_path: Path) -> None:
 
     await monitor_process(state, sessions_dir)
     assert state.status == "awaiting_merge"
+
+
+# ---------------------------------------------------------------------------
+# Merge queue endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def merge_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """App instance backed by a temp GOLEM_DIR so merge tests don't share state."""
+    monkeypatch.setenv("GOLEM_DIR", str(tmp_path / ".golem"))
+    return create_app()
+
+
+@pytest.fixture()
+async def merge_client(merge_app):
+    """Async client for merge tests."""
+    transport = ASGITransport(app=merge_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.mark.asyncio
+async def test_merge_queue_empty(merge_client: AsyncClient) -> None:
+    """GET /api/merge-queue returns 200 and empty list when no sessions queued."""
+    resp = await merge_client.get("/api/merge-queue")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_enqueue_via_api(merge_client: AsyncClient) -> None:
+    """POST /api/merge-queue/{id} enqueues a session; GET shows it in the list."""
+    resp = await merge_client.post("/api/merge-queue/sess-1")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "queued"}
+
+    resp = await merge_client.get("/api/merge-queue")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(entry["session_id"] == "sess-1" for entry in data)
+
+
+@pytest.mark.asyncio
+async def test_dequeue_via_api(merge_client: AsyncClient) -> None:
+    """DELETE /api/merge-queue/{id} removes the session from the queue."""
+    # Seed the queue
+    await merge_client.post("/api/merge-queue/sess-del")
+    resp = await merge_client.delete("/api/merge-queue/sess-del")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "removed"}
+
+    resp = await merge_client.get("/api/merge-queue")
+    data = resp.json()
+    assert not any(entry["session_id"] == "sess-del" for entry in data)
+
+
+@pytest.mark.asyncio
+async def test_approve_via_api(merge_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/merge-queue/{id}/approve calls merge_pr + rebase_queued."""
+    from golem.merge import MergeCoordinator
+
+    merged: list[str] = []
+    rebased: list[str] = []
+
+    async def _mock_merge_pr(self: object, session_id: str) -> None:
+        merged.append(session_id)
+
+    async def _mock_rebase_queued(self: object, merged_session_id: str) -> None:
+        rebased.append(merged_session_id)
+
+    monkeypatch.setattr(MergeCoordinator, "merge_pr", _mock_merge_pr)
+    monkeypatch.setattr(MergeCoordinator, "rebase_queued", _mock_rebase_queued)
+
+    transport = ASGITransport(app=merge_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post("/api/merge-queue/sess-approve/approve")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "merged"}
+    assert "sess-approve" in merged
+    assert "sess-approve" in rebased
+
+
+@pytest.mark.asyncio
+async def test_conflicts_endpoint(merge_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/conflicts returns conflict list from detect_conflicts."""
+    from golem.merge import ConflictInfo, MergeCoordinator
+
+    async def _mock_detect_conflicts(self: MergeCoordinator) -> list[ConflictInfo]:
+        return [ConflictInfo(file_path="src/foo.py", session_a="a", session_b="b", ticket_a="", ticket_b="")]
+
+    monkeypatch.setattr(MergeCoordinator, "detect_conflicts", _mock_detect_conflicts)
+
+    transport = ASGITransport(app=merge_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/api/conflicts")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["file_path"] == "src/foo.py"

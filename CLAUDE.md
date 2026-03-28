@@ -28,6 +28,9 @@ uv run golem config reset        # Reset config to defaults
 uv run golem clean               # Remove .golem/ + golem/* branches
 uv run golem version             # Version, architecture, Python, platform
 uv run golem ui                  # Launch web dashboard (port 9664)
+uv run golem server start        # Start multi-session server (port 9664)
+uv run golem server stop         # Stop running server
+uv run golem server status       # Check server status
 .\Golem.ps1                      # PowerShell ops dashboard (setup + server + TUI)
 uv run pytest                    # Run tests
 ```
@@ -46,6 +49,7 @@ Created by `golem run` in the project root (gitignored):
 - `references/` — curated external docs for writers
 - `progress.log` — timestamped execution events
 - `worktrees/` — git worktrees per parallel group
+- `sessions/` — per-session state directories (config, tickets, plans, logs)
 
 ## Coding Conventions
 
@@ -83,24 +87,27 @@ Created by `golem run` in the project root (gitignored):
 src/
   golem/
     __init__.py
-    version.py          ← Version/platform metadata utility
     cli.py              ← CLI entry point (typer + rich)
-    planner.py          ← Spec → research + tickets (sub-agent architecture)
-    tech_lead.py        ← Tech Lead agent orchestrator (ticket dispatch)
-    writer.py           ← Writer pair spawner (ticket-driven coding)
-    tickets.py          ← Ticket store (JSON-based, .golem/tickets/)
-    tools.py            ← Custom SDK tools for Tech Lead sessions
-    qa.py               ← Deterministic QA tool (subprocess checks)
-    validator.py        ← Subprocess env helpers (_subprocess_env, _normalize_cmd)
-    dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
-    worktree.py         ← Git worktree creation/management/merge
-    tasks.py            ← v1 legacy (unused by v2, kept for test compat)
     conductor.py        ← Spec complexity classifier (TRIVIAL/SIMPLE/STANDARD/CRITICAL)
     config.py           ← Settings, defaults, model configuration
+    dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
+    planner.py          ← Spec → research + tickets (sub-agent architecture)
     progress.py         ← Human-readable progress.log writer
+    qa.py               ← Deterministic QA tool (subprocess checks)
+    server.py           ← Multi-session FastAPI server (concurrent spec execution)
+    session.py          ← Session metadata, state constants, directory scaffolding
+    supervisor.py       ← Agent stall detection, circuit breakers, supervised sessions
+    tasks.py            ← v1 legacy (unused by v2, kept for test compat)
+    tech_lead.py        ← Tech Lead agent orchestrator (ticket dispatch)
+    tickets.py          ← Ticket store (JSON-based, .golem/tickets/)
+    tools.py            ← Custom SDK tools for Tech Lead sessions
     tui.py              ← Pre-run settings screen + live dashboard
-    ui.py               ← FastAPI server (SSE events, subprocess mgmt)
+    ui.py               ← Legacy single-session dashboard (SSE events, subprocess mgmt)
     ui_template.html    ← Self-contained HTML dashboard (no CDN)
+    validator.py        ← Subprocess env helpers (_subprocess_env, _normalize_cmd)
+    version.py          ← Version/platform metadata utility
+    worktree.py         ← Git worktree creation/management/merge
+    writer.py           ← Writer pair spawner (ticket-driven coding)
     prompts/
       planner.md        ← Planner system prompt template
       worker.md         ← Writer agent system prompt template
@@ -109,22 +116,25 @@ src/
 tests/
   conftest.py           ← Shared fixtures (ticket factory, git repo, golem dir)
   __init__.py
-  test_tasks.py         ← Task graph parsing and state machine
+  test_cli.py           ← Spec validation, infra check detection
+  test_conductor.py     ← Complexity classification tests
+  test_config.py        ← GolemConfig, setting_sources, validation
+  test_hooks.py         ← PreToolUse hook script tests
   test_planner.py       ← Planner directory creation and ticket output
+  test_progress.py      ← Progress event logging (v2 milestones)
+  test_qa.py            ← QA checks, autofix, infra detection
+  test_server.py        ← Multi-session server endpoints, SSE, lifecycle
+  test_session.py       ← Session metadata and directory scaffolding
+  test_supervisor.py    ← Stall detection and supervised session tests
+  test_tasks.py         ← Task graph parsing and state machine
+  test_tech_lead.py     ← Self-healing merge + worktree cleanup
   test_tickets.py       ← Ticket store CRUD and concurrency
   test_tools.py         ← Tech Lead tool dispatch
-  test_qa.py            ← QA checks, autofix, infra detection
-  test_writer.py        ← Writer prompt building and spawning
-  test_worktree.py      ← Git worktree operations + merge conflict handling
-  test_tech_lead.py     ← Self-healing merge + worktree cleanup
-  test_validator.py     ← Subprocess env helpers
-  test_config.py        ← GolemConfig, setting_sources, validation
-  test_cli.py           ← Spec validation, infra check detection
-  test_progress.py      ← Progress event logging (v2 milestones)
-  test_version.py       ← Version info and architecture string
   test_ui.py            ← UI server endpoints, SSE, helpers
-  test_conductor.py     ← Complexity classification tests
-  test_hooks.py         ← PreToolUse hook script tests
+  test_validator.py     ← Subprocess env helpers
+  test_version.py       ← Version info and architecture string
+  test_worktree.py      ← Git worktree operations + merge conflict handling
+  test_writer.py        ← Writer prompt building and spawning
 Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 .claude/
   hooks/
@@ -135,7 +145,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (314 tests)
+- **Run:** `uv run pytest` (406 tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
@@ -175,6 +185,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Native file dialogs via ctypes** — `dialogs.py` uses `GetOpenFileNameW` / `SHBrowseForFolderW`; called via `asyncio.to_thread()` from browse endpoints; `OFN_NOCHANGEDIR` prevents CWD corruption
 - **UI control bar has two inputs** — SPEC (file path) + ROOT (project directory); SPEC browse auto-fills ROOT with parent dir; `/api/run` accepts `project_root` field (backward-compatible, empty = spec's parent)
 - **Golem.ps1 uses polling loop, not `WaitForExit()`** — .NET `WaitForExit()` swallows Ctrl+C; poll `$proc.HasExited` with `Start-Sleep -Milliseconds 300` instead; `try/finally` kills child process on exit
+- **`server.py` vs `ui.py`** — `server.py` is the multi-session server (concurrent spec execution, session lifecycle); `ui.py` is the legacy single-session dashboard. New features go in `server.py`
 
 ## Key Design Decisions
 - **Ticket-driven agent hierarchy (v2)** — Planner → Tech Lead → Writer pairs. Communication via structured JSON tickets in `.golem/tickets/`.
@@ -183,10 +194,12 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Writers are ephemeral** — spawned per ticket, run in worktrees, have QA + ticket update tools via MCP.
 - **Two-stage QA pipeline** — `run_qa()` runs infrastructure checks first (fast gate); if any fail, spec checks are skipped. `QACheck`/`QAResult` have `cannot_validate` and `stage` fields.
 - **PreToolUse safety hooks** — `.claude/hooks/` contains Python scripts that block dangerous agent operations (golem CLI, destructive git, AskUserQuestion) in headless SDK sessions, gated by `GOLEM_SDK_SESSION=1` env var.
+- **Session-scoped state** — each spec execution is a "session" with `.golem/sessions/<id>/` directory. Tickets, plans, and worktree branches are namespaced under `golem/{session_id}/` to enable concurrent execution.
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
 ## Version History
+- **v0.3.0** (2026-03-28) — Spec 1 (Foundation + Server Core): session-scoped state namespacing (`session.py`), multi-session FastAPI server (`server.py`), branch prefix isolation, session lifecycle progress events. 406 tests. New config: `session_id`, `branch_prefix`, `merge_auto_rebase`, `archive_delay_minutes`.
 - **v0.2.2** (2026-03-27) — ZeroShot-inspired features: safety hooks, two-stage QA, run economics, complexity conductor, live operator guidance, dispatch hardening. 314 tests. New config: `dispatch_jitter_max`, `conductor_enabled`, `skip_tech_lead`, `planner_max_turns`, `complexity_profiles`.
 - **v0.2.1** (2026-03-27) — Auto-dev session: 99 tasks, 239 tests, 12 new CLI commands, dead code cleanup, prompt improvements. Config added: `max_tech_lead_turns`, `sdk_timeout`, `retry_delay`. Removed: `auto_pr`, `max_validator_turns`.
 - **v0.2.0** (2026-03-27) — v2 ticket-driven architecture, 185 tests, 112 overnight improvements. See `docs/overnight-log.md` for details.

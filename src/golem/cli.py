@@ -1238,3 +1238,111 @@ def preflight(
 
     if total_errors > 0 and not force:
         raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------
+# Server-facing helpers
+# --------------------------------------------------------------------------
+
+
+def _get_server_base_url() -> str:
+    """Return the running server's base URL from server.json, or exit if not running."""
+    import urllib.error
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    server_json = golem_dir / "server.json"
+    if not server_json.exists():
+        console.print("[red]No server running. Start with 'golem server start'.[/red]")
+        raise typer.Exit(1)
+    info = json.loads(server_json.read_text(encoding="utf-8"))
+    return f"http://{info['host']}:{info['port']}"
+
+
+def _server_request(
+    method: str,
+    path: str,
+    *,
+    body: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Make an HTTP request to the running Golem server. Returns parsed JSON."""
+    import urllib.error
+    import urllib.request
+
+    base_url = _get_server_base_url()
+    url = f"{base_url}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode("utf-8"))  # type: ignore[return-value]
+    except urllib.error.HTTPError as exc:
+        console.print(f"[red]Server error {exc.code}: {exc.reason}[/red]")
+        raise typer.Exit(1)
+    except urllib.error.URLError as exc:
+        console.print(f"[red]Could not connect to server: {exc.reason}[/red]")
+        raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------
+# Merge / approve / merge-queue / conflicts commands
+# --------------------------------------------------------------------------
+
+
+@app.command()
+def merge(
+    session_id: str = typer.Argument(..., help="Session ID to enqueue for merge"),
+) -> None:
+    """Enqueue a session for merge (POST /api/merge-queue/{id})."""
+    result = _server_request("POST", f"/api/merge-queue/{session_id}")
+    console.print(result)
+
+
+@app.command()
+def approve(
+    session_id: str = typer.Argument(..., help="Session ID to approve and merge"),
+) -> None:
+    """Approve and merge a session's PR (POST /api/merge-queue/{id}/approve)."""
+    result = _server_request("POST", f"/api/merge-queue/{session_id}/approve")
+    console.print(result)
+
+
+@app.command(name="merge-queue")
+def merge_queue() -> None:
+    """Show the current merge queue (GET /api/merge-queue)."""
+    result = _server_request("GET", "/api/merge-queue")
+    entries = result if isinstance(result, list) else []
+    if not entries:
+        console.print("[dim]Merge queue is empty.[/dim]")
+        return
+    table = Table(title="Merge Queue", show_header=True)
+    table.add_column("Session ID")
+    table.add_column("Status")
+    table.add_column("PR #")
+    table.add_column("Enqueued At")
+    for entry in entries:
+        if isinstance(entry, dict):
+            table.add_row(
+                str(entry.get("session_id", "")),
+                str(entry.get("status", "")),
+                str(entry.get("pr_number") or ""),
+                str(entry.get("enqueued_at", ""))[:19],
+            )
+    console.print(table)
+
+
+@app.command()
+def conflicts() -> None:
+    """Show detected file-level conflicts across sessions (GET /api/conflicts)."""
+    result = _server_request("GET", "/api/conflicts")
+    items = result if isinstance(result, list) else []
+    if not items:
+        console.print("[dim]No conflicts detected.[/dim]")
+        return
+    for item in items:
+        if isinstance(item, dict):
+            console.print(
+                f"{item.get('file_path', '')}: {item.get('session_a', '')} vs {item.get('session_b', '')}"
+            )

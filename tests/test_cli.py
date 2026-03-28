@@ -994,3 +994,85 @@ def test_stats_handles_no_cost_events(tmp_path: Path, monkeypatch: pytest.Monkey
     runner = CliRunner()
     result = runner.invoke(app, ["stats"])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Merge / approve / merge-queue / conflicts CLI commands
+# ---------------------------------------------------------------------------
+
+
+def test_merge_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """merge command POSTs to merge-queue and prints result."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    # Create server.json so _get_server_base_url() doesn't exit
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "server.json").write_text(
+        '{"pid": 1, "port": 9664, "host": "127.0.0.1"}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("golem.cli._server_request", lambda *a, **kw: {"status": "queued"})
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["merge", "sess-1"])
+    assert result.exit_code == 0
+
+
+def test_approve_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """approve command POSTs to merge-queue approve and prints result."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "server.json").write_text(
+        '{"pid": 1, "port": 9664, "host": "127.0.0.1"}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("golem.cli._server_request", lambda *a, **kw: {"status": "merged"})
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["approve", "sess-1"])
+    assert result.exit_code == 0
+
+
+def test_merge_queue_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """merge-queue command GETs the queue and displays it."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "server.json").write_text(
+        '{"pid": 1, "port": 9664, "host": "127.0.0.1"}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("golem.cli._server_request", lambda *a, **kw: [])
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["merge-queue"])
+    assert result.exit_code == 0
+
+
+def test_conflicts_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """conflicts command GETs conflicts and displays them."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    (golem_dir / "server.json").write_text(
+        '{"pid": 1, "port": 9664, "host": "127.0.0.1"}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("golem.cli._server_request", lambda *a, **kw: [])
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["conflicts"])
+    assert result.exit_code == 0
