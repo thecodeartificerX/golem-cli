@@ -13,7 +13,6 @@ from claude_agent_sdk import (
 )
 
 _MAX_RETRIES = 2
-_RETRY_DELAY_S = 10
 
 from typing import TYPE_CHECKING
 

@@ -34,6 +34,17 @@ def test_registry_record_action() -> None:
     assert registry.records[0].turn_number == 1
 
 
+def test_registry_record_mcp_prefixed_action() -> None:
+    """MCP-prefixed action tool recorded with is_action=True."""
+    registry = ToolCallRegistry()
+    registry.record("mcp__golem__create_ticket", 1)
+    assert registry.records[0].is_action is True
+    registry.record("mcp__golem__list_tickets", 2)
+    assert registry.records[1].is_action is True
+    registry.record("mcp__golem-junior-dev__run_qa", 3)
+    assert registry.records[2].is_action is True
+
+
 def test_registry_record_read() -> None:
     """Non-action tool recorded with is_action=False."""
     registry = ToolCallRegistry()
@@ -276,31 +287,23 @@ async def test_supervised_session_stall_warning_injected() -> None:
         env={},
     )
 
-    captured_prompts: list[str] = []
-    call_count = 0
-
     async def fake_query(prompt, options=None, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        captured_prompts.append(prompt)
-        if call_count == 1:
-            # First call: yield 5 AssistantMessages with no action → warning at 4
-            for i in range(5):
-                yield AssistantMessage(
-                    content=[ToolUseBlock(id=f"t{i}", name="Read", input={})],
-                    model="claude-opus-4-5",
-                )
-        else:
-            # Second call (after warning restart): complete normally
-            yield ResultMessage(
-                subtype="result",
-                duration_ms=100,
-                duration_api_ms=50,
-                is_error=False,
-                num_turns=5,
-                session_id="s2",
-                result="done",
+        # Yield 5 AssistantMessages with no action tools → warning at turn 4
+        for i in range(5):
+            yield AssistantMessage(
+                content=[ToolUseBlock(id=f"t{i}", name="Read", input={})],
+                model="claude-opus-4-5",
             )
+        # Session ends naturally after 5 turns
+        yield ResultMessage(
+            subtype="result",
+            duration_ms=100,
+            duration_api_ms=50,
+            is_error=False,
+            num_turns=5,
+            session_id="s1",
+            result="done",
+        )
 
     with patch("golem.supervisor.query", side_effect=fake_query):
         result = await supervised_session(
@@ -311,11 +314,10 @@ async def test_supervised_session_stall_warning_injected() -> None:
             stall_config=stall_cfg,
         )
 
+    # Warning threshold crossed but kill threshold not reached → stalled=False
+    # (callers handle retry based on post-session content verification, not warning-only)
     assert result.stalled is False
-    # Warning should have been injected; second prompt should contain PROGRESS CHECK
-    assert call_count == 2
-    assert "PROGRESS CHECK" in captured_prompts[1]
-    assert "do work" in captured_prompts[1]  # Original prompt preserved
+    assert result.turns == 5
 
 
 @pytest.mark.asyncio

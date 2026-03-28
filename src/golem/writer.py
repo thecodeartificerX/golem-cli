@@ -331,7 +331,7 @@ async def spawn_junior_dev(
     input_tokens = session_result.input_tokens
     output_tokens = session_result.output_tokens
     num_turns = session_result.turns
-    duration_ms = 0  # SupervisedResult uses duration_s
+    duration_ms = int(session_result.duration_s * 1000)
 
     log_dir = golem_dir if golem_dir else Path(worktree_path)
     ProgressLogger(log_dir).log_agent_cost(

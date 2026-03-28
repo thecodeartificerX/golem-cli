@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _MAX_RETRIES = 2
-_RETRY_DELAY_S = 10
 
 from claude_agent_sdk import (
     CLIConnectionError,
@@ -182,7 +181,6 @@ async def run_tech_lead(
         print(f"[TECH LEAD] tool: {name}(...)", file=sys.stderr)
 
     progress = ProgressLogger(golem_dir)
-    _session_failed = False
     last_error: Exception | None = None
     session_result: SupervisedResult | None = None
 
@@ -201,7 +199,6 @@ async def run_tech_lead(
             )
             break  # Success
         except CLINotFoundError:
-            _session_failed = True
             _cleanup_golem_worktrees(golem_dir, project_root)
             raise RuntimeError(
                 "Tech Lead failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
