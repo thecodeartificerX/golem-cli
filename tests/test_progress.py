@@ -209,3 +209,78 @@ def test_sum_agent_costs_multiple_entries() -> None:
         logger.log_agent_cost("junior_dev/TICKET-001", 0.03, 8000, 1500)
         total = logger.sum_agent_costs()
         assert abs(total - 0.20) < 0.001
+
+
+def test_log_session_start() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_session_start("auth-flow-1", "specs/auth.md")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "SESSION_START" in content
+        assert "session_id=auth-flow-1" in content
+        assert "spec=specs/auth.md" in content
+
+
+def test_log_session_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_session_complete("auth-flow-1", "merged")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "SESSION_COMPLETE" in content
+        assert "session_id=auth-flow-1" in content
+        assert "status=merged" in content
+
+
+def test_log_merge_queued() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_merge_queued("auth-flow-1")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "MERGE_QUEUED" in content
+        assert "session_id=auth-flow-1" in content
+
+
+def test_log_pr_created() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_pr_created("auth-flow-1", 42)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "PR_CREATED" in content
+        assert "session_id=auth-flow-1" in content
+        assert "pr=42" in content
+
+
+def test_log_pr_merged() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_pr_merged("auth-flow-1", 42)
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "PR_MERGED" in content
+        assert "pr=42" in content
+
+
+def test_log_rebase_start() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_rebase_start("auth-flow-1", "main")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "REBASE_START" in content
+        assert "onto=main" in content
+
+
+def test_log_rebase_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_rebase_complete("auth-flow-1")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "REBASE_COMPLETE" in content
+        assert "session_id=auth-flow-1" in content
+
+
+def test_log_rebase_failed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = ProgressLogger(Path(tmpdir))
+        logger.log_rebase_failed("auth-flow-1", "conflict in server.py")
+        content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
+        assert "REBASE_FAILED" in content
+        assert "error=conflict in server.py" in content

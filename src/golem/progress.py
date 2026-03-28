@@ -109,6 +109,32 @@ class ProgressLogger:
     def log_stall_retry(self, role: str) -> None:
         self._write(f"STALL_RETRY role={role} -- restarting with escalated prompt")
 
+    # -- Session lifecycle events --
+
+    def log_session_start(self, session_id: str, spec_path: str) -> None:
+        self._write(f"SESSION_START session_id={session_id} spec={spec_path}")
+
+    def log_session_complete(self, session_id: str, status: str) -> None:
+        self._write(f"SESSION_COMPLETE session_id={session_id} status={status}")
+
+    def log_merge_queued(self, session_id: str) -> None:
+        self._write(f"MERGE_QUEUED session_id={session_id}")
+
+    def log_pr_created(self, session_id: str, pr_number: int) -> None:
+        self._write(f"PR_CREATED session_id={session_id} pr={pr_number}")
+
+    def log_pr_merged(self, session_id: str, pr_number: int) -> None:
+        self._write(f"PR_MERGED session_id={session_id} pr={pr_number}")
+
+    def log_rebase_start(self, session_id: str, onto: str) -> None:
+        self._write(f"REBASE_START session_id={session_id} onto={onto}")
+
+    def log_rebase_complete(self, session_id: str) -> None:
+        self._write(f"REBASE_COMPLETE session_id={session_id}")
+
+    def log_rebase_failed(self, session_id: str, error: str) -> None:
+        self._write(f"REBASE_FAILED session_id={session_id} error={error}")
+
     def sum_agent_costs(self) -> float:
         """Sum all AGENT_COST entries in the progress log."""
         total = 0.0
