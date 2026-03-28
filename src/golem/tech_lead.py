@@ -233,6 +233,9 @@ async def run_tech_lead(
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             _cleanup_golem_worktrees(golem_dir, project_root)
+            from golem.parallel import RateLimitError, _is_rate_limit_error
+            if _is_rate_limit_error(e):
+                raise RateLimitError(str(e)) from e
             raise RuntimeError(f"Tech Lead retry failed: {e}") from None
 
         if retry_result.stalled:
@@ -266,6 +269,9 @@ async def run_tech_lead(
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             _cleanup_golem_worktrees(golem_dir, project_root)
+            from golem.parallel import RateLimitError, _is_rate_limit_error
+            if _is_rate_limit_error(e):
+                raise RateLimitError(str(e)) from e
             raise RuntimeError(f"Tech Lead no-commits retry failed: {e}") from None
 
         if retry_result.stalled:

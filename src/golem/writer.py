@@ -240,6 +240,9 @@ async def spawn_junior_dev(
                 event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
+            from golem.parallel import RateLimitError, _is_rate_limit_error
+            if _is_rate_limit_error(e):
+                raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev retry failed (ticket {ticket.id}): {e}"
             ) from None
@@ -302,6 +305,9 @@ async def spawn_junior_dev(
                 event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
+            from golem.parallel import RateLimitError, _is_rate_limit_error
+            if _is_rate_limit_error(e):
+                raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev no-diff retry failed (ticket {ticket.id}): {e}"
             ) from None

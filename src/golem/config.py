@@ -75,6 +75,12 @@ class GolemConfig:
     merge_ai_fallback: bool = True             # allow AI fallback for hard conflicts
     merge_staging_dir: str = ""               # override staging dir (default: .golem/merge_staging)
 
+    # Parallel executor settings
+    max_concurrency: int = 3            # max simultaneous subagent sessions
+    stagger_delay_s: float = 1.0        # seconds between launches in a batch
+    rate_limit_base_delay_s: float = 30.0   # base for exponential backoff (seconds)
+    subagent_max_steps: int = 100       # step budget per subagent (passed as max_turns)
+
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
         "TRIVIAL": {"planner_model": "claude-haiku-4-5-20251001", "planner_max_turns": 10,
@@ -174,6 +180,16 @@ class GolemConfig:
             all_sources.extend(role_sources)
         if "user" in all_sources:
             warnings.append("'user' in sources — user-level plugins/hooks may interfere with SDK sessions")
+
+        # Parallel executor settings
+        if self.max_concurrency < 1:
+            warnings.append(f"max_concurrency must be >= 1, got {self.max_concurrency}")
+        if self.stagger_delay_s < 0:
+            warnings.append(f"stagger_delay_s must be >= 0, got {self.stagger_delay_s}")
+        if self.rate_limit_base_delay_s < 1:
+            warnings.append(f"rate_limit_base_delay_s must be >= 1, got {self.rate_limit_base_delay_s}")
+        if self.subagent_max_steps < 1:
+            warnings.append(f"subagent_max_steps must be >= 1, got {self.subagent_max_steps}")
 
         return warnings
 

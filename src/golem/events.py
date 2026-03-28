@@ -253,13 +253,49 @@ class ConflictDetected(GolemEvent):
     session_b: str = ""
 
 
+# -- Parallel executor events --
+
+
+@dataclass
+class SubtaskStarted(GolemEvent):
+    """Emitted when a subtask begins execution inside ParallelExecutor."""
+
+    subtask_id: str = ""       # ticket ID or planner sub-agent ID
+
+
+@dataclass
+class SubtaskCompleted(GolemEvent):
+    """Emitted when a subtask finishes successfully inside ParallelExecutor."""
+
+    subtask_id: str = ""
+    duration_s: float = 0.0
+    cost_usd: float = 0.0
+
+
+@dataclass
+class SubtaskFailed(GolemEvent):
+    """Emitted when a subtask fails (any exception) inside ParallelExecutor."""
+
+    subtask_id: str = ""
+    error: str = ""
+    rate_limited: bool = False
+
+
+@dataclass
+class SubtaskBatchRateLimited(GolemEvent):
+    """Emitted before ParallelExecutor sleeps for exponential backoff after a rate-limited batch."""
+
+    backoff_s: float = 0.0          # how long we will wait before the next batch
+    rate_limited_count: int = 0     # cumulative count across all batches so far
+
+
 # -- Event type registry --
 
 EVENT_TYPES: dict[str, type[GolemEvent]] = {}
 
 
 def _register_events() -> None:
-    """Populate EVENT_TYPES from all GolemEvent subclasses (25 event types)."""
+    """Populate EVENT_TYPES from all GolemEvent subclasses (29 event types)."""
     for klass in [
         AgentSpawned, AgentText, AgentToolCall, AgentToolResult,
         AgentTurnComplete, AgentComplete, AgentStallWarning, AgentStallKill,
@@ -268,6 +304,7 @@ def _register_events() -> None:
         TicketCreated, TicketUpdated, QAResult, WorktreeCreated, MergeComplete,
         ContextExhausted, SessionContinued,
         SessionStart, SessionComplete, ConflictDetected,
+        SubtaskStarted, SubtaskCompleted, SubtaskFailed, SubtaskBatchRateLimited,
     ]:
         name = klass.__name__
         snake = "".join(f"_{c.lower()}" if c.isupper() else c for c in name).lstrip("_")
