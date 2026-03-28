@@ -242,3 +242,50 @@ async def test_full_context_roundtrip() -> None:
         assert loaded.context.acceptance == ["Tests pass", "Lint clean"]
         assert loaded.context.qa_checks == ["uv run pytest", "ruff check ."]
         assert loaded.context.parallelism_hints == ["tests independent", "lint independent"]
+
+
+@pytest.mark.asyncio
+async def test_ticket_session_id_roundtrip(tmp_path: Path) -> None:
+    """session_id persists through create/read cycle."""
+    store = TicketStore(tmp_path / "tickets")
+    (tmp_path / "tickets").mkdir(parents=True, exist_ok=True)
+    ticket = Ticket(
+        id="",
+        type="task",
+        title="Test",
+        status="pending",
+        priority="high",
+        created_by="test",
+        assigned_to="writer",
+        context=TicketContext(),
+        session_id="auth-flow-1",
+    )
+    ticket_id = await store.create(ticket)
+    loaded = await store.read(ticket_id)
+    assert loaded.session_id == "auth-flow-1"
+
+
+@pytest.mark.asyncio
+async def test_ticket_without_session_id_loads_default(tmp_path: Path) -> None:
+    """Legacy tickets without session_id field load with empty default."""
+    tickets_dir = tmp_path / "tickets"
+    tickets_dir.mkdir(parents=True, exist_ok=True)
+    import json
+    data = {
+        "id": "TICKET-001",
+        "type": "task",
+        "title": "Legacy",
+        "status": "pending",
+        "priority": "medium",
+        "created_by": "planner",
+        "assigned_to": "writer",
+        "context": {"plan_file": "", "files": {}, "references": [], "blueprint": "",
+                     "acceptance": [], "qa_checks": [], "parallelism_hints": []},
+        "history": [],
+    }
+    (tickets_dir / "TICKET-001.json").write_text(
+        json.dumps(data, indent=2), encoding="utf-8"
+    )
+    store = TicketStore(tickets_dir)
+    loaded = await store.read("TICKET-001")
+    assert loaded.session_id == ""

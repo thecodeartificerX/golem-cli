@@ -384,3 +384,38 @@ def test_resolve_plugins_for_role_reads_project(tmp_path: Path) -> None:
     proj, usr = resolve_plugins_for_role(config, "writer", tmp_path)
     assert "frontend-design@official" in proj
     assert "disabled@x" not in proj
+
+
+def test_session_id_default() -> None:
+    """GolemConfig.session_id defaults to empty string."""
+    config = GolemConfig()
+    assert config.session_id == ""
+
+
+def test_branch_prefix_default() -> None:
+    """GolemConfig.branch_prefix defaults to 'golem'."""
+    config = GolemConfig()
+    assert config.branch_prefix == "golem"
+
+
+def test_merge_auto_rebase_default() -> None:
+    """GolemConfig.merge_auto_rebase defaults to True."""
+    config = GolemConfig()
+    assert config.merge_auto_rebase is True
+
+
+def test_archive_delay_minutes_default() -> None:
+    """GolemConfig.archive_delay_minutes defaults to 30."""
+    config = GolemConfig()
+    assert config.archive_delay_minutes == 30
+
+
+def test_session_fields_roundtrip() -> None:
+    """Session-related config fields survive save/load cycle."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config = GolemConfig(session_id="auth-flow-1", branch_prefix="golem/auth-flow-1")
+        save_config(config, golem_dir)
+        loaded = load_config(golem_dir)
+        assert loaded.session_id == "auth-flow-1"
+        assert loaded.branch_prefix == "golem/auth-flow-1"

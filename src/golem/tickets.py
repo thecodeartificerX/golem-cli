@@ -38,6 +38,7 @@ class Ticket:
     assigned_to: str
     context: TicketContext
     history: list[TicketEvent] = field(default_factory=list)
+    session_id: str = ""
 
 
 def _ticket_to_dict(ticket: Ticket) -> dict:
@@ -76,6 +77,7 @@ def _ticket_from_dict(data: dict) -> Ticket:
         assigned_to=data["assigned_to"],
         context=context,
         history=history,
+        session_id=data.get("session_id", ""),
     )
 
 
