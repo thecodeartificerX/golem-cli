@@ -82,7 +82,7 @@ async def _run_planner_session(
         env=sdk_env(),
     )
 
-    stall_cfg = stall_config_for_role("planner", config.planner_max_turns)
+    stall_cfg = stall_config_for_role("planner", config.planner_max_turns, skip_research=config.skip_research)
 
     def on_text(text: str) -> None:
         preview = text[:120].replace("\n", " ")
@@ -149,6 +149,15 @@ async def run_planner(
     original_prompt = original_prompt.replace("{golem_dir}", str(golem_dir))
     infra_checks_str = "\n".join(f"- `{c}`" for c in config.infrastructure_checks) if config.infrastructure_checks else "(none detected)"
     original_prompt = original_prompt.replace("{infrastructure_checks}", infra_checks_str)
+    if config.skip_research:
+        skip_msg = (
+            "RESEARCH SUB-AGENTS DISABLED for this tier. "
+            "Do NOT spawn Explorer or Researcher sub-agents. "
+            "Read the codebase directly with your own tools and produce the plan in one pass."
+        )
+    else:
+        skip_msg = ""
+    original_prompt = original_prompt.replace("{skip_research_instruction}", skip_msg)
 
     progress = ProgressLogger(golem_dir)
     session_result: ContinuationResult | None = None
@@ -173,7 +182,7 @@ async def run_planner(
     if session_result is None:
         raise RuntimeError("Planner session produced no result")
 
-    stall_cfg = stall_config_for_role("planner", config.planner_max_turns)
+    stall_cfg = stall_config_for_role("planner", config.planner_max_turns, skip_research=config.skip_research)
 
     # Handle stall: retry with escalated prompt
     if session_result.stalled:

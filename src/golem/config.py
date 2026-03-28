@@ -81,24 +81,75 @@ class GolemConfig:
     rate_limit_base_delay_s: float = 30.0   # base for exponential backoff (seconds)
     subagent_max_steps: int = 100       # step budget per subagent (passed as max_turns)
 
+    # Per-run QA depth: "minimal" | "standard" | "strict"
+    qa_depth: str = "standard"
+    # Maximum rework cycles a Junior Dev can be sent back for (per ticket)
+    max_writer_retries: int = 3
+    # Skip Explorer+Researcher sub-agent spawning inside the planner
+    skip_research: bool = False
+    # Run a self-critique pass after planning (planner re-reads own plan)
+    self_critique_enabled: bool = False
+    # Maximum parallel Junior Dev sessions per dispatch group
+    max_parallel_writers: int = 3
+
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
-        "TRIVIAL": {"planner_model": "claude-haiku-4-5-20251001", "planner_max_turns": 10,
-                    "tech_lead_model": "", "tech_lead_max_turns": 0,
-                    "worker_model": "claude-sonnet-4-6", "worker_max_turns": 20,
-                    "skip_tech_lead": True},
-        "SIMPLE": {"planner_model": "claude-sonnet-4-6", "planner_max_turns": 20,
-                   "tech_lead_model": "claude-sonnet-4-6", "tech_lead_max_turns": 30,
-                   "worker_model": "claude-sonnet-4-6", "worker_max_turns": 30,
-                   "skip_tech_lead": False},
-        "STANDARD": {"planner_model": "claude-opus-4-6", "planner_max_turns": 50,
-                     "tech_lead_model": "claude-opus-4-6", "tech_lead_max_turns": 100,
-                     "worker_model": "claude-opus-4-6", "worker_max_turns": 50,
-                     "skip_tech_lead": False},
-        "CRITICAL": {"planner_model": "claude-opus-4-6", "planner_max_turns": 80,
-                     "tech_lead_model": "claude-opus-4-6", "tech_lead_max_turns": 150,
-                     "worker_model": "claude-opus-4-6", "worker_max_turns": 80,
-                     "skip_tech_lead": False},
+        "TRIVIAL": {
+            "planner_model": "claude-haiku-4-5-20251001",
+            "planner_max_turns": 10,
+            "tech_lead_model": "",
+            "tech_lead_max_turns": 0,
+            "worker_model": "claude-sonnet-4-6",
+            "worker_max_turns": 20,
+            "skip_tech_lead": True,
+            "skip_research": True,
+            "max_writer_retries": 1,
+            "qa_depth": "minimal",
+            "self_critique_enabled": False,
+            "max_parallel_writers": 1,
+        },
+        "SIMPLE": {
+            "planner_model": "claude-sonnet-4-6",
+            "planner_max_turns": 20,
+            "tech_lead_model": "claude-sonnet-4-6",
+            "tech_lead_max_turns": 30,
+            "worker_model": "claude-sonnet-4-6",
+            "worker_max_turns": 30,
+            "skip_tech_lead": False,
+            "skip_research": True,
+            "max_writer_retries": 2,
+            "qa_depth": "standard",
+            "self_critique_enabled": False,
+            "max_parallel_writers": 2,
+        },
+        "STANDARD": {
+            "planner_model": "claude-opus-4-6",
+            "planner_max_turns": 50,
+            "tech_lead_model": "claude-opus-4-6",
+            "tech_lead_max_turns": 100,
+            "worker_model": "claude-opus-4-6",
+            "worker_max_turns": 50,
+            "skip_tech_lead": False,
+            "skip_research": False,
+            "max_writer_retries": 3,
+            "qa_depth": "standard",
+            "self_critique_enabled": False,
+            "max_parallel_writers": 3,
+        },
+        "CRITICAL": {
+            "planner_model": "claude-opus-4-6",
+            "planner_max_turns": 80,
+            "tech_lead_model": "claude-opus-4-6",
+            "tech_lead_max_turns": 150,
+            "worker_model": "claude-opus-4-6",
+            "worker_max_turns": 80,
+            "skip_tech_lead": False,
+            "skip_research": False,
+            "max_writer_retries": 5,
+            "qa_depth": "strict",
+            "self_critique_enabled": True,
+            "max_parallel_writers": 2,
+        },
     })
 
     def apply_complexity_profile(self, complexity: str) -> None:
@@ -113,6 +164,12 @@ class GolemConfig:
         self.worker_model = profile_dict.get("worker_model", self.worker_model)
         self.max_worker_turns = profile_dict.get("worker_max_turns", self.max_worker_turns)
         self.skip_tech_lead = profile_dict.get("skip_tech_lead", False)
+        # New tier-gating fields
+        self.skip_research = profile_dict.get("skip_research", self.skip_research)
+        self.max_writer_retries = profile_dict.get("max_writer_retries", self.max_writer_retries)
+        self.qa_depth = profile_dict.get("qa_depth", self.qa_depth)
+        self.self_critique_enabled = profile_dict.get("self_critique_enabled", self.self_critique_enabled)
+        self.max_parallel_writers = profile_dict.get("max_parallel_writers", self.max_parallel_writers)
 
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""
@@ -180,6 +237,14 @@ class GolemConfig:
             all_sources.extend(role_sources)
         if "user" in all_sources:
             warnings.append("'user' in sources — user-level plugins/hooks may interfere with SDK sessions")
+
+        # New tier-gating field validation
+        if self.qa_depth not in {"minimal", "standard", "strict"}:
+            warnings.append(f"qa_depth must be 'minimal', 'standard', or 'strict', got {self.qa_depth!r}")
+        if self.max_writer_retries < 1:
+            warnings.append(f"max_writer_retries must be >= 1, got {self.max_writer_retries}")
+        if self.max_parallel_writers < 1:
+            warnings.append(f"max_parallel_writers must be >= 1, got {self.max_parallel_writers}")
 
         # Parallel executor settings
         if self.max_concurrency < 1:

@@ -263,6 +263,105 @@ def test_golem_config_new_field_defaults() -> None:
     assert config.extra_mcp_servers == {}
 
 
+# ---------------------------------------------------------------------------
+# Spec 07: apply_complexity_profile new fields
+# ---------------------------------------------------------------------------
+
+
+def test_apply_complexity_profile_sets_skip_research_trivial_simple() -> None:
+    """TRIVIAL and SIMPLE profiles set skip_research=True."""
+    for tier in ("TRIVIAL", "SIMPLE"):
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.skip_research is True, f"{tier} should set skip_research=True"
+
+
+def test_apply_complexity_profile_sets_skip_research_standard_critical() -> None:
+    """STANDARD and CRITICAL profiles set skip_research=False."""
+    for tier in ("STANDARD", "CRITICAL"):
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.skip_research is False, f"{tier} should set skip_research=False"
+
+
+def test_apply_complexity_profile_sets_max_writer_retries_all_tiers() -> None:
+    """Each tier sets max_writer_retries to the expected value."""
+    expected = {"TRIVIAL": 1, "SIMPLE": 2, "STANDARD": 3, "CRITICAL": 5}
+    for tier, retries in expected.items():
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.max_writer_retries == retries, f"{tier}: expected {retries}, got {config.max_writer_retries}"
+
+
+def test_apply_complexity_profile_sets_qa_depth() -> None:
+    """TRIVIAL -> minimal, SIMPLE/STANDARD -> standard, CRITICAL -> strict."""
+    expected = {"TRIVIAL": "minimal", "SIMPLE": "standard", "STANDARD": "standard", "CRITICAL": "strict"}
+    for tier, depth in expected.items():
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.qa_depth == depth, f"{tier}: expected qa_depth={depth!r}, got {config.qa_depth!r}"
+
+
+def test_apply_complexity_profile_sets_self_critique_enabled() -> None:
+    """Only CRITICAL enables self_critique_enabled."""
+    for tier in ("TRIVIAL", "SIMPLE", "STANDARD"):
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.self_critique_enabled is False, f"{tier} should not enable self_critique"
+
+    config = GolemConfig()
+    config.apply_complexity_profile("CRITICAL")
+    assert config.self_critique_enabled is True
+
+
+def test_apply_complexity_profile_sets_max_parallel_writers() -> None:
+    """Each tier sets max_parallel_writers to the expected value."""
+    expected = {"TRIVIAL": 1, "SIMPLE": 2, "STANDARD": 3, "CRITICAL": 2}
+    for tier, parallel in expected.items():
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.max_parallel_writers == parallel, f"{tier}: expected {parallel}, got {config.max_parallel_writers}"
+
+
+def test_validate_rejects_unknown_qa_depth() -> None:
+    """qa_depth='turbo' produces a validation warning."""
+    config = GolemConfig(qa_depth="turbo")
+    warnings = config.validate()
+    assert any("qa_depth" in w for w in warnings)
+
+
+def test_validate_rejects_max_writer_retries_less_than_1() -> None:
+    """max_writer_retries=0 produces a validation warning."""
+    config = GolemConfig(max_writer_retries=0)
+    warnings = config.validate()
+    assert any("max_writer_retries" in w for w in warnings)
+
+
+def test_validate_rejects_max_parallel_writers_less_than_1() -> None:
+    """max_parallel_writers=0 produces a validation warning."""
+    config = GolemConfig(max_parallel_writers=0)
+    warnings = config.validate()
+    assert any("max_parallel_writers" in w for w in warnings)
+
+
+def test_new_fields_serialise_round_trip(tmp_path: "Path") -> None:
+    """New tier-gating fields survive a save -> load round-trip."""
+    config = GolemConfig(
+        qa_depth="strict",
+        max_writer_retries=5,
+        skip_research=True,
+        self_critique_enabled=True,
+        max_parallel_writers=2,
+    )
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.qa_depth == "strict"
+    assert loaded.max_writer_retries == 5
+    assert loaded.skip_research is True
+    assert loaded.self_critique_enabled is True
+    assert loaded.max_parallel_writers == 2
+
+
 # --- Roundtrip with new fields ---
 
 

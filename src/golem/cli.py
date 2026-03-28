@@ -13,12 +13,12 @@ from rich.console import Console
 from rich.table import Table
 
 from golem.client import GolemClient, find_server
-from golem.conductor import classify_spec
-from golem.config import load_config, save_config
+from golem.conductor import ClassificationResult, classify_spec
+from golem.config import GolemConfig, load_config, save_config
 from golem.qa import detect_infrastructure_checks
 
 if TYPE_CHECKING:
-    from golem.config import GolemConfig
+    from golem.events import EventBus
 from golem.planner import run_planner
 from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
@@ -197,6 +197,56 @@ def _require_server(project_root: Path) -> GolemClient | None:
     return GolemClient(host, port)
 
 
+def _build_critique_prompt(golem_dir: Path) -> str:
+    """Build the self-critique prompt by reading the generated plan files."""
+    plans_dir = golem_dir / "plans"
+    parts: list[str] = []
+
+    overview_path = plans_dir / "overview.md"
+    if overview_path.exists():
+        parts.append(f"## plans/overview.md\n\n{overview_path.read_text(encoding='utf-8')}")
+
+    for task_file in sorted(plans_dir.glob("task-*.md")):
+        parts.append(f"## {task_file.name}\n\n{task_file.read_text(encoding='utf-8')}")
+
+    plan_text = "\n\n---\n\n".join(parts) if parts else "(no plan files found)"
+
+    return (
+        "You are a senior technical reviewer. Read the following implementation plan carefully.\n\n"
+        "Identify and document:\n"
+        "1. Missing edge cases not covered by the acceptance criteria\n"
+        "2. Under-specified acceptance criteria (too vague to verify)\n"
+        "3. Security considerations that should be addressed\n"
+        "4. Ordering risks — tasks that depend on each other but are not sequenced correctly\n\n"
+        "Write your findings to `"
+        + str(golem_dir / "plans" / "critique.md")
+        + "` using the Write tool. Be concise and actionable.\n\n"
+        "## Plan Files\n\n"
+        + plan_text
+    )
+
+
+async def _run_self_critique(
+    golem_dir: Path,
+    config: GolemConfig,
+    project_root: Path,
+    event_bus: EventBus | None = None,
+) -> None:
+    """Spawn a short planner-model session to critique the generated plan.
+
+    Reads plans/overview.md and all task-*.md files. Writes critique findings
+    back to plans/critique.md. The Tech Lead prompt includes plans/critique.md
+    if it exists. Advisory only — non-fatal if fails.
+    """
+    from golem.planner import _run_planner_session  # reuse session machinery
+
+    critique_prompt = _build_critique_prompt(golem_dir)
+    result = await _run_planner_session(critique_prompt, golem_dir, config, project_root, event_bus=event_bus)
+    critique_path = golem_dir / "plans" / "critique.md"
+    if not critique_path.exists() and result.result_text:
+        critique_path.write_text(result.result_text, encoding="utf-8")
+
+
 async def _stream_to_console(client: GolemClient, session_id: str) -> None:
     """Stream SSE events from server to console."""
     import httpx as _httpx
@@ -238,6 +288,7 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
     no_classify: bool = typer.Option(False, "--no-classify", help="Skip complexity classification, run STANDARD pipeline"),
+    tier: str = typer.Option("", "--tier", help="Override complexity tier: TRIVIAL|SIMPLE|STANDARD|CRITICAL"),
     session_id: str = typer.Option("", "--session-id", help="Session ID for multi-spec execution"),
     golem_dir_override: str = typer.Option("", "--golem-dir", help="Override .golem directory path"),
     no_server: bool = typer.Option(False, "--no-server", help="Run directly without server (current behavior)"),
@@ -314,13 +365,17 @@ def run(
         config.conductor_enabled = False
 
     # Default classification (used when conductor_enabled is False)
-    from golem.conductor import ClassificationResult
     classification = ClassificationResult("STANDARD", "conductor disabled", 1.0)
 
-    if config.conductor_enabled and not force:
+    if tier:
+        if tier not in ("TRIVIAL", "SIMPLE", "STANDARD", "CRITICAL"):
+            console.print(f"[red]Unknown tier: {tier}. Must be TRIVIAL, SIMPLE, STANDARD, or CRITICAL.[/red]")
+            raise typer.Exit(1)
+        classification = ClassificationResult(tier, "CLI override", 1.0)
+        config.apply_complexity_profile(tier)
+    elif config.conductor_enabled and not force:
         spec_text = spec.read_text(encoding="utf-8")
         classification = classify_spec(spec_text, "")
-        console.print(f"  Complexity: [bold]{classification.complexity}[/bold] ({classification.reasoning})")
         config.apply_complexity_profile(classification.complexity)
 
     save_config(config, golem_dir)
@@ -328,6 +383,13 @@ def run(
     progress = ProgressLogger(golem_dir)
     t0 = time.monotonic()
 
+    console.print(
+        f"  Complexity: [bold]{classification.complexity}[/bold] "
+        f"({classification.reasoning}) "
+        f"research={'off' if config.skip_research else 'on'} "
+        f"qa={config.qa_depth} "
+        f"retries={config.max_writer_retries}"
+    )
     console.print(f"  Spec:    {spec.resolve()}")
     console.print(f"  Project: {spec_project_root}")
     console.print(f"  Models:  planner={config.planner_model}, tech_lead={config.tech_lead_model}, worker={config.worker_model}")
@@ -363,6 +425,13 @@ def run(
         if dry_run:
             console.print("[bold yellow]--dry-run: Lead Architect done. Skipping Tech Lead.[/bold yellow]")
             return
+
+        if config.self_critique_enabled:
+            console.print("  Self-critique: reviewing plan for CRITICAL tier...")
+            try:
+                await _run_self_critique(golem_dir, config, project_root, event_bus=event_bus)
+            except Exception as critique_err:
+                console.print(f"  [dim]Self-critique failed (non-fatal): {critique_err}[/dim]")
 
         # Check if Tech Lead should be skipped (TRIVIAL complexity)
         if config.skip_tech_lead:

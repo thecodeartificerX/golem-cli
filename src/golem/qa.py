@@ -124,12 +124,23 @@ def _build_result(checks: list[QACheck], stage: str) -> QAResult:
     )
 
 
-def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[str] | None = None) -> QAResult:
-    """Run infrastructure checks first (fast gate), then spec checks. Returns structured QAResult."""
+def run_qa(
+    worktree_path: str,
+    checks: list[str],
+    infrastructure_checks: list[str] | None = None,
+    qa_depth: str = "standard",
+) -> QAResult:
+    """Run infrastructure checks first (fast gate), then spec checks. Returns structured QAResult.
+
+    qa_depth controls how much of the pipeline runs:
+    - "minimal": infrastructure checks only (no spec validation commands)
+    - "standard": infrastructure checks + spec validation commands (default)
+    - "strict": infrastructure checks + spec validation + re-review loop (up to 3 cycles)
+    """
     all_checks: list[QACheck] = []
     infra = infrastructure_checks or []
 
-    # Phase 1: Infrastructure checks (fast gate)
+    # Phase 1: Infrastructure checks (always-on gate)
     for cmd in infra:
         check = _run_single_check(cmd, worktree_path)
         all_checks.append(check)
@@ -138,10 +149,30 @@ def run_qa(worktree_path: str, checks: list[str], infrastructure_checks: list[st
     if infra_failed:
         return _build_result(all_checks, stage="infrastructure_failed")
 
+    # minimal: stop after infra checks — no spec validation
+    if qa_depth == "minimal":
+        return _build_result(all_checks, stage="complete")
+
     # Phase 2: Spec checks (only if infra passed)
     for cmd in checks:
         check = _run_single_check(cmd, worktree_path)
         all_checks.append(check)
+
+    if qa_depth != "strict":
+        return _build_result(all_checks, stage="complete")
+
+    # strict: re-review loop — re-run up to 3 cycles if spec validation fails
+    _MAX_STRICT_CYCLES = 3
+    for _cycle in range(_MAX_STRICT_CYCLES - 1):
+        result = _build_result(all_checks, stage="complete")
+        if result.passed:
+            return result
+        # Re-run spec checks only (not infra again)
+        all_checks_recheck: list[QACheck] = list(all_checks[:len(infra)])
+        for cmd in checks:
+            check = _run_single_check(cmd, worktree_path)
+            all_checks_recheck.append(check)
+        all_checks = all_checks_recheck
 
     return _build_result(all_checks, stage="complete")
 

@@ -71,6 +71,8 @@ need 6 sub-agents. A new auth system does.
 
 ## Sub-Agent Delegation Mechanic
 
+{skip_research_instruction}
+
 When dispatching sub-agents: run multiple Agent tool invocations in a
 SINGLE message to ensure parallel execution. Sequential spawning is
 wasteful — the whole point is parallelism.

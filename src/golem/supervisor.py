@@ -123,19 +123,25 @@ class StallConfig:
         return int(self.max_turns * self.kill_pct)
 
 
-def stall_config_for_role(role: str, max_turns: int) -> StallConfig:
+def stall_config_for_role(role: str, max_turns: int, skip_research: bool = False) -> StallConfig:
     """Return role-specific StallConfig with default thresholds.
 
     Roles:
     - planner: warning at 60%, kill at 80%, expected create_ticket
     - tech_lead: warning at 30%, kill at 50%, expected create_worktree/create_ticket
     - junior_dev (or any other): warning at 30%, kill at 50%, no expected MCP actions
+
+    When skip_research=True for the planner role, the expected action count is lower
+    because sub-agent tool calls won't appear.
     """
     if role == "planner":
+        expected: list[str] = ["create_ticket"]
+        if not skip_research:
+            expected = ["spawn explorer", "spawn researcher"] + expected
         return StallConfig(
             warning_pct=0.6,
             kill_pct=0.8,
-            expected_actions=["create_ticket"],
+            expected_actions=expected,
             role=role,
             max_turns=max_turns,
         )

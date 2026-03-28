@@ -27,12 +27,51 @@ _CRITICAL_KEYWORDS = {
 # File count patterns
 _FILE_MENTION_PATTERN = re.compile(r"(?:modify|create|edit|update|change|add to|delete)\s+[`'\"]?[\w/.-]+\.[a-z]+", re.I)
 
+# ---------------------------------------------------------------------------
+# Heuristic fast-path (mirrors Aperant's assessComplexityHeuristic)
+# ---------------------------------------------------------------------------
+
+_FAST_PATH_PATTERNS = (
+    re.compile(
+        r"\b(change|rename|update|replace|swap|switch)\b.*\b"
+        r"(color|colour|name|text|label|title|string|value|icon|logo)\b",
+        re.I,
+    ),
+    re.compile(r"\b(fix|correct)\b.*\b(typo|spelling|grammar)\b", re.I),
+    re.compile(r"\b(bump|update)\b.*\b(version|dependency|dep)\b", re.I),
+    re.compile(r"\b(remove|delete)\b.*\b(unused|dead|deprecated)\b", re.I),
+)
+
+_FAST_PATH_WORD_LIMIT = 30
+
+
+def _heuristic_fast_path(spec_text: str) -> ClassificationResult | None:
+    """Return TRIVIAL without scoring if spec is obviously trivial.
+
+    Mirrors Aperant's assessComplexityHeuristic: under 30 words + pattern match.
+    Returns None to signal 'let the scorer decide'.
+    """
+    desc = spec_text.strip().lower()
+    word_count = len(desc.split())
+    if word_count > _FAST_PATH_WORD_LIMIT:
+        return None
+    if any(p.search(desc) for p in _FAST_PATH_PATTERNS):
+        return ClassificationResult(
+            complexity="TRIVIAL",
+            reasoning=f"heuristic fast-path: {word_count} words, pattern match",
+            confidence=0.9,
+        )
+    return None
+
 
 def classify_spec(spec_text: str, project_context: str = "") -> ClassificationResult:
     """Classify spec complexity using heuristics.
 
     Returns a ClassificationResult with the complexity level, reasoning, and confidence.
     """
+    fast = _heuristic_fast_path(spec_text)
+    if fast is not None:
+        return fast
     text = (spec_text + " " + project_context).lower()
     spec_length = len(spec_text)
 

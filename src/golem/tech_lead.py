@@ -156,6 +156,20 @@ async def run_tech_lead(
     original_prompt = template.replace("{golem_dir}", str(golem_dir))
     original_prompt = original_prompt.replace("{spec_content}", spec_content)
     original_prompt = original_prompt.replace("{project_root}", str(project_root))
+    original_prompt = original_prompt.replace("{max_writer_retries}", str(config.max_writer_retries))
+    original_prompt = original_prompt.replace("{qa_depth}", config.qa_depth)
+    original_prompt = original_prompt.replace("{max_parallel_writers}", str(config.max_parallel_writers))
+    critique_path = golem_dir / "plans" / "critique.md"
+    critique_content = ""
+    if critique_path.exists():
+        raw_critique = critique_path.read_text(encoding="utf-8")[:3000]
+        critique_content = (
+            "## Self-Critique Review\n\n"
+            "A self-critique review has flagged the following concerns. "
+            "Address each one as you dispatch writers:\n\n"
+            + raw_critique
+        )
+    original_prompt = original_prompt.replace("{critique_content}", critique_content)
 
     # SSE MCP disabled — see planner.py comment for rationale
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root, event_bus=event_bus)

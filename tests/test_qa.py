@@ -272,3 +272,79 @@ def test_detect_infrastructure_checks_consolidated(tmp_path: Path) -> None:
     (tmp_path / "Cargo.toml").write_text('[package]\nname = "test"\n', encoding="utf-8")
     checks = detect_infrastructure_checks(tmp_path)
     assert "cargo test" in checks
+
+
+# ---------------------------------------------------------------------------
+# Spec 07: qa_depth parameter tests
+# ---------------------------------------------------------------------------
+
+
+def test_qa_depth_minimal_skips_spec_validation() -> None:
+    """qa_depth='minimal' returns after infra checks without running any spec checks."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # infra check passes, but spec check would fail if it ran
+        result = run_qa(tmpdir, ["exit 1"], infrastructure_checks=["exit 0"], qa_depth="minimal")
+        # Only infra check should appear
+        assert len(result.checks) == 1
+        assert result.checks[0].tool == "exit 0"
+        assert result.passed is True
+
+
+def test_qa_depth_minimal_with_no_infra_checks() -> None:
+    """qa_depth='minimal' with no infra checks returns immediately with no checks run."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 1"], infrastructure_checks=[], qa_depth="minimal")
+        assert len(result.checks) == 0
+        assert result.passed is True
+
+
+def test_qa_depth_standard_runs_both_phases() -> None:
+    """qa_depth='standard' runs infra checks + spec checks (no loop)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0"], infrastructure_checks=["exit 0"], qa_depth="standard")
+        assert len(result.checks) == 2
+        assert result.passed is True
+
+
+def test_qa_depth_standard_no_loop_on_failure() -> None:
+    """qa_depth='standard' with failing spec check does NOT loop — returns single result."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 1"], infrastructure_checks=["exit 0"], qa_depth="standard")
+        # infra check + one spec check = 2 total (no repeat)
+        assert len(result.checks) == 2
+        assert result.passed is False
+
+
+def test_qa_depth_strict_runs_recheck_loop_on_failure() -> None:
+    """qa_depth='strict' with failing spec check re-runs spec checks up to the loop limit."""
+    call_counts: list[int] = [0]
+
+    original_run_single = _run_single_check_real = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Track how many times the spec check command runs
+        spec_check_calls: list[str] = []
+
+        with patch("golem.qa._run_single_check") as mock_check:
+            # infra check always passes, spec check always fails
+            def side_effect(cmd: str, path: str) -> object:
+                from golem.qa import QACheck
+                spec_check_calls.append(cmd)
+                if cmd == "exit 0":
+                    return QACheck(type="lint", tool=cmd, passed=True, stdout="", stderr="")
+                return QACheck(type="acceptance", tool=cmd, passed=False, stdout="", stderr="failed")
+
+            mock_check.side_effect = side_effect
+            result = run_qa(tmpdir, ["exit 1"], infrastructure_checks=["exit 0"], qa_depth="strict")
+
+        # spec check should run more than once (initial + loop iterations)
+        spec_check_runs = spec_check_calls.count("exit 1")
+        assert spec_check_runs > 1, f"Expected >1 spec check runs in strict mode, got {spec_check_runs}"
+        assert result.passed is False
+
+
+def test_qa_depth_strict_exits_early_when_passing() -> None:
+    """qa_depth='strict' exits the loop early when all checks pass."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0"], infrastructure_checks=["exit 0"], qa_depth="strict")
+        assert result.passed is True

@@ -101,6 +101,11 @@ _RUN_QA_INPUT_SCHEMA: dict[str, object] = {
             "items": {"type": "string"},
             "description": "Infrastructure checks (run first)",
         },
+        "qa_depth": {
+            "type": "string",
+            "description": "QA depth: minimal (infra only) | standard (infra+spec) | strict (infra+spec+recheck loop)",
+            "default": "standard",
+        },
     },
     "required": ["worktree_path", "checks"],
 }
@@ -336,10 +341,12 @@ async def _handle_run_qa(
     try:
         checks_raw = args.get("checks") or []
         infra_raw = args.get("infrastructure_checks") or []
+        qa_depth_raw = args.get("qa_depth") or "standard"
         result = run_qa(
             worktree_path=str(args["worktree_path"]),
             checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
             infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
+            qa_depth=str(qa_depth_raw),
         )
     except Exception as e:
         # Safety net: always return valid QAResult JSON — never let an exception

@@ -109,6 +109,21 @@ operator has context you do not have.
 
 ---
 
+## Tier Configuration
+
+The following per-tier limits apply to this run:
+
+- **Max writer retries:** {max_writer_retries} — do not send a ticket back for rework more than
+  {max_writer_retries} times. If it still fails after that, mark it `failed` and continue.
+- **QA depth:** {qa_depth} — pass this value as the `qa_depth` argument when calling
+  `mcp__golem__run_qa` (minimal=infra only, standard=infra+spec, strict=infra+spec+recheck loop).
+- **Max parallel writers:** {max_parallel_writers} — dispatch at most {max_parallel_writers} Junior Dev
+  sessions simultaneously per group.
+
+{critique_content}
+
+---
+
 ## Junior Dev Dispatch
 
 Dispatch Junior Devs by running multiple Agent tool invocations in a

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -285,3 +286,99 @@ def test_planner_result_dataclass() -> None:
     assert r.cache_read_tokens == 0
     assert r.num_turns == 0
     assert r.duration_ms == 0
+
+
+# ---------------------------------------------------------------------------
+# Spec 07: skip_research_instruction injection
+# ---------------------------------------------------------------------------
+
+
+def test_skip_research_instruction_injected_when_true(tmp_path: "Path") -> None:
+    """When skip_research=True, the planner prompt contains the skip instruction."""
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Test Spec\n\nBuild something.\n", encoding="utf-8")
+    golem_dir = tmp_path / ".golem"
+
+    config = GolemConfig(skip_research=True)
+    captured_prompts: list[str] = []
+
+    async def _capturing_query(*args, **kwargs):
+        prompt = kwargs.get("prompt") or (args[0] if args else "")
+        captured_prompts.append(prompt)
+        import re
+        match = re.search(r"\*\*Golem Directory:\*\*\s+`([^`]+)`", prompt)
+        if match:
+            gd = Path(match.group(1))
+            (gd / "plans").mkdir(parents=True, exist_ok=True)
+            (gd / "plans" / "overview.md").write_text(
+                "# Overview\n\n## Blueprint\nTest.\n\nMore details here.\n", encoding="utf-8"
+            )
+            (gd / "plans" / "task-001.md").write_text("# Task 001\n\nDo the thing.\n", encoding="utf-8")
+            from golem.tickets import Ticket, TicketContext, TicketStore
+            store = TicketStore(gd / "tickets")
+            await store.create(Ticket(
+                id="", type="task", title="TL", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=str(gd / "plans" / "overview.md")),
+            ))
+        return
+        yield
+
+    with patch("golem.supervisor.query", side_effect=_capturing_query):
+        asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
+
+    assert len(captured_prompts) >= 1
+    assert "RESEARCH SUB-AGENTS DISABLED" in captured_prompts[0]
+
+
+def test_skip_research_instruction_absent_when_false(tmp_path: "Path") -> None:
+    """When skip_research=False, the skip instruction is not injected."""
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Test Spec\n\nBuild something.\n", encoding="utf-8")
+    golem_dir = tmp_path / ".golem"
+
+    config = GolemConfig(skip_research=False)
+    captured_prompts: list[str] = []
+
+    async def _capturing_query(*args, **kwargs):
+        prompt = kwargs.get("prompt") or (args[0] if args else "")
+        captured_prompts.append(prompt)
+        import re
+        match = re.search(r"\*\*Golem Directory:\*\*\s+`([^`]+)`", prompt)
+        if match:
+            gd = Path(match.group(1))
+            (gd / "plans").mkdir(parents=True, exist_ok=True)
+            (gd / "plans" / "overview.md").write_text(
+                "# Overview\n\n## Blueprint\nTest.\n\nMore details here.\n", encoding="utf-8"
+            )
+            (gd / "plans" / "task-001.md").write_text("# Task 001\n\nDo the thing.\n", encoding="utf-8")
+            from golem.tickets import Ticket, TicketContext, TicketStore
+            store = TicketStore(gd / "tickets")
+            await store.create(Ticket(
+                id="", type="task", title="TL", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=str(gd / "plans" / "overview.md")),
+            ))
+        return
+        yield
+
+    with patch("golem.supervisor.query", side_effect=_capturing_query):
+        asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
+
+    assert len(captured_prompts) >= 1
+    assert "RESEARCH SUB-AGENTS DISABLED" not in captured_prompts[0]
+
+
+def test_stall_config_expected_actions_shorter_with_skip_research() -> None:
+    """stall_config_for_role with skip_research=True returns fewer expected actions."""
+    from golem.supervisor import stall_config_for_role
+
+    with_research = stall_config_for_role("planner", 50, skip_research=False)
+    without_research = stall_config_for_role("planner", 50, skip_research=True)
+
+    assert len(without_research.expected_actions) < len(with_research.expected_actions)
+    # Without research: only create_ticket
+    assert "create_ticket" in without_research.expected_actions
+    # With research: includes spawn explorer and spawn researcher
+    assert any("explorer" in a for a in with_research.expected_actions)
+    assert any("researcher" in a for a in with_research.expected_actions)

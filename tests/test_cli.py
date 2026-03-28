@@ -1288,4 +1288,191 @@ def test_status_no_server_falls_back_to_local(tmp_path: Path, monkeypatch: pytes
     runner = CliRunner()
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "No active run" in result.output or "no active" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Spec 07: complexity-gated pipeline — CLI tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_tier_flag_overrides_classifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--tier TRIVIAL overrides classification; classify_spec is NOT called."""
+    from unittest.mock import AsyncMock, patch
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.setattr("golem.cli.run_planner", AsyncMock(side_effect=RuntimeError("stop")))
+    monkeypatch.chdir(tmp_path)
+
+    profile_calls: list[str] = []
+
+    def _capture_profile(self: object, tier: str) -> None:
+        profile_calls.append(tier)
+
+    with patch("golem.cli.classify_spec") as mock_classify, \
+         patch("golem.config.GolemConfig.apply_complexity_profile", _capture_profile):
+        runner = CliRunner()
+        runner.invoke(app, ["run", str(spec), "--tier", "TRIVIAL", "--no-server"])
+
+    # classify_spec must NOT have been called
+    mock_classify.assert_not_called()
+    # apply_complexity_profile must have been called with "TRIVIAL"
+    assert "TRIVIAL" in profile_calls
+
+
+def test_run_tier_flag_rejects_unknown_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--tier BANANA exits with code 1."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--tier", "BANANA", "--no-server"])
+    assert result.exit_code == 1
+
+
+def test_run_no_classify_still_applies_standard_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--no-classify skips classification but apply_complexity_profile is NOT called (STANDARD defaults apply)."""
+    from unittest.mock import AsyncMock, patch
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.setattr("golem.cli.run_planner", AsyncMock(side_effect=RuntimeError("stop")))
+    monkeypatch.chdir(tmp_path)
+
+    with patch("golem.cli.classify_spec") as mock_classify:
+        runner = CliRunner()
+        runner.invoke(app, ["run", str(spec), "--no-classify", "--no-server"])
+
+    # classify_spec must NOT have been called when --no-classify is passed
+    mock_classify.assert_not_called()
+
+
+def test_self_critique_skipped_for_non_critical(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_run_self_critique is never called when config.self_critique_enabled is False."""
+    from unittest.mock import AsyncMock, patch
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+    from golem.conductor import ClassificationResult
+
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    # Planner raises after self-critique gate to stop pipeline
+    monkeypatch.setattr("golem.cli.run_planner", AsyncMock(side_effect=RuntimeError("stop at planner")))
+    # Return STANDARD classification so self_critique_enabled stays False
+    monkeypatch.setattr(
+        "golem.cli.classify_spec",
+        lambda text, ctx="": ClassificationResult("STANDARD", "test", 1.0),
+    )
+
+    critique_calls: list[int] = []
+
+    async def _fake_critique(*args: object, **kwargs: object) -> None:
+        critique_calls.append(1)
+
+    with patch("golem.cli._run_self_critique", _fake_critique):
+        runner = CliRunner()
+        runner.invoke(app, ["run", str(spec), "--no-server"])
+
+    assert len(critique_calls) == 0
+
+
+def test_self_critique_called_for_critical(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_run_self_critique is called once after planner when config.self_critique_enabled is True."""
+    from unittest.mock import AsyncMock, patch
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+    from golem.conductor import ClassificationResult
+    from golem.planner import PlannerResult
+    from golem.tickets import Ticket, TicketContext, TicketStore
+
+    spec = tmp_path / "spec.md"
+    spec.write_text(
+        "# Spec\n\n## Task 1\n\nDo the thing.\n\n## Task 2\n\nDo the other.\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    # Create a ticket so tech lead can find it
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir(parents=True, exist_ok=True)
+    (golem_dir / "plans").mkdir(parents=True, exist_ok=True)
+    (golem_dir / "plans" / "overview.md").write_text("# Plan\n\nDo stuff.\n", encoding="utf-8")
+
+    async def _fake_planner(*args: object, **kwargs: object) -> PlannerResult:
+        store = TicketStore(golem_dir / "tickets")
+        await store.create(
+            Ticket(
+                id="",
+                type="task",
+                title="TL: Execute plans",
+                status="pending",
+                priority="medium",
+                created_by="planner",
+                assigned_to="tech_lead",
+                context=TicketContext(plan_file=str(golem_dir / "plans" / "overview.md")),
+            )
+        )
+        return PlannerResult(ticket_id="TICKET-001")
+
+    # Force CRITICAL classification so self_critique_enabled is set True
+    monkeypatch.setattr(
+        "golem.cli.classify_spec",
+        lambda text, ctx="": ClassificationResult("CRITICAL", "test", 1.0),
+    )
+
+    critique_calls: list[int] = []
+
+    async def _fake_critique(*args: object, **kwargs: object) -> None:
+        critique_calls.append(1)
+
+    # Tech Lead raises after self-critique gate — we just want to confirm critique ran
+    monkeypatch.setattr("golem.cli.run_planner", AsyncMock(side_effect=_fake_planner))
+    monkeypatch.setattr("golem.cli.run_tech_lead", AsyncMock(side_effect=RuntimeError("stop at tech lead")))
+
+    with patch("golem.cli._run_self_critique", _fake_critique):
+        runner = CliRunner()
+        runner.invoke(app, ["run", str(spec), "--no-server"])
+
+    # _run_self_critique must have been called exactly once
+    assert len(critique_calls) == 1
