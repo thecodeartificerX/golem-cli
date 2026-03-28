@@ -533,7 +533,7 @@ def test_run_stale_state_blocks_without_force(tmp_path: Path, monkeypatch: pytes
 
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(app, ["run", str(spec)])
+    result = runner.invoke(app, ["run", str(spec), "--no-server"])
 
     assert result.exit_code != 0
     assert "existing tickets" in result.output.lower() or "previous run" in result.output.lower()
@@ -560,7 +560,7 @@ def test_run_stale_state_force_proceeds(tmp_path: Path, monkeypatch: pytest.Monk
 
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(app, ["run", str(spec), "--force"])
+    result = runner.invoke(app, ["run", str(spec), "--force", "--no-server"])
 
     # Should NOT fail on stale state — should print overwriting message then fail on planner
     assert "overwriting" in result.output.lower()
@@ -1076,3 +1076,216 @@ def test_conflicts_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     runner = CliRunner()
     result = runner.invoke(app, ["conflicts"])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Server routing tests (Spec 2)
+# ---------------------------------------------------------------------------
+
+
+def test_run_no_server_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--no-server bypasses server routing (find_server is not called)."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    server_calls: list[object] = []
+    monkeypatch.setattr("golem.cli.find_server", lambda root: server_calls.append(root) or None)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "/nonexistent/spec.md", "--no-server"])
+    assert result.exit_code != 0
+    # find_server should NOT have been called for --no-server path
+    assert len(server_calls) == 0
+
+
+def test_run_multi_spec_no_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Multiple specs with --no-server uses the first spec for validation."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    server_calls: list[object] = []
+    monkeypatch.setattr("golem.cli.find_server", lambda root: server_calls.append(root) or None)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "/nonexistent/spec1.md", "/nonexistent/spec2.md", "--no-server"])
+    assert result.exit_code != 0
+    assert len(server_calls) == 0
+
+
+def test_pause_no_server_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """pause command prints 'not running' message when no server is available."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["pause", "session-123"])
+    assert result.exit_code == 0
+    assert "not running" in result.output.lower() or "Server not running" in result.output
+
+
+def test_pause_routes_to_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """pause command calls client.pause_session when server is running."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: ("127.0.0.1", 9664))
+    paused: list[str] = []
+
+    class MockGolemClient:
+        def __init__(self, host: str, port: int) -> None:
+            pass
+
+        async def pause_session(self, session_id: str) -> None:
+            paused.append(session_id)
+
+    monkeypatch.setattr("golem.cli.GolemClient", MockGolemClient)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["pause", "session-123"])
+    assert result.exit_code == 0
+    assert "session-123" in paused
+
+
+def test_resume_routes_to_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """resume command with session_id calls client.resume_session."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: ("127.0.0.1", 9664))
+    resumed: list[str] = []
+
+    class MockGolemClient:
+        def __init__(self, host: str, port: int) -> None:
+            pass
+
+        async def resume_session(self, session_id: str) -> None:
+            resumed.append(session_id)
+
+    monkeypatch.setattr("golem.cli.GolemClient", MockGolemClient)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["resume", "session-123"])
+    assert result.exit_code == 0
+    assert "session-123" in resumed
+
+
+def test_kill_routes_to_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """kill command calls client.kill_session when server is running."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: ("127.0.0.1", 9664))
+    killed: list[str] = []
+
+    class MockGolemClient:
+        def __init__(self, host: str, port: int) -> None:
+            pass
+
+        async def kill_session(self, session_id: str) -> None:
+            killed.append(session_id)
+
+    monkeypatch.setattr("golem.cli.GolemClient", MockGolemClient)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["kill", "session-123"])
+    assert result.exit_code == 0
+    assert "session-123" in killed
+
+
+def test_tickets_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tickets command with session_id fetches from server and shows a table."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: ("127.0.0.1", 9664))
+
+    class MockGolemClient:
+        def __init__(self, host: str, port: int) -> None:
+            pass
+
+        async def get_session_tickets(self, session_id: str) -> list[dict[str, object]]:
+            return [{"id": "TICKET-001", "title": "Test task", "status": "done"}]
+
+    monkeypatch.setattr("golem.cli.GolemClient", MockGolemClient)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["tickets", "session-123"])
+    assert result.exit_code == 0
+    assert "TICKET-001" in result.output or "ticket" in result.output.lower()
+
+
+def test_cost_command_no_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cost command without session_id shows local cost from progress.log."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    log = golem_dir / "progress.log"
+    log.write_text(
+        "2026-03-28T10:00:00 AGENT_COST role=planner cost=$0.0250 input_tokens=1000 output_tokens=500 turns=5\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["cost"])
+    assert result.exit_code == 0
+    assert "0.025" in result.output or "cost" in result.output.lower()
+
+
+def test_status_with_session_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """status with session_id calls client.get_session."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: ("127.0.0.1", 9664))
+    sessions_fetched: list[str] = []
+
+    class MockGolemClient:
+        def __init__(self, host: str, port: int) -> None:
+            pass
+
+        async def get_session(self, session_id: str) -> dict[str, object]:
+            sessions_fetched.append(session_id)
+            return {"id": session_id, "status": "running", "spec_path": "/spec.md", "pid": 1234}
+
+    monkeypatch.setattr("golem.cli.GolemClient", MockGolemClient)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["status", "session-abc"])
+    assert result.exit_code == 0
+    assert "session-abc" in sessions_fetched
+    assert "running" in result.output
+
+
+def test_status_no_server_falls_back_to_local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """status without session_id and no server shows local ticket table."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "No active run" in result.output or "no active" in result.output.lower()
