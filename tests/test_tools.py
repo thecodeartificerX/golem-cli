@@ -418,3 +418,121 @@ async def test_tool_call_records_to_registry() -> None:
 
         assert registry.has_called("create_ticket")
         assert registry.action_call_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_emits_event(tmp_path: Path) -> None:
+    """create_golem_mcp_server accepts event_bus parameter."""
+    import asyncio
+
+    from golem.events import EventBus, QueueBackend
+
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+    config = GolemConfig()
+
+    server = create_golem_mcp_server(golem_dir, config, tmp_path, event_bus=bus)
+    assert server is not None
+
+
+@pytest.mark.asyncio
+async def test_no_events_without_bus(tmp_path: Path) -> None:
+    """MCP server works without event_bus (backward compat)."""
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    server = create_golem_mcp_server(golem_dir, config, tmp_path)
+    assert server is not None
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_handler_emits_ticket_created_event(tmp_path: Path) -> None:
+    """create_ticket tool handler emits TicketCreated event when event_bus is set."""
+    import asyncio
+
+    from golem.events import EventBus, QueueBackend, TicketCreated
+
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+
+    tools = get_tech_lead_tools(golem_dir, config, tmp_path, event_bus=bus)
+    create_ticket_tool = next(t for t in tools if t.name == "create_ticket")
+
+    await create_ticket_tool.handler({
+        "type": "task",
+        "title": "Event emission test",
+        "assigned_to": "writer",
+    })
+
+    assert not queue.empty()
+    event = queue.get_nowait()
+    assert isinstance(event, TicketCreated)
+    assert event.title == "Event emission test"
+    assert event.assignee == "writer"
+    assert event.ticket_id.startswith("TICKET-")
+    assert event.session_id == "test"
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_handler_emits_ticket_updated_event(tmp_path: Path) -> None:
+    """update_ticket tool handler emits TicketUpdated event when event_bus is set."""
+    import asyncio
+
+    from golem.events import EventBus, QueueBackend, TicketUpdated
+
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    # Create a ticket first (no bus)
+    result_str = await handle_tool_call(
+        "create_ticket",
+        {"type": "task", "title": "Update event test", "assigned_to": "writer"},
+        golem_dir, config, tmp_path,
+    )
+    ticket_id = json.loads(result_str)["ticket_id"]
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+
+    tools = get_tech_lead_tools(golem_dir, config, tmp_path, event_bus=bus)
+    update_ticket_tool = next(t for t in tools if t.name == "update_ticket")
+
+    await update_ticket_tool.handler({
+        "ticket_id": ticket_id,
+        "status": "in_progress",
+        "note": "Starting work",
+    })
+
+    assert not queue.empty()
+    event = queue.get_nowait()
+    assert isinstance(event, TicketUpdated)
+    assert event.ticket_id == ticket_id
+    assert event.old_status == "pending"
+    assert event.new_status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_junior_dev_mcp_server_accepts_event_bus(tmp_path: Path) -> None:
+    """create_junior_dev_mcp_server accepts event_bus parameter."""
+    import asyncio
+
+    from golem.events import EventBus, QueueBackend
+
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+
+    server = create_junior_dev_mcp_server(golem_dir, event_bus=bus)
+    assert server is not None
+    assert server["name"] == "golem-junior-dev"

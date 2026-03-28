@@ -22,6 +22,7 @@ from golem.tickets import Ticket, TicketContext, TicketStore
 from golem.worktree import commit_task, create_worktree, merge_group_branches
 
 if TYPE_CHECKING:
+    from golem.events import EventBus
     from golem.supervisor import ToolCallRegistry
 
 # ---------------------------------------------------------------------------
@@ -137,7 +138,11 @@ _COMMIT_WORKTREE_INPUT_SCHEMA: dict[str, object] = {
 # ---------------------------------------------------------------------------
 
 
-async def _handle_create_ticket(store: TicketStore, args: dict[str, object]) -> dict[str, object]:
+async def _handle_create_ticket(
+    store: TicketStore,
+    args: dict[str, object],
+    event_bus: EventBus | None = None,
+) -> dict[str, object]:
     refs_raw = args.get("references") or []
     acc_raw = args.get("acceptance") or []
     qa_raw = args.get("qa_checks") or []
@@ -162,19 +167,46 @@ async def _handle_create_ticket(store: TicketStore, args: dict[str, object]) -> 
         context=context,
     )
     ticket_id = await store.create(ticket)
+    if event_bus:
+        from golem.events import TicketCreated
+        await event_bus.emit(TicketCreated(
+            ticket_id=ticket_id,
+            title=ticket.title,
+            assignee=ticket.assigned_to,
+        ))
     return {"content": [{"type": "text", "text": json.dumps({"ticket_id": ticket_id})}]}
 
 
-async def _handle_update_ticket(store: TicketStore, args: dict[str, object]) -> dict[str, object]:
+async def _handle_update_ticket(
+    store: TicketStore,
+    args: dict[str, object],
+    event_bus: EventBus | None = None,
+) -> dict[str, object]:
     attachments_raw = args.get("attachments")
     attachments: list[str] | None = [str(a) for a in attachments_raw] if attachments_raw is not None else None  # type: ignore[union-attr]
+    ticket_id = str(args["ticket_id"])
+    new_status = str(args["status"])
+    old_status = ""
+    if event_bus:
+        try:
+            existing = await store.read(ticket_id)
+            old_status = existing.status
+        except Exception:
+            pass
     await store.update(
-        ticket_id=str(args["ticket_id"]),
-        status=str(args["status"]),
+        ticket_id=ticket_id,
+        status=new_status,
         note=str(args["note"]),
         attachments=attachments,
         agent=str(args.get("agent") or "system"),
     )
+    if event_bus:
+        from golem.events import TicketUpdated
+        await event_bus.emit(TicketUpdated(
+            ticket_id=ticket_id,
+            old_status=old_status,
+            new_status=new_status,
+        ))
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 
@@ -193,7 +225,10 @@ async def _handle_list_tickets(store: TicketStore, args: dict[str, object]) -> d
     return {"content": [{"type": "text", "text": json.dumps([asdict(t) for t in tickets])}]}
 
 
-async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
+async def _handle_run_qa(
+    args: dict[str, object],
+    event_bus: EventBus | None = None,
+) -> dict[str, object]:
     import sys
     try:
         checks_raw = args.get("checks") or []
@@ -215,30 +250,56 @@ async def _handle_run_qa(args: dict[str, object]) -> dict[str, object]:
     total = len(result.checks)
     status = "PASSED" if result.passed else ("CANNOT_VALIDATE" if result.cannot_validate else "FAILED")
     print(f"[QA] {status} -- {passed}/{total} checks passed", file=sys.stderr)
+    if event_bus:
+        from golem.events import QAResult as QAResultEvent
+        ticket_id = str(args.get("ticket_id") or "")
+        await event_bus.emit(QAResultEvent(
+            ticket_id=ticket_id,
+            passed=result.passed,
+            summary=result.summary,
+            checks_run=total,
+        ))
     return {"content": [{"type": "text", "text": json.dumps(asdict(result))}]}
 
 
-async def _handle_create_worktree(args: dict[str, object]) -> dict[str, object]:
+async def _handle_create_worktree(
+    args: dict[str, object],
+    event_bus: EventBus | None = None,
+) -> dict[str, object]:
+    branch = str(args["branch"])
+    path = str(args["path"])
     try:
         create_worktree(
             group_id=str(args["group_id"]),
-            branch=str(args["branch"]),
+            branch=branch,
             base_branch=str(args["base_branch"]),
-            path=Path(str(args["path"])),
+            path=Path(path),
             repo_root=Path(str(args["repo_root"])),
         )
     except subprocess.CalledProcessError as e:
         return {"content": [{"type": "text", "text": json.dumps({"error": f"create_worktree failed: {e.stderr or e}"})}]}
+    if event_bus:
+        from golem.events import WorktreeCreated
+        await event_bus.emit(WorktreeCreated(branch=branch, path=path))
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 
-async def _handle_merge_branches(args: dict[str, object]) -> dict[str, object]:
+async def _handle_merge_branches(
+    args: dict[str, object],
+    event_bus: EventBus | None = None,
+) -> dict[str, object]:
     branches_raw = args.get("group_branches") or []
+    group_branches = [str(b) for b in branches_raw]  # type: ignore[union-attr]
+    target_branch = str(args["target_branch"])
     success, conflict_info = merge_group_branches(
-        group_branches=[str(b) for b in branches_raw],  # type: ignore[union-attr]
-        target_branch=str(args["target_branch"]),
+        group_branches=group_branches,
+        target_branch=target_branch,
         repo_root=Path(str(args["repo_root"])),
     )
+    if event_bus and success:
+        from golem.events import MergeComplete
+        source = group_branches[0] if group_branches else ""
+        await event_bus.emit(MergeComplete(source_branch=source, target_branch=target_branch))
     return {"content": [{"type": "text", "text": json.dumps({"success": success, "conflict_info": conflict_info})}]}
 
 
@@ -264,10 +325,12 @@ def _build_tools(
     config: GolemConfig,  # noqa: ARG001
     project_root: Path,
     registry: ToolCallRegistry | None = None,
+    event_bus: EventBus | None = None,
 ) -> list[SdkMcpTool]:
     """Build SdkMcpTool instances with handlers bound to golem_dir/config/project_root.
 
     If registry is provided, each tool call records itself via registry.record().
+    If event_bus is provided, key tool calls emit structured GolemEvents.
     """
     store = TicketStore(golem_dir / "tickets")
 
@@ -286,13 +349,13 @@ def _build_tools(
             name="create_ticket",
             description="Create a new ticket in the ticket store.",
             input_schema=_CREATE_TICKET_INPUT_SCHEMA,
-            handler=_wrap("create_ticket", partial(_handle_create_ticket, store)),
+            handler=_wrap("create_ticket", partial(_handle_create_ticket, store, event_bus=event_bus)),
         ),
         SdkMcpTool(
             name="update_ticket",
             description="Update ticket status and append a history event.",
             input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
-            handler=_wrap("update_ticket", partial(_handle_update_ticket, store)),
+            handler=_wrap("update_ticket", partial(_handle_update_ticket, store, event_bus=event_bus)),
         ),
         SdkMcpTool(
             name="read_ticket",
@@ -310,19 +373,19 @@ def _build_tools(
             name="run_qa",
             description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
             input_schema=_RUN_QA_INPUT_SCHEMA,
-            handler=_wrap("run_qa", _handle_run_qa),
+            handler=_wrap("run_qa", partial(_handle_run_qa, event_bus=event_bus)),
         ),
         SdkMcpTool(
             name="create_worktree",
             description="Create a git worktree for a group on a new branch.",
             input_schema=_CREATE_WORKTREE_INPUT_SCHEMA,
-            handler=_wrap("create_worktree", _handle_create_worktree),
+            handler=_wrap("create_worktree", partial(_handle_create_worktree, event_bus=event_bus)),
         ),
         SdkMcpTool(
             name="merge_branches",
             description="Merge group branches into a target branch.",
             input_schema=_MERGE_BRANCHES_INPUT_SCHEMA,
-            handler=_wrap("merge_branches", _handle_merge_branches),
+            handler=_wrap("merge_branches", partial(_handle_merge_branches, event_bus=event_bus)),
         ),
         SdkMcpTool(
             name="commit_worktree",
@@ -343,9 +406,10 @@ def get_tech_lead_tools(
     config: GolemConfig,
     project_root: Path,
     registry: ToolCallRegistry | None = None,
+    event_bus: EventBus | None = None,
 ) -> list[SdkMcpTool]:
     """Return all SdkMcpTool instances for the Tech Lead SDK session."""
-    return _build_tools(golem_dir, config, project_root, registry=registry)
+    return _build_tools(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
 
 
 def create_golem_mcp_server(
@@ -353,12 +417,14 @@ def create_golem_mcp_server(
     config: GolemConfig,
     project_root: Path,
     registry: ToolCallRegistry | None = None,
+    event_bus: EventBus | None = None,
 ) -> McpSdkServerConfig:
     """Create an in-process MCP server with all Golem orchestration tools.
 
     If registry is provided, each tool call is recorded via registry.record().
+    If event_bus is provided, key tool calls emit structured GolemEvents.
     """
-    tools = _build_tools(golem_dir, config, project_root, registry=registry)
+    tools = _build_tools(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
     return create_sdk_mcp_server("golem", tools=tools)
 
 
@@ -376,22 +442,24 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
 def create_junior_dev_mcp_server(
     golem_dir: Path,
     registry: ToolCallRegistry | None = None,
+    event_bus: EventBus | None = None,
 ) -> McpSdkServerConfig:
     """Create an MCP server for Junior Devs with run_qa + update_ticket + read_ticket tools.
 
     If registry is provided, each tool call is recorded via registry.record().
+    If event_bus is provided, key tool calls emit structured GolemEvents.
     """
     store = TicketStore(golem_dir / "tickets")
 
     async def _instrumented_run_qa(args: dict[str, object]) -> dict[str, object]:
         if registry is not None:
             registry.record("run_qa", 0)
-        return await _handle_run_qa(args)
+        return await _handle_run_qa(args, event_bus=event_bus)
 
     async def _instrumented_update_ticket(args: dict[str, object]) -> dict[str, object]:
         if registry is not None:
             registry.record("update_ticket", 0)
-        return await _handle_update_ticket(store, args)
+        return await _handle_update_ticket(store, args, event_bus=event_bus)
 
     async def _instrumented_read_ticket(args: dict[str, object]) -> dict[str, object]:
         if registry is not None:
