@@ -1,0 +1,303 @@
+"""Agent stall detection and recovery for Golem SDK sessions.
+
+Provides ToolCallRegistry for tracking MCP tool calls, StallConfig for
+role-specific thresholds, SupervisedResult for session outcomes, and
+supervised_session() which wraps query() with circuit breakers and
+auto-restart on stall detection.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
+
+from golem.config import GolemConfig
+
+# MCP action tool names — calls to these reset the stall counter.
+# "Read tools" (Read, Grep, Glob, Bash) are not listed here.
+ACTION_TOOLS: set[str] = {
+    "create_ticket",
+    "update_ticket",
+    "read_ticket",
+    "list_tickets",
+    "create_worktree",
+    "merge_branches",
+    "commit_worktree",
+    "run_qa",
+}
+
+
+@dataclass
+class ToolCallRecord:
+    tool_name: str
+    turn_number: int
+    timestamp: str
+    is_action: bool
+
+
+@dataclass
+class ToolCallRegistry:
+    records: list[ToolCallRecord] = field(default_factory=list)
+
+    def record(self, tool_name: str, turn: int) -> None:
+        """Append a tool call record. Sets is_action based on ACTION_TOOLS membership."""
+        ts = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.records.append(
+            ToolCallRecord(
+                tool_name=tool_name,
+                turn_number=turn,
+                timestamp=ts,
+                is_action=tool_name in ACTION_TOOLS,
+            )
+        )
+
+    def action_call_count(self) -> int:
+        """Count records where is_action is True."""
+        return sum(1 for r in self.records if r.is_action)
+
+    def total_call_count(self) -> int:
+        """Count all records."""
+        return len(self.records)
+
+    def turns_since_last_action(self, current_turn: int) -> int:
+        """Return consecutive turns since the last action tool was called.
+
+        Returns current_turn if no action tools have ever been called.
+        """
+        for r in reversed(self.records):
+            if r.is_action:
+                return current_turn - r.turn_number
+        return current_turn
+
+    def has_called(self, tool_name: str) -> bool:
+        """Return True if tool_name appears in any record."""
+        return any(r.tool_name == tool_name for r in self.records)
+
+    def has_called_any_action(self) -> bool:
+        """Return True if any action tool has been called."""
+        return self.action_call_count() > 0
+
+
+@dataclass
+class StallConfig:
+    """Role-specific stall detection thresholds.
+
+    warning_turn() and kill_turn() return the number of consecutive turns
+    without an MCP action call that triggers each threshold.
+    """
+
+    warning_pct: float
+    kill_pct: float
+    expected_actions: list[str]
+    role: str
+    max_turns: int
+
+    def warning_turn(self) -> int:
+        """Consecutive turns without action before warning injection."""
+        return int(self.max_turns * self.warning_pct)
+
+    def kill_turn(self) -> int:
+        """Consecutive turns without action before session termination."""
+        return int(self.max_turns * self.kill_pct)
+
+
+def stall_config_for_role(role: str, max_turns: int) -> StallConfig:
+    """Return role-specific StallConfig with default thresholds.
+
+    Roles:
+    - planner: warning at 60%, kill at 80%, expected create_ticket
+    - tech_lead: warning at 30%, kill at 50%, expected create_worktree/create_ticket
+    - junior_dev (or any other): warning at 30%, kill at 50%, no expected MCP actions
+    """
+    if role == "planner":
+        return StallConfig(
+            warning_pct=0.6,
+            kill_pct=0.8,
+            expected_actions=["create_ticket"],
+            role=role,
+            max_turns=max_turns,
+        )
+    elif role == "tech_lead":
+        return StallConfig(
+            warning_pct=0.3,
+            kill_pct=0.5,
+            expected_actions=["create_worktree", "create_ticket"],
+            role=role,
+            max_turns=max_turns,
+        )
+    else:
+        # junior_dev: verified via git diff, not MCP action calls
+        return StallConfig(
+            warning_pct=0.3,
+            kill_pct=0.5,
+            expected_actions=[],
+            role=role,
+            max_turns=max_turns,
+        )
+
+
+@dataclass
+class SupervisedResult:
+    result_text: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    turns: int
+    duration_s: float
+    stalled: bool
+    stall_turn: int | None
+    registry: ToolCallRegistry
+
+
+def _build_stall_warning(
+    role: str,
+    current_turn: int,
+    max_turns: int,
+    stall_turns: int,
+    expected_actions: list[str],
+) -> str:
+    """Build the warning message injected when the warning threshold is hit."""
+    action_list = ", ".join(expected_actions) if expected_actions else "(any action tool)"
+    return (
+        f"PROGRESS CHECK: You have used {current_turn} of {max_turns} turns.\n"
+        f"You have NOT called any action tools in {stall_turns} consecutive turns.\n"
+        f"Expected action tools for {role}: {action_list}\n"
+        f"You MUST take action NOW or your session will be terminated."
+    )
+
+
+def build_escalated_prompt(
+    role: str,
+    original_prompt: str,
+    turns_used: int,
+    expected_actions: list[str],
+) -> str:
+    """Prepend a CRITICAL stall warning to the original prompt for retry sessions."""
+    action_list = ", ".join(expected_actions) if expected_actions else "an action tool"
+    escalation = (
+        f"CRITICAL: Previous session stalled after {turns_used} turns without action.\n"
+        f"You MUST call {action_list} within the first 10 turns. Act immediately.\n\n"
+    )
+    return escalation + original_prompt
+
+
+async def supervised_session(
+    prompt: str,
+    options: ClaudeAgentOptions,
+    role: str,
+    config: GolemConfig,  # noqa: ARG001 — reserved for future use (retry_delay, etc.)
+    stall_config: StallConfig,
+    on_text: Callable[[str], None] | None = None,
+    on_tool: Callable[[str], None] | None = None,
+    golem_dir: Path | None = None,
+) -> SupervisedResult:
+    """Run a supervised SDK session with stall detection and circuit breakers.
+
+    - Tracks tool calls via ToolCallRegistry
+    - Injects a warning message when stall_config.warning_turn() consecutive turns
+      pass without any action tool being called (restarts session with warning prepended)
+    - Returns SupervisedResult(stalled=True) when stall_config.kill_turn() is reached
+    - Logs STALL_WARNING and STALL_DETECTED events to progress.log if golem_dir provided
+
+    At most 2 query() iterations: initial + 1 warning-injected restart.
+    """
+    from golem.progress import ProgressLogger
+
+    registry = ToolCallRegistry()
+    current_turn = 0
+    warned = False
+    start = time.monotonic()
+    result_text = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    stall_turn: int | None = None
+    current_prompt = prompt
+
+    for _iteration in range(2):  # at most 2 passes: initial + 1 warning restart
+        stall_hit = False
+        kill_hit = False
+
+        async for message in query(prompt=current_prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                current_turn += 1
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        if on_text:
+                            on_text(block.text)
+                    elif isinstance(block, ToolUseBlock):
+                        registry.record(block.name, current_turn)
+                        if on_tool:
+                            on_tool(block.name)
+
+                turns_since = registry.turns_since_last_action(current_turn)
+
+                # Warning threshold: inject progress check and restart (once only)
+                if not warned and turns_since >= stall_config.warning_turn():
+                    stall_hit = True
+                    warned = True
+                    if golem_dir:
+                        ProgressLogger(golem_dir).log_stall_warning(
+                            role, current_turn, stall_config.max_turns, registry.action_call_count()
+                        )
+                    break
+
+                # Kill threshold: terminate and return stalled result
+                if turns_since >= stall_config.kill_turn():
+                    kill_hit = True
+                    stall_turn = current_turn
+                    if golem_dir:
+                        ProgressLogger(golem_dir).log_stall_detected(
+                            role, current_turn, stall_config.max_turns, registry.action_call_count()
+                        )
+                    break
+
+            elif isinstance(message, ResultMessage):
+                cost_usd = message.total_cost_usd or 0.0
+                usage = message.usage or {}
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                if message.result:
+                    result_text = message.result
+                    if on_text:
+                        on_text(message.result)
+
+        if kill_hit:
+            return SupervisedResult(
+                result_text=result_text,
+                cost_usd=cost_usd,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                turns=current_turn,
+                duration_s=time.monotonic() - start,
+                stalled=True,
+                stall_turn=stall_turn,
+                registry=registry,
+            )
+
+        if not stall_hit:
+            break  # Normal completion — exit outer loop
+
+        # Warning case: build injected prompt and restart query()
+        turns_since = registry.turns_since_last_action(current_turn)
+        warning_msg = _build_stall_warning(
+            role, current_turn, stall_config.max_turns, turns_since, stall_config.expected_actions
+        )
+        current_prompt = warning_msg + "\n\n" + prompt
+
+    return SupervisedResult(
+        result_text=result_text,
+        cost_usd=cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        turns=current_turn,
+        duration_s=time.monotonic() - start,
+        stalled=False,
+        stall_turn=None,
+        registry=registry,
+    )

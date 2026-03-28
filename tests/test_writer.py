@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from golem.config import GolemConfig
 from golem.tickets import Ticket, TicketContext, TicketEvent
-from golem.writer import build_writer_prompt, spawn_writer_pair
+from golem.writer import JuniorDevResult, WriterResult, build_writer_prompt, spawn_junior_dev, spawn_writer_pair
 
 
 def _make_ticket_with_context() -> Ticket:
@@ -127,8 +127,9 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             return
             yield
 
-        with patch("golem.writer.query", side_effect=fake_query):
-            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+        with patch("golem.supervisor.query", side_effect=fake_query), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
+            await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]
 
@@ -208,13 +209,13 @@ async def test_jitter_skip_in_test_mode() -> None:
     ticket = _make_ticket_with_context()
     config = GolemConfig(dispatch_jitter_max=10.0)
 
-    with patch("golem.writer.query", side_effect=fake_query), \
+    with patch("golem.supervisor.query", side_effect=fake_query), \
          patch("asyncio.sleep", side_effect=fake_sleep), \
          patch.dict(os.environ, {"GOLEM_TEST_MODE": "1"}):
         with tempfile.TemporaryDirectory() as tmpdir:
             golem_dir = Path(tmpdir) / ".golem"
             (golem_dir / "tickets").mkdir(parents=True)
-            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+            await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
     # asyncio.sleep may be called for retry_delay but NOT for jitter (which is 10.0s max)
     jitter_sleeps = [d for d in slept_durations if d >= 1.0]
@@ -232,28 +233,27 @@ async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
 
         original_create = spawn_writer_pair.__module__
 
-        def fake_create_writer_mcp(golem_dir: Path):
+        def fake_create_writer_mcp(golem_dir: Path, registry=None):
             captured_mcp_dir.append(golem_dir)
             # Return a minimal server config
             from unittest.mock import MagicMock
-            return {"name": "golem-writer", "type": "sdk", "instance": MagicMock()}
+            return {"name": "golem-junior-dev", "type": "sdk", "instance": MagicMock()}
 
         async def fake_query(prompt, options=None, **kwargs):
             return
             yield
 
-        with patch("golem.writer.create_writer_mcp_server", side_effect=fake_create_writer_mcp), \
-             patch("golem.writer.query", side_effect=fake_query):
-            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=None)
+        with patch("golem.writer.create_junior_dev_mcp_server", side_effect=fake_create_writer_mcp), \
+             patch("golem.supervisor.query", side_effect=fake_query):
+            await spawn_junior_dev(ticket, tmpdir, config, golem_dir=None)
 
         assert len(captured_mcp_dir) == 1
         assert captured_mcp_dir[0] == Path(tmpdir)
 
 
 def test_writer_result_dataclass() -> None:
-    """WriterResult has expected fields with correct defaults."""
-    from golem.writer import WriterResult
-    r = WriterResult()
+    """JuniorDevResult has expected fields with correct defaults."""
+    r = JuniorDevResult()
     assert r.result_text == ""
     assert r.cost_usd == 0.0
     assert r.input_tokens == 0
@@ -261,3 +261,96 @@ def test_writer_result_dataclass() -> None:
     assert r.cache_read_tokens == 0
     assert r.num_turns == 0
     assert r.duration_ms == 0
+
+
+def test_writer_result_backward_compat_alias() -> None:
+    """WriterResult is a backward-compatible alias for JuniorDevResult."""
+    assert WriterResult is JuniorDevResult
+    r = WriterResult()
+    assert isinstance(r, JuniorDevResult)
+
+
+def test_spawn_writer_pair_backward_compat_alias() -> None:
+    """spawn_writer_pair is a backward-compatible alias for spawn_junior_dev."""
+    assert spawn_writer_pair is spawn_junior_dev
+
+
+# ---------------------------------------------------------------------------
+# Stall and no-diff retry tests
+# ---------------------------------------------------------------------------
+
+
+def _ok_result() -> object:
+    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    return SupervisedResult(
+        result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+        turns=5, duration_s=0.1, stalled=False, stall_turn=None,
+        registry=ToolCallRegistry(),
+    )
+
+
+def _stalled_result() -> object:
+    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    return SupervisedResult(
+        result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
+        turns=10, duration_s=0.1, stalled=True, stall_turn=10,
+        registry=ToolCallRegistry(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_junior_dev_stall_triggers_retry() -> None:
+    """First supervised_session stall triggers retry with escalated prompt."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        ticket = _make_ticket_with_context()
+        config = GolemConfig()
+
+        mock_session = AsyncMock(side_effect=[_stalled_result(), _ok_result()])
+
+        with patch("golem.writer.supervised_session", mock_session), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
+            await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert mock_session.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_junior_dev_no_diff_triggers_retry() -> None:
+    """Empty git diff after session triggers retry."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        ticket = _make_ticket_with_context()
+        config = GolemConfig()
+
+        mock_session = AsyncMock(return_value=_ok_result())
+
+        # GOLEM_TEST_MODE not set, so diff check runs; mock git diff to return empty
+        import subprocess as sp
+        fake_diff = sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        with patch("golem.writer.supervised_session", mock_session), \
+             patch("subprocess.run", return_value=fake_diff):
+            await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        # Initial session + no-diff retry = 2 calls
+        assert mock_session.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_junior_dev_double_stall_fatal() -> None:
+    """Two consecutive stalls raise RuntimeError and mark ticket as failed."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        ticket = _make_ticket_with_context()
+        config = GolemConfig()
+
+        mock_session = AsyncMock(return_value=_stalled_result())
+
+        with patch("golem.writer.supervised_session", mock_session), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
+            with pytest.raises(RuntimeError, match="stalled after retry"):
+                await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)

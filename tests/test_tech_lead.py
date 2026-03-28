@@ -3,6 +3,9 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from golem.tech_lead import _cleanup_golem_worktrees, _ensure_merged_to_main
 from golem.worktree import create_worktree
@@ -108,6 +111,125 @@ def test_cleanup_golem_worktrees_removes_worktree() -> None:
 
         _cleanup_golem_worktrees(golem_dir, repo)
         assert not wt_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# supervised_session stall tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tech_lead_stall_triggers_retry() -> None:
+    """First supervised_session stall triggers retry with escalated prompt."""
+    from golem.config import GolemConfig
+    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.tech_lead import run_tech_lead
+    from golem.tickets import Ticket, TicketContext, TicketStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        config = GolemConfig()
+
+        store = TicketStore(golem_dir / "tickets")
+        ticket_id = await store.create(
+            Ticket(
+                id="", type="task", title="TL Task", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=""),
+            )
+        )
+
+        stalled = SupervisedResult(
+            result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=10, duration_s=0.1, stalled=True, stall_turn=10,
+            registry=ToolCallRegistry(),
+        )
+        ok = SupervisedResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=5, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(),
+        )
+
+        with patch("golem.tech_lead.supervised_session", AsyncMock(side_effect=[stalled, ok])), \
+             patch("golem.tech_lead._check_integration_commits", return_value=True), \
+             patch("golem.tech_lead._ensure_merged_to_main"):
+            result = await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
+
+        assert result.num_turns == 5  # second session result
+
+
+@pytest.mark.asyncio
+async def test_tech_lead_double_stall_fatal() -> None:
+    """Two consecutive stalls raise RuntimeError."""
+    from golem.config import GolemConfig
+    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.tech_lead import run_tech_lead
+    from golem.tickets import Ticket, TicketContext, TicketStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        config = GolemConfig()
+
+        store = TicketStore(golem_dir / "tickets")
+        ticket_id = await store.create(
+            Ticket(
+                id="", type="task", title="TL Task", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=""),
+            )
+        )
+
+        stalled = SupervisedResult(
+            result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=10, duration_s=0.1, stalled=True, stall_turn=10,
+            registry=ToolCallRegistry(),
+        )
+
+        with patch("golem.tech_lead.supervised_session", AsyncMock(return_value=stalled)), \
+             patch("golem.tech_lead._cleanup_golem_worktrees"), \
+             patch("golem.tech_lead._ensure_merged_to_main"):
+            with pytest.raises(RuntimeError, match="stalled after retry"):
+                await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
+
+
+@pytest.mark.asyncio
+async def test_tech_lead_no_commits_triggers_retry() -> None:
+    """No integration commits triggers a retry with escalated prompt."""
+    from golem.config import GolemConfig
+    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.tech_lead import run_tech_lead
+    from golem.tickets import Ticket, TicketContext, TicketStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        config = GolemConfig()
+
+        store = TicketStore(golem_dir / "tickets")
+        ticket_id = await store.create(
+            Ticket(
+                id="", type="task", title="TL Task", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=""),
+            )
+        )
+
+        ok = SupervisedResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=5, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(),
+        )
+        mock_session = AsyncMock(return_value=ok)
+
+        with patch("golem.tech_lead.supervised_session", mock_session), \
+             patch("golem.tech_lead._check_integration_commits", return_value=False), \
+             patch("golem.tech_lead._ensure_merged_to_main"):
+            await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
+
+        # Initial session + no-commits retry = 2 calls
+        assert mock_session.call_count == 2
 
 
 def test_ensure_merged_fallback_to_master() -> None:

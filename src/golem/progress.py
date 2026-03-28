@@ -97,6 +97,18 @@ class ProgressLogger:
     def log_run_cost_summary(self, total_cost_usd: float) -> None:
         self._write(f"RUN_COST total=${total_cost_usd:.6f}")
 
+    def log_stall_warning(self, role: str, turn: int, max_turns: int, mcp_calls: int) -> None:
+        self._write(f"STALL_WARNING role={role} turn={turn}/{max_turns} mcp_actions={mcp_calls}")
+
+    def log_stall_detected(self, role: str, turn: int, max_turns: int, mcp_calls: int) -> None:
+        self._write(f"STALL_DETECTED role={role} turn={turn}/{max_turns} mcp_actions={mcp_calls}")
+
+    def log_stall_fatal(self, role: str, turn: int) -> None:
+        self._write(f"STALL_FATAL role={role} turn={turn} -- retry also stalled")
+
+    def log_stall_retry(self, role: str) -> None:
+        self._write(f"STALL_RETRY role={role} -- restarting with escalated prompt")
+
     def sum_agent_costs(self) -> float:
         """Sum all AGENT_COST entries in the progress log."""
         total = 0.0

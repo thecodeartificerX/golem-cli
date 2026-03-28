@@ -83,8 +83,8 @@ receive your prompt or conversation history. Include:
 - Exact files to modify with current content or line references
 - Acceptance criteria from the ticket
 - QA check commands from the ticket
-- The MCP tools available to them: `mcp__golem-writer__run_qa` and
-  `mcp__golem-writer__update_ticket`
+- The MCP tools available to them: `mcp__golem-junior-dev__run_qa` and
+  `mcp__golem-junior-dev__update_ticket`
 
 Before dispatching each Junior Dev, call `mcp__golem__update_ticket` to
 set status to `in_progress` with note "Junior Dev dispatched".
@@ -199,7 +199,7 @@ All tools use the `mcp__golem__` prefix:
 - `mcp__golem__commit_worktree(worktree_path, task_id, description)` → committed bool
 
 As Tech Lead, use `mcp__golem__*` tools only. Junior Devs use
-`mcp__golem-writer__*` tools — different servers with different permission scopes.
+`mcp__golem-junior-dev__*` tools — different servers with different permission scopes.
 
 ---
 
