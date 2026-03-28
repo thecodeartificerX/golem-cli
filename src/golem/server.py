@@ -14,9 +14,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
+from starlette.requests import Request
 
 from golem.config import GolemConfig
 from golem.events import EventBus, FanoutBackend, FileBackend, QueueBackend
+from golem.mcp_sse import McpSessionRegistry
 from golem.merge import MergeCoordinator
 from golem.session import create_session_dir, generate_session_id, read_session, write_session
 from golem.ui import format_sse
@@ -407,6 +409,7 @@ def create_app() -> FastAPI:
     golem_dir = Path(os.environ.get("GOLEM_DIR", "")) or Path.cwd() / ".golem"
     sessions_dir = golem_dir / "sessions"
     session_mgr = SessionManager(sessions_dir)
+    mcp_registry = McpSessionRegistry()
     merge_coordinator = MergeCoordinator(golem_dir, session_mgr)
 
     # Queues for aggregate SSE stream (one per connected client)
@@ -539,6 +542,11 @@ def create_app() -> FastAPI:
             meta.status = "created"
             write_session(session_dir, meta)
 
+        # Register MCP tools for this session
+        from golem.tools import _build_tools
+        mcp_tools = _build_tools(session_dir, GolemConfig(), project_root)
+        mcp_registry.register(session_id, mcp_tools)
+
         return {"session_id": session_id, "status": "created"}
 
     @app.post("/api/sessions/{session_id}/start")
@@ -629,6 +637,7 @@ def create_app() -> FastAPI:
         session_mgr.kill_session(session_id)
         if not keep_files:
             delete_session_dir(sessions_dir, session_id)
+        mcp_registry.unregister(session_id)
         session_mgr.remove_session(session_id)
         return {"status": "deleted", "session_id": session_id}
 
@@ -643,6 +652,7 @@ def create_app() -> FastAPI:
             if s.status in cleanable:
                 session_mgr.kill_session(s.id)
                 delete_session_dir(sessions_dir, s.id)
+                mcp_registry.unregister(s.id)
                 session_mgr.remove_session(s.id)
                 removed.append(s.id)
         return {"removed": removed, "count": len(removed)}
@@ -978,6 +988,34 @@ def create_app() -> FastAPI:
             "pitfalls": {"errors": errors, "warnings": warnings_list, "infos": infos},
             "ready": len(errors) == 0,
         }
+
+    # ------------------------------------------------------------------
+    # MCP-over-SSE endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/mcp/{session_id}/sse")
+    async def mcp_sse_endpoint(session_id: str) -> StreamingResponse:
+        """SSE stream for MCP-over-SSE protocol."""
+        from fastapi import HTTPException
+        if not mcp_registry.has_session(session_id):
+            raise HTTPException(status_code=404, detail=f"MCP session not registered: {session_id}")
+
+        async def event_stream() -> AsyncGenerator[str, None]:
+            yield f"event: endpoint\ndata: /mcp/{session_id}/message\n\n"
+            while mcp_registry.has_session(session_id):
+                yield ": keepalive\n\n"
+                await asyncio.sleep(15)
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @app.post("/mcp/{session_id}/message")
+    async def mcp_message_endpoint(session_id: str, request: Request) -> dict[str, object]:
+        """Handle JSONRPC message for MCP-over-SSE."""
+        from fastapi import HTTPException
+        if not mcp_registry.has_session(session_id):
+            raise HTTPException(status_code=404, detail=f"MCP session not registered: {session_id}")
+        body = await request.json()
+        return await mcp_registry.handle_message(session_id, body)
 
     # ------------------------------------------------------------------
     # Merge queue endpoints

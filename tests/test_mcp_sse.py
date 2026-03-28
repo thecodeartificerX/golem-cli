@@ -107,3 +107,116 @@ async def test_unknown_tool_returns_error() -> None:
     })
     assert "error" in resp
     assert "not found" in resp["error"]["message"].lower()
+
+
+from httpx import ASGITransport, AsyncClient
+
+from golem.server import create_app
+
+
+@pytest.fixture()
+def app():
+    return create_app()
+
+
+@pytest.fixture()
+async def client(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.mark.asyncio
+async def test_mcp_sse_endpoint_404_without_session(client: AsyncClient) -> None:
+    """GET /mcp/{id}/sse returns 404 for unregistered session."""
+    resp = await client.get("/mcp/nonexistent/sse")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mcp_message_endpoint_404_without_session(client: AsyncClient) -> None:
+    """POST /mcp/{id}/message returns 404 for unregistered session."""
+    resp = await client.post("/mcp/nonexistent/message", content="{}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mcp_message_tools_list(client: AsyncClient, tmp_path: Path) -> None:
+    """POST /mcp/{id}/message with tools/list returns registered tools after session creation."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 200
+    data = resp.json()
+    tool_names = [t["name"] for t in data["result"]["tools"]]
+    assert "create_ticket" in tool_names
+    assert "update_ticket" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_mcp_message_create_and_read_ticket(client: AsyncClient, tmp_path: Path) -> None:
+    """Full MCP lifecycle: create ticket via message endpoint, read it back."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+
+    # Create ticket
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "create_ticket", "arguments": {
+            "type": "task", "title": "SSE test ticket", "assigned_to": "writer",
+        }},
+    }))
+    assert resp.status_code == 200
+    ticket_text = resp.json()["result"]["content"][0]["text"]
+    ticket_id = json.loads(ticket_text)["ticket_id"]
+
+    # Read it back
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "read_ticket", "arguments": {"ticket_id": ticket_id}},
+    }))
+    ticket_data = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert ticket_data["title"] == "SSE test ticket"
+
+
+@pytest.mark.asyncio
+async def test_mcp_cleaned_up_after_session_delete(client: AsyncClient, tmp_path: Path) -> None:
+    """MCP tools are unregistered when session is deleted."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+
+    # Tools work before delete
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 200
+
+    # Delete session
+    await client.delete(f"/api/sessions/{session_id}")
+
+    # Tools gone after delete
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 404
