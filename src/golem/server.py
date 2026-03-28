@@ -16,8 +16,9 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from golem.config import GolemConfig
-from golem.events import EventBus, QueueBackend
+from golem.events import EventBus, FanoutBackend, FileBackend, QueueBackend
 from golem.merge import MergeCoordinator
+from golem.session import create_session_dir, generate_session_id, read_session, write_session
 from golem.ui import format_sse
 
 
@@ -178,8 +179,6 @@ async def monitor_process(
     exit_code = await state.process.wait()
     await asyncio.sleep(1.0)  # Let tailing catch final lines
 
-    from golem.session import read_session, write_session
-
     session_dir = sessions_dir / state.id
     if exit_code == 0:
         state.status = "awaiting_merge"
@@ -233,6 +232,36 @@ async def tail_progress_log(state: SessionState, sessions_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+class _TeeWriter:
+    """Write to two streams simultaneously (stderr + log file)."""
+
+    def __init__(self, primary: object, secondary: object) -> None:
+        self._primary = primary
+        self._secondary = secondary
+
+    def write(self, s: str) -> int:
+        self._primary.write(s)  # type: ignore[union-attr]
+        try:
+            self._secondary.write(s)  # type: ignore[union-attr]
+            self._secondary.flush()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass  # Don't crash if log file is closed/full
+        return len(s)
+
+    def flush(self) -> None:
+        self._primary.flush()  # type: ignore[union-attr]
+        try:
+            self._secondary.flush()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+
+    def fileno(self) -> int:
+        return self._primary.fileno()  # type: ignore[union-attr]
+
+    def isatty(self) -> bool:
+        return False
+
+
 async def run_session(
     spec_path: Path,
     project_root: Path,
@@ -241,6 +270,7 @@ async def run_session(
     golem_dir: Path,
 ) -> None:
     """Run the full Golem pipeline in-process (replaces subprocess spawning)."""
+    import sys
     import time
 
     from golem.conductor import classify_spec
@@ -249,6 +279,13 @@ async def run_session(
     from golem.progress import ProgressLogger
     from golem.tech_lead import run_tech_lead
     from golem.writer import spawn_junior_dev
+
+    # Capture stderr to session.log for post-mortem debugging
+    golem_dir.mkdir(parents=True, exist_ok=True)
+    session_log_path = golem_dir / "session.log"
+    session_log_file = open(session_log_path, "a", encoding="utf-8")  # noqa: SIM115
+    original_stderr = sys.stderr
+    sys.stderr = _TeeWriter(original_stderr, session_log_file)
 
     start = time.monotonic()
     try:
@@ -270,8 +307,7 @@ async def run_session(
                 config_snapshot={},
             ))
 
-        # Create directories
-        golem_dir.mkdir(parents=True, exist_ok=True)
+        # Create directories (already ensured above for session.log)
         (golem_dir / "tickets").mkdir(exist_ok=True)
         (golem_dir / "plans").mkdir(exist_ok=True)
         (golem_dir / "research").mkdir(exist_ok=True)
@@ -309,16 +345,34 @@ async def run_session(
             status="failed", cost_usd=0.0, duration_s=duration, error=str(e),
         ))
         raise
+    finally:
+        sys.stderr = original_stderr
+        session_log_file.close()
 
 
 def _on_session_done(task: asyncio.Task[None], state: SessionState, mgr: SessionManager) -> None:
     """Callback when an in-process session task finishes."""
+    error_msg: str | None = None
     if task.cancelled():
         state.status = "failed"
+        error_msg = "Session task was cancelled"
     elif task.exception():
         state.status = "failed"
+        error_msg = str(task.exception())
     else:
         state.status = "awaiting_merge"
+
+    # Persist final status to session.json on disk
+    session_dir = mgr._sessions_dir / state.id
+    if (session_dir / "session.json").exists():
+        try:
+            meta = read_session(session_dir)
+            meta.status = state.status
+            if error_msg:
+                meta.error = error_msg
+            write_session(session_dir, meta)
+        except OSError:
+            pass  # Best-effort — don't crash the callback
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +418,6 @@ def create_app() -> FastAPI:
     # Only restores sessions that have a copied spec.md (written by create_session_dir).
     _golem_dir_env = os.environ.get("GOLEM_DIR", "")
     if _golem_dir_env and sessions_dir.exists():
-        from golem.session import read_session
         for session_json in sessions_dir.glob("*/session.json"):
             session_dir = session_json.parent
             spec_copy = session_dir / "spec.md"
@@ -445,7 +498,7 @@ def create_app() -> FastAPI:
             counts[s.status] = counts.get(s.status, 0) + 1
         return {
             "pid": os.getpid(),
-            "port": int(os.environ.get("GOLEM_PORT", 9664)),
+            "port": int(os.environ.get("GOLEM_PORT", 7665)),
             "uptime_seconds": round(uptime, 1),
             "session_counts": counts,
         }
@@ -463,9 +516,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/sessions")
     async def create_session(req: CreateSessionRequest) -> dict[str, str]:
-        from golem.config import load_config
-        from golem.session import create_session_dir, generate_session_id
-
+        """Create a session (directory + metadata) without starting the pipeline."""
         spec = Path(req.spec_path)
         if not spec.exists():
             from fastapi import HTTPException
@@ -479,10 +530,46 @@ def create_app() -> FastAPI:
         session_dir = create_session_dir(sessions_dir, session_id, spec)
 
         state = session_mgr.create_session(session_id, spec)
+        state.status = "created"
+        state.config["project_root"] = str(project_root)
+
+        # Persist "created" status to session.json on disk
+        if (session_dir / "session.json").exists():
+            meta = read_session(session_dir)
+            meta.status = "created"
+            write_session(session_dir, meta)
+
+        return {"session_id": session_id, "status": "created"}
+
+    @app.post("/api/sessions/{session_id}/start")
+    async def start_session(session_id: str) -> dict[str, str]:
+        """Start the pipeline for a previously created session."""
+        from fastapi import HTTPException
+        from golem.config import load_config
+
+        state = session_mgr.get_session(session_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        if state.status not in ("created", "pending"):
+            raise HTTPException(status_code=400, detail=f"Session '{session_id}' is already {state.status}")
+
+        session_dir = sessions_dir / session_id
+        project_root = Path(str(state.config.get("project_root", ""))) if state.config.get("project_root") else state.spec_path.resolve().parent
+
         state.status = "running"
 
-        # Create EventBus for this session with QueueBackend for observe endpoint
-        event_bus = EventBus(QueueBackend(state.observe_queue), session_id=session_id)
+        # Persist "running" status to session.json on disk
+        if (session_dir / "session.json").exists():
+            meta = read_session(session_dir)
+            meta.status = "running"
+            write_session(session_dir, meta)
+
+        # Create EventBus with dual backend: QueueBackend for SSE + FileBackend for events.jsonl
+        events_jsonl = session_dir / "events.jsonl"
+        event_bus = EventBus(
+            FanoutBackend([QueueBackend(state.observe_queue), FileBackend(events_jsonl)]),
+            session_id=session_id,
+        )
 
         # Load config for this session
         config = load_config(session_dir) if (session_dir / "config.json").exists() else GolemConfig()
@@ -490,7 +577,7 @@ def create_app() -> FastAPI:
 
         # Run session in-process as async task
         task = asyncio.create_task(
-            run_session(spec, project_root, config, event_bus, session_dir)
+            run_session(state.spec_path, project_root, config, event_bus, session_dir)
         )
         state.task = task
         task.add_done_callback(lambda t: _on_session_done(t, state, session_mgr))

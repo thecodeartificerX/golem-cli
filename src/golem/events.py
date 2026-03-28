@@ -277,13 +277,24 @@ class FileBackend:
             f.write(line)
 
 
+class FanoutBackend:
+    """Emits to multiple backends (e.g. QueueBackend + FileBackend)."""
+
+    def __init__(self, backends: list[QueueBackend | FileBackend]) -> None:
+        self.backends = backends
+
+    async def emit(self, event: GolemEvent) -> None:
+        for backend in self.backends:
+            await backend.emit(event)
+
+
 # -- EventBus --
 
 
 class EventBus:
     """Async event emitter with pluggable backend."""
 
-    def __init__(self, backend: QueueBackend | FileBackend, session_id: str = "") -> None:
+    def __init__(self, backend: QueueBackend | FileBackend | FanoutBackend, session_id: str = "") -> None:
         self.backend = backend
         self.session_id = session_id
 

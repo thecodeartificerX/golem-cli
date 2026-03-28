@@ -11,6 +11,8 @@ from httpx import ASGITransport, AsyncClient
 from golem.server import (
     SessionManager,
     SessionState,
+    _TeeWriter,
+    _on_session_done,
     create_app,
     monitor_process,
     remove_server_json,
@@ -94,21 +96,18 @@ async def test_root_returns_html(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_create_session_returns_id(client: AsyncClient, tmp_path: Path) -> None:
-    """POST /api/sessions creates a session and returns the ID."""
+    """POST /api/sessions creates a session without starting it."""
     spec = tmp_path / "test-spec.md"
     spec.write_text("# Test\n\n## Task\nDo something.\n", encoding="utf-8")
-    async def _noop_session(*args, **kwargs):
-        await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop_session):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     assert resp.status_code == 200
     data = resp.json()
     assert "session_id" in data
-    assert data["status"] == "running"
+    assert data["status"] == "created"
 
 
 @pytest.mark.asyncio
@@ -121,22 +120,19 @@ async def test_list_sessions_empty(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_list_sessions_after_create(client: AsyncClient, tmp_path: Path) -> None:
-    """After creating a session, it appears in the list."""
+    """After creating a session, it appears in the list with 'created' status."""
     spec = tmp_path / "spec.md"
     spec.write_text("# Test\n\n## Task\nDo it.\n", encoding="utf-8")
-    async def _noop(*a, **k):
-        await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
 
     resp = await client.get("/api/sessions")
     data = resp.json()
     assert len(data) >= 1
-    assert any(s["status"] in ("running", "pending") for s in data)
+    assert any(s["status"] == "created" for s in data)
 
 
 @pytest.mark.asyncio
@@ -144,21 +140,18 @@ async def test_get_session_detail(client: AsyncClient, tmp_path: Path) -> None:
     """GET /api/sessions/{id} returns session detail shape."""
     spec = tmp_path / "spec.md"
     spec.write_text("# Test\n", encoding="utf-8")
-    async def _noop(*a, **k):
-        await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     session_id = resp.json()["session_id"]
 
     resp = await client.get(f"/api/sessions/{session_id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == session_id
-    assert "status" in data
+    assert data["status"] == "created"
 
 
 @pytest.mark.asyncio
@@ -173,14 +166,11 @@ async def test_delete_session_removes_from_memory_and_disk(client: AsyncClient, 
     """DELETE /api/sessions/{id} removes session from memory and deletes files."""
     spec = tmp_path / "spec.md"
     spec.write_text("# Test\n", encoding="utf-8")
-    async def _noop(*a, **k):
-        await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     session_id = resp.json()["session_id"]
 
     resp = await client.delete(f"/api/sessions/{session_id}")
@@ -262,12 +252,16 @@ async def test_pause_resume_session(client: AsyncClient, tmp_path: Path) -> None
     async def _noop(*a, **k):
         await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     session_id = resp.json()["session_id"]
+
+    # Start the session so it's running
+    with patch("golem.server.run_session", side_effect=_noop):
+        resp = await client.post(f"/api/sessions/{session_id}/start")
+    assert resp.status_code == 200
 
     # Pause — returns 400 for in-process tasks (no subprocess to SIGSTOP)
     resp = await client.post(f"/api/sessions/{session_id}/pause")
@@ -283,14 +277,11 @@ async def test_guidance_creates_ticket(client: AsyncClient, tmp_path: Path) -> N
     """POST /api/sessions/{id}/guidance writes a guidance ticket."""
     spec = tmp_path / "spec.md"
     spec.write_text("# Test\n", encoding="utf-8")
-    async def _noop(*a, **k):
-        await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     session_id = resp.json()["session_id"]
 
     resp = await client.post(f"/api/sessions/{session_id}/guidance", json={"text": "Focus on auth first"})
@@ -610,12 +601,14 @@ async def test_kill_session_cancels_task(client: AsyncClient, tmp_path: Path) ->
     async def _noop(*a, **k):
         await asyncio.sleep(999)
 
-    with patch("golem.server.run_session", side_effect=_noop):
-        resp = await client.post("/api/sessions", json={
-            "spec_path": str(spec),
-            "project_root": str(tmp_path),
-        })
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
     session_id = resp.json()["session_id"]
+
+    with patch("golem.server.run_session", side_effect=_noop):
+        await client.post(f"/api/sessions/{session_id}/start")
 
     resp = await client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 200
@@ -637,3 +630,215 @@ async def test_agents_endpoint_404(app) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.get("/api/sessions/fake/agents")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: _on_session_done persists status to session.json
+# ---------------------------------------------------------------------------
+
+
+def test_on_session_done_persists_success(tmp_path: Path) -> None:
+    """_on_session_done writes 'awaiting_merge' to session.json on success."""
+    from golem.session import SessionMetadata, read_session, write_session
+
+    sessions_dir = tmp_path / "sessions"
+    session_dir = sessions_dir / "test-done"
+    session_dir.mkdir(parents=True)
+    write_session(session_dir, SessionMetadata(id="test-done", status="running", spec_path="spec.md"))
+
+    mgr = SessionManager(sessions_dir)
+    state = mgr.create_session("test-done", Path("spec.md"))
+    state.status = "running"
+
+    mock_task = MagicMock(spec=asyncio.Task)
+    mock_task.cancelled.return_value = False
+    mock_task.exception.return_value = None
+
+    _on_session_done(mock_task, state, mgr)
+
+    assert state.status == "awaiting_merge"
+    meta = read_session(session_dir)
+    assert meta.status == "awaiting_merge"
+
+
+def test_on_session_done_persists_failure(tmp_path: Path) -> None:
+    """_on_session_done writes 'failed' + error to session.json on exception."""
+    from golem.session import SessionMetadata, read_session, write_session
+
+    sessions_dir = tmp_path / "sessions"
+    session_dir = sessions_dir / "test-fail"
+    session_dir.mkdir(parents=True)
+    write_session(session_dir, SessionMetadata(id="test-fail", status="running", spec_path="spec.md"))
+
+    mgr = SessionManager(sessions_dir)
+    state = mgr.create_session("test-fail", Path("spec.md"))
+    state.status = "running"
+
+    mock_task = MagicMock(spec=asyncio.Task)
+    mock_task.cancelled.return_value = False
+    mock_task.exception.return_value = RuntimeError("planner exploded")
+
+    _on_session_done(mock_task, state, mgr)
+
+    assert state.status == "failed"
+    meta = read_session(session_dir)
+    assert meta.status == "failed"
+    assert "planner exploded" in (meta.error or "")
+
+
+def test_on_session_done_persists_cancelled(tmp_path: Path) -> None:
+    """_on_session_done writes 'failed' to session.json on cancellation."""
+    from golem.session import SessionMetadata, read_session, write_session
+
+    sessions_dir = tmp_path / "sessions"
+    session_dir = sessions_dir / "test-cancel"
+    session_dir.mkdir(parents=True)
+    write_session(session_dir, SessionMetadata(id="test-cancel", status="running", spec_path="spec.md"))
+
+    mgr = SessionManager(sessions_dir)
+    state = mgr.create_session("test-cancel", Path("spec.md"))
+    state.status = "running"
+
+    mock_task = MagicMock(spec=asyncio.Task)
+    mock_task.cancelled.return_value = True
+
+    _on_session_done(mock_task, state, mgr)
+
+    assert state.status == "failed"
+    meta = read_session(session_dir)
+    assert meta.status == "failed"
+    assert "cancelled" in (meta.error or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Dual-backend EventBus (FanoutBackend) in server sessions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_session_wires_events_jsonl(client: AsyncClient, tmp_path: Path) -> None:
+    """Starting a session wires FanoutBackend so events.jsonl gets written."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+    assert resp.json()["status"] == "created"
+
+    async def _noop(*a, **k):
+        await asyncio.sleep(999)
+
+    with patch("golem.server.run_session", side_effect=_noop):
+        resp = await client.post(f"/api/sessions/{session_id}/start")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"
+
+
+# ---------------------------------------------------------------------------
+# Start session endpoint tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_session_404(client: AsyncClient) -> None:
+    """POST /api/sessions/{id}/start returns 404 for unknown session."""
+    resp = await client.post("/api/sessions/nonexistent/start")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_start_session_already_running(client: AsyncClient, tmp_path: Path) -> None:
+    """POST /api/sessions/{id}/start returns 400 if session already running."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+
+    async def _noop(*a, **k):
+        await asyncio.sleep(999)
+
+    with patch("golem.server.run_session", side_effect=_noop):
+        resp = await client.post(f"/api/sessions/{session_id}/start")
+    assert resp.status_code == 200
+
+    # Second start should fail
+    resp = await client.post(f"/api/sessions/{session_id}/start")
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: Stderr capture via _TeeWriter
+# ---------------------------------------------------------------------------
+
+
+def test_tee_writer_writes_to_both(tmp_path: Path) -> None:
+    """_TeeWriter writes to both primary and secondary streams."""
+    import io
+
+    primary = io.StringIO()
+    log_file = open(tmp_path / "test.log", "w", encoding="utf-8")
+    tee = _TeeWriter(primary, log_file)
+
+    tee.write("hello stderr\n")
+    tee.write("second line\n")
+    tee.flush()
+    log_file.close()
+
+    assert "hello stderr" in primary.getvalue()
+    assert "second line" in primary.getvalue()
+
+    log_content = (tmp_path / "test.log").read_text(encoding="utf-8")
+    assert "hello stderr" in log_content
+    assert "second line" in log_content
+
+
+def test_tee_writer_survives_closed_secondary(tmp_path: Path) -> None:
+    """_TeeWriter doesn't crash if secondary file is closed."""
+    import io
+
+    primary = io.StringIO()
+    log_file = open(tmp_path / "test.log", "w", encoding="utf-8")
+    tee = _TeeWriter(primary, log_file)
+
+    log_file.close()  # Close secondary before writing
+
+    # Should not raise — writes to primary, silently skips secondary
+    tee.write("after close\n")
+    tee.flush()
+    assert "after close" in primary.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_run_session_creates_session_log(tmp_path: Path) -> None:
+    """run_session() captures stderr to session.log in golem_dir."""
+    from golem.config import GolemConfig
+    from golem.events import EventBus, GolemEvent, QueueBackend
+
+    queue: asyncio.Queue[GolemEvent] = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test-log")
+    config = GolemConfig()
+    config.session_id = "test-log"
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+    golem_dir = tmp_path / ".golem"
+
+    with patch("golem.planner.run_planner") as mock_planner, \
+         patch("golem.tech_lead.run_tech_lead") as mock_tl:
+        mock_planner_result = MagicMock()
+        mock_planner_result.ticket_id = "TICKET-001"
+        mock_planner_result.cost_usd = 0.05
+        mock_planner.return_value = mock_planner_result
+        mock_tl.return_value = MagicMock()
+
+        await run_session(spec, tmp_path, config, bus, golem_dir)
+
+    session_log = golem_dir / "session.log"
+    assert session_log.exists()

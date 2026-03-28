@@ -19,6 +19,7 @@ from golem.events import (
     ConflictDetected,
     EventBus,
     EventFilter,
+    FanoutBackend,
     FileBackend,
     GolemEvent,
     MergeComplete,
@@ -165,3 +166,63 @@ async def test_subscribe_with_type_filter() -> None:
             collected.append(event)
     assert len(collected) == 1
     assert isinstance(collected[0], AgentToolCall)
+
+
+# -- FanoutBackend tests --
+
+
+@pytest.mark.asyncio
+async def test_fanout_backend_emits_to_all(tmp_path: Path) -> None:
+    """FanoutBackend delivers events to both QueueBackend and FileBackend."""
+    queue: asyncio.Queue[GolemEvent] = asyncio.Queue()
+    jsonl_path = tmp_path / "events.jsonl"
+    fanout = FanoutBackend([QueueBackend(queue), FileBackend(jsonl_path)])
+    event = AgentText(role="planner", text="hello fanout", turn=1)
+    await fanout.emit(event)
+
+    # Queue got it
+    got = queue.get_nowait()
+    assert isinstance(got, AgentText)
+    assert got.text == "hello fanout"
+
+    # File got it
+    lines = jsonl_path.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    parsed = json.loads(lines[0])
+    assert parsed["type"] == "agent_text"
+    assert parsed["text"] == "hello fanout"
+
+
+@pytest.mark.asyncio
+async def test_fanout_backend_multiple_events(tmp_path: Path) -> None:
+    """FanoutBackend handles multiple sequential events."""
+    queue: asyncio.Queue[GolemEvent] = asyncio.Queue()
+    jsonl_path = tmp_path / "events.jsonl"
+    fanout = FanoutBackend([QueueBackend(queue), FileBackend(jsonl_path)])
+
+    await fanout.emit(AgentText(role="planner", text="one", turn=1))
+    await fanout.emit(AgentToolCall(role="planner", tool_name="Bash", arguments={}, turn=2))
+    await fanout.emit(AgentComplete(role="planner", total_cost=1.0, total_turns=2, duration_s=30.0, result_preview="done"))
+
+    assert queue.qsize() == 3
+    lines = jsonl_path.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 3
+
+
+@pytest.mark.asyncio
+async def test_fanout_backend_with_event_bus(tmp_path: Path) -> None:
+    """EventBus works with FanoutBackend, setting session_id and timestamp."""
+    queue: asyncio.Queue[GolemEvent] = asyncio.Queue()
+    jsonl_path = tmp_path / "events.jsonl"
+    fanout = FanoutBackend([QueueBackend(queue), FileBackend(jsonl_path)])
+    bus = EventBus(fanout, session_id="fanout-test")
+
+    await bus.emit(AgentText(role="tech_lead", text="leading", turn=1))
+
+    got = queue.get_nowait()
+    assert got.session_id == "fanout-test"
+    assert got.timestamp != ""
+
+    lines = jsonl_path.read_text(encoding="utf-8").strip().split("\n")
+    parsed = json.loads(lines[0])
+    assert parsed["session_id"] == "fanout-test"

@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 # Status constants
+CREATED = "created"
 PENDING = "pending"
 RUNNING = "running"
 AWAITING_MERGE = "awaiting_merge"
