@@ -438,4 +438,216 @@ def create_app() -> FastAPI:
         )
         return {"ok": True, "ticket_id": ticket_id}
 
+    # ------------------------------------------------------------------
+    # SSE event streams
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sessions/{session_id}/events")
+    async def session_events(session_id: str) -> StreamingResponse:
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        async def _stream() -> AsyncGenerator[str, None]:
+            # Replay buffer
+            for event in list(state.log_buffer):
+                yield format_sse("log", event)
+            # Stream new events
+            while True:
+                try:
+                    event_str = await asyncio.wait_for(state.event_queue.get(), timeout=15.0)
+                    yield event_str
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                except asyncio.CancelledError:
+                    return
+
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    @app.get("/api/events")
+    async def aggregate_events() -> StreamingResponse:
+        aggregate_queue: asyncio.Queue[str] = asyncio.Queue()
+
+        async def _stream() -> AsyncGenerator[str, None]:
+            yield format_sse("status", {"state": "connected"})
+            while True:
+                try:
+                    event_str = await asyncio.wait_for(aggregate_queue.get(), timeout=15.0)
+                    yield event_str
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                except asyncio.CancelledError:
+                    return
+
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    # ------------------------------------------------------------------
+    # Per-session data endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sessions/{session_id}/tickets")
+    async def session_tickets(session_id: str) -> list[dict[str, object]]:
+        from fastapi import HTTPException
+        from golem.tickets import TicketStore
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        tickets_dir = sessions_dir / session_id / "tickets"
+        if not tickets_dir.exists():
+            return []
+        store = TicketStore(tickets_dir)
+        tickets = await store.list_tickets()
+        return [{"id": t.id, "title": t.title, "status": t.status} for t in tickets]
+
+    @app.get("/api/sessions/{session_id}/diff")
+    async def session_diff(session_id: str) -> dict[str, str]:
+        import subprocess
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        branch_prefix = f"golem/{session_id}"
+        try:
+            result = subprocess.run(
+                ["git", "diff", f"main...{branch_prefix}/group-a/integration"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            diff_text = result.stdout if result.returncode == 0 else ""
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            diff_text = ""
+        return {"diff": diff_text, "session_id": session_id}
+
+    @app.get("/api/sessions/{session_id}/cost")
+    async def session_cost(session_id: str) -> dict[str, object]:
+        import re
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        log_path = sessions_dir / session_id / "progress.log"
+        total = 0.0
+        if log_path.exists():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                m = re.search(r"AGENT_COST.*cost=\$([0-9.]+)", line)
+                if m:
+                    total += float(m.group(1))
+        return {"session_id": session_id, "total_cost_usd": round(total, 6)}
+
+    @app.get("/api/sessions/{session_id}/plan")
+    async def session_plan(session_id: str) -> dict[str, str]:
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        plan_path = sessions_dir / session_id / "plans" / "overview.md"
+        if not plan_path.exists():
+            return {"session_id": session_id, "plan": ""}
+        return {"session_id": session_id, "plan": plan_path.read_text(encoding="utf-8")}
+
+    # ------------------------------------------------------------------
+    # Preserved endpoints (ported from ui.py)
+    # ------------------------------------------------------------------
+
+    @app.get("/api/specs")
+    async def api_specs() -> dict[str, list[str]]:
+        """Return all .md files found recursively in the project."""
+        project_root = Path.cwd().resolve()
+        specs: list[str] = []
+        skip = {".git", ".golem", ".venv", "node_modules", ".claude", "test-results", "__pycache__"}
+        for p in sorted(project_root.rglob("*.md")):
+            parts = p.relative_to(project_root).parts
+            if any(part.startswith(".") or part in skip for part in parts):
+                continue
+            full = str(p.resolve()).replace("\\", "/")
+            if full not in specs:
+                specs.append(full)
+        return {"specs": specs}
+
+    @app.get("/api/browse/file")
+    async def api_browse_file(initial_dir: str = "") -> dict[str, str | None]:
+        from golem import dialogs as _dialogs
+        try:
+            path = await asyncio.to_thread(_dialogs.open_file_dialog, initial_dir or None)
+        except NotImplementedError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=501, detail="File dialogs require Windows")
+        return {"path": path}
+
+    @app.get("/api/browse/folder")
+    async def api_browse_folder(initial_dir: str = "") -> dict[str, str | None]:
+        from golem import dialogs as _dialogs
+        try:
+            path = await asyncio.to_thread(_dialogs.open_folder_dialog, initial_dir or None)
+        except NotImplementedError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=501, detail="Folder dialogs require Windows")
+        return {"path": path}
+
+    @app.get("/api/config")
+    async def api_config() -> dict[str, object]:
+        from dataclasses import asdict
+        from golem.config import GolemConfig, load_config
+
+        if golem_dir.exists():
+            config = load_config(golem_dir)
+        else:
+            config = GolemConfig()
+        return asdict(config)
+
+    @app.post("/api/preflight")
+    async def api_preflight(req: CreateSessionRequest) -> dict[str, object]:
+        from golem.config import GolemConfig, load_config, resolve_plugins_for_role, run_preflight_checks
+
+        spec = Path(req.spec_path)
+        if not spec.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Spec not found: {req.spec_path}")
+
+        project_root = Path(req.project_root).resolve() if req.project_root else spec.resolve().parent
+        config_dir = project_root / ".golem"
+        config = load_config(config_dir) if (config_dir / "config.json").exists() else GolemConfig()
+
+        golem_tools: dict[str, list[str]] = {
+            "planner": ["create_ticket", "update_ticket", "read_ticket", "list_tickets"],
+            "tech_lead": ["create_ticket", "update_ticket", "read_ticket", "list_tickets",
+                         "run_qa", "create_worktree", "merge_branches", "commit_worktree"],
+            "writer": ["run_qa", "update_ticket"],
+        }
+
+        roles: dict[str, dict[str, object]] = {}
+        for role in ("planner", "tech_lead", "writer"):
+            sources = config.agent_setting_sources.get(role, config.setting_sources)
+            extras = config.extra_mcp_servers.get(role, {})
+            proj_plugins, usr_plugins = resolve_plugins_for_role(config, role, project_root)
+            roles[role] = {
+                "setting_sources": sources,
+                "golem_tools": golem_tools[role],
+                "extra_mcps": {n: s for n, s in extras.items()},
+                "project_plugins": proj_plugins,
+                "user_plugins": usr_plugins,
+            }
+
+        errors, warnings_list, infos = run_preflight_checks(config, project_root)
+        return {
+            "spec": str(spec),
+            "project_root": str(project_root),
+            "roles": roles,
+            "pitfalls": {"errors": errors, "warnings": warnings_list, "infos": infos},
+            "ready": len(errors) == 0,
+        }
+
     return app

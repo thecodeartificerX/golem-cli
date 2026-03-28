@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -260,3 +261,130 @@ async def test_guidance_creates_ticket(client: AsyncClient, tmp_path: Path) -> N
     assert resp.status_code == 200
     data = resp.json()
     assert data.get("ok") is True
+
+
+@pytest.mark.asyncio
+async def test_session_events_sse_404(app) -> None:
+    """SSE stream returns 404 for nonexistent session."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/api/sessions/fake-session/events")
+        assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_aggregate_events_sse(app) -> None:
+    """GET /api/events returns an SSE stream (connection succeeds)."""
+    # Drive the endpoint function directly — ASGITransport hangs on infinite SSE streams
+    # (see CLAUDE.md: "SSE tests must drive the generator directly")
+    from fastapi.routing import APIRoute
+
+    events_route = next(
+        (r for r in app.routes if isinstance(r, APIRoute) and r.path == "/api/events"),
+        None,
+    )
+    assert events_route is not None, "/api/events route not found"
+    response = await events_route.endpoint()
+    assert response.media_type == "text/event-stream"
+    # Collect the first event from the generator then close it
+    gen = response.body_iterator
+    first_chunk = b""
+    try:
+        async for chunk in gen:
+            if isinstance(chunk, str):
+                first_chunk = chunk.encode()
+            else:
+                first_chunk = chunk
+            break
+    finally:
+        await gen.aclose()
+    assert len(first_chunk) > 0
+
+
+@pytest.mark.asyncio
+async def test_session_tickets_endpoint(client: AsyncClient, tmp_path: Path) -> None:
+    """GET /api/sessions/{id}/tickets returns 404 for missing session."""
+    resp = await client.get("/api/sessions/nonexistent/tickets")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_session_cost_endpoint(client: AsyncClient) -> None:
+    """GET /api/sessions/{id}/cost returns 404 for missing session."""
+    resp = await client.get("/api/sessions/nonexistent/cost")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_session_plan_endpoint(client: AsyncClient) -> None:
+    """GET /api/sessions/{id}/plan returns 404 for missing session."""
+    resp = await client.get("/api/sessions/nonexistent/plan")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_session_diff_endpoint(client: AsyncClient) -> None:
+    """GET /api/sessions/{id}/diff returns 404 for missing session."""
+    resp = await client.get("/api/sessions/nonexistent/diff")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_specs_endpoint(client: AsyncClient) -> None:
+    """GET /api/specs returns a list of .md files."""
+    resp = await client.get("/api/specs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "specs" in data
+    assert isinstance(data["specs"], list)
+
+
+@pytest.mark.asyncio
+async def test_config_endpoint(client: AsyncClient) -> None:
+    """GET /api/config returns a config dict."""
+    resp = await client.get("/api/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, dict)
+    assert "max_parallel" in data
+
+
+@pytest.mark.asyncio
+async def test_preflight_endpoint(client: AsyncClient, tmp_path: Path) -> None:
+    """POST /api/preflight returns check results."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+    resp = await client.post("/api/preflight", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "ready" in data
+
+
+@pytest.mark.asyncio
+async def test_monitor_process_updates_status(tmp_path: Path) -> None:
+    """monitor_process updates session status when subprocess exits."""
+    from golem.server import SessionManager, monitor_process
+
+    sessions_dir = tmp_path / "sessions"
+    session_dir = sessions_dir / "test-monitor"
+    session_dir.mkdir(parents=True)
+    (session_dir / "session.json").write_text(
+        json.dumps({"id": "test-monitor", "status": "running", "spec_path": "spec.md"}),
+        encoding="utf-8",
+    )
+
+    mgr = SessionManager(sessions_dir)
+    state = mgr.create_session("test-monitor", Path("spec.md"))
+
+    mock_proc = AsyncMock()
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.returncode = None
+    mock_proc.pid = 11111
+    state.process = mock_proc
+    state.status = "running"
+
+    await monitor_process(state, sessions_dir)
+    assert state.status == "awaiting_merge"
