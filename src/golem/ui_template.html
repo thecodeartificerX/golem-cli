@@ -291,6 +291,7 @@
       flex-shrink: 0;
     }
 
+    .session-status-dot.created      { background: var(--accent); }
     .session-status-dot.running      { background: var(--success); box-shadow: 0 0 4px rgba(34, 197, 94, 0.5); }
     .session-status-dot.pending      { background: var(--warning); }
     .session-status-dot.awaiting_merge { background: var(--info); }
@@ -396,6 +397,7 @@
       border: 1px solid;
     }
 
+    .badge-created      { color: var(--accent);  border-color: rgba(96, 165, 250, 0.4); background: rgba(96, 165, 250, 0.08); }
     .badge-running      { color: var(--success); border-color: rgba(34, 197, 94, 0.4);  background: rgba(34, 197, 94, 0.08); }
     .badge-pending      { color: var(--warning); border-color: rgba(234, 179, 8, 0.4);  background: rgba(234, 179, 8, 0.08); }
     .badge-awaiting_merge { color: var(--info);  border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.08); }
@@ -1436,6 +1438,7 @@
           <div id="session-status-badge" class="badge"></div>
           <div id="session-complexity-badge" class="badge hidden"></div>
           <div id="session-actions">
+            <button class="action-btn" id="btn-start" style="font-weight:600">Start</button>
             <button class="action-btn" id="btn-guidance">Guidance</button>
             <button class="action-btn" id="btn-pause">Pause</button>
             <button class="action-btn danger" id="btn-kill">Kill</button>
@@ -1688,6 +1691,7 @@
   var statTotalCost = document.getElementById('stat-total-cost');
   var statusSessions = document.getElementById('status-sessions');
 
+  var btnStart     = document.getElementById('btn-start');
   var btnGuidance  = document.getElementById('btn-guidance');
   var btnPause     = document.getElementById('btn-pause');
   var btnKill      = document.getElementById('btn-kill');
@@ -1773,6 +1777,7 @@
    * @returns {string}
    */
   function groupOf(s) {
+    if (s.status === 'created') return 'running';
     if (s.status === 'running' || s.status === 'paused') return 'running';
     if (s.status === 'awaiting_merge' || s.status === 'pending') return 'merge-queue';
     return 'completed';
@@ -2012,8 +2017,11 @@
       complexityBadge.classList.add('hidden');
     }
     // Toggle action button states
+    var isCreated = s.status === 'created';
     var isRunning = s.status === 'running';
     var isPaused  = s.status === 'paused';
+    btnStart.disabled     = !isCreated;
+    btnStart.style.display = isCreated ? '' : 'none';
     btnPause.textContent  = isPaused ? 'Resume' : 'Pause';
     btnPause.disabled     = !(isRunning || isPaused);
     btnKill.disabled      = !(isRunning || isPaused);
@@ -2326,6 +2334,12 @@
       renderAgentTree();
     }
 
+    // Refresh tickets pane when tickets change
+    if (evType === 'ticket_created' || evType === 'TicketCreated' ||
+        evType === 'ticket_updated' || evType === 'TicketUpdated') {
+      if (observeSessionId) fetchTickets(observeSessionId);
+    }
+
     // Always append to event stream
     appendObserveEvent(evType, role, ts, data);
   }
@@ -2549,6 +2563,26 @@
   // -----------------------------------------------------------------------
   // Action buttons
   // -----------------------------------------------------------------------
+
+  btnStart.addEventListener('click', function () {
+    if (!selectedSessionId) return;
+    btnStart.disabled = true;
+    fetch('/api/sessions/' + encodeURIComponent(selectedSessionId) + '/start', { method: 'POST' })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'HTTP ' + r.status); });
+        return r.json();
+      })
+      .then(function (data) {
+        pollSessions();
+        if (data.session_id) {
+          setTimeout(function () { selectSession(data.session_id); }, 300);
+        }
+      })
+      .catch(function (err) {
+        btnStart.disabled = false;
+        showError(err.message || 'Failed to start session.');
+      });
+  });
 
   btnPause.addEventListener('click', function () {
     if (!selectedSessionId) return;
