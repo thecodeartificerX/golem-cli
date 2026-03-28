@@ -348,6 +348,29 @@ async def spawn_junior_dev(
         turns=num_turns,
         duration_s=int(session_result.duration_s),
     )
+
+    # Post-session insight extraction — failure must never propagate to the caller
+    if config.insight_extraction_enabled and os.environ.get("GOLEM_TEST_MODE") != "1":
+        try:
+            from golem.insight_extractor import extract_insights, write_insights
+
+            insight_result = await extract_insights(Path(worktree_path), ticket.id, config)
+            session_id = config.session_id
+            memory_dir = (
+                log_dir / "sessions" / session_id / "memory"
+                if session_id
+                else log_dir / "memory"
+            )
+            write_insights(insight_result, memory_dir)
+            print(
+                f"[INSIGHT] {ticket.id}: extracted {len(insight_result.file_insights)} file insights,"
+                f" {len(insight_result.gotchas_discovered)} gotchas,"
+                f" {len(insight_result.patterns_discovered)} patterns",
+                file=sys.stderr,
+            )
+        except Exception as _exc:
+            print(f"[INSIGHT] Warning: insight write failed for {ticket.id}: {_exc}", file=sys.stderr)
+
     return JuniorDevResult(
         result_text=result_text,
         cost_usd=cost_usd,
