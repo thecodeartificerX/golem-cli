@@ -175,17 +175,59 @@ def remove_server_json(golem_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def monitor_process(
-    session: SessionState,
-    on_exit: asyncio.Queue[int] | None = None,
-) -> None:
-    """Monitor a subprocess and update session status when it exits."""
-    if session.process is None:
+async def monitor_process(state: SessionState, sessions_dir: Path) -> None:
+    """Wait for a session's subprocess to exit and update session.json status."""
+    if state.process is None:
         return
-    returncode = await session.process.wait()
-    session.status = "done" if returncode == 0 else "failed"
-    if on_exit is not None:
-        await on_exit.put(returncode)
+    exit_code = await state.process.wait()
+    await asyncio.sleep(1.0)  # Let tailing catch final lines
+
+    from golem.session import read_session, write_session
+
+    session_dir = sessions_dir / state.id
+    if exit_code == 0:
+        state.status = "awaiting_merge"
+    else:
+        state.status = "failed"
+
+    # Update session.json on disk
+    if (session_dir / "session.json").exists():
+        meta = read_session(session_dir)
+        meta.status = state.status
+        write_session(session_dir, meta)
+
+    await state.event_queue.put(format_sse("status", {"state": state.status, "exit_code": exit_code}))
+
+
+# ---------------------------------------------------------------------------
+# Progress log tailer coroutine (used by session lifecycle — Task 7)
+# ---------------------------------------------------------------------------
+
+
+async def tail_progress_log(state: SessionState, sessions_dir: Path) -> None:
+    """Tail a session's progress.log, broadcasting new lines as SSE log events."""
+    log_path = sessions_dir / state.id / "progress.log"
+    seek_pos = 0
+
+    while True:
+        await asyncio.sleep(0.5)
+        if state.process is None or state.process.returncode is not None:
+            break
+        if not log_path.exists():
+            continue
+        try:
+            with open(log_path, encoding="utf-8") as f:
+                f.seek(seek_pos)
+                new_content = f.read()
+                seek_pos = f.tell()
+        except OSError:
+            continue
+        for raw_line in new_content.splitlines():
+            if not raw_line.strip():
+                continue
+            event_dict: dict[str, str | None] = {"message": raw_line, "raw": raw_line}
+            state.log_buffer.append(event_dict)
+            await state.event_queue.put(format_sse("log", event_dict))
 
 
 # ---------------------------------------------------------------------------
@@ -264,5 +306,136 @@ def create_app() -> FastAPI:
         import signal
         os.kill(os.getpid(), signal.SIGTERM)
         return {"status": "stopping"}
+
+    # ------------------------------------------------------------------
+    # Session CRUD
+    # ------------------------------------------------------------------
+
+    @app.post("/api/sessions")
+    async def create_session(req: CreateSessionRequest) -> dict[str, str]:
+        from golem.session import create_session_dir, generate_session_id
+
+        spec = Path(req.spec_path)
+        if not spec.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Spec not found: {req.spec_path}")
+
+        project_root = Path(req.project_root) if req.project_root else spec.resolve().parent
+        session_id = generate_session_id(spec, sessions_dir)
+
+        # Create session directory structure
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        session_dir = create_session_dir(sessions_dir, session_id, spec)
+
+        # Spawn the golem run subprocess
+        process = await asyncio.create_subprocess_exec(
+            "uv", "run", "golem", "run", str(spec.resolve()),
+            "--force", "--no-server",
+            "--session-id", session_id,
+            "--golem-dir", str(session_dir),
+            cwd=str(project_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        state = session_mgr.create_session(session_id, spec)
+        state.process = process
+        state.status = "running"
+
+        # Start background tasks for this session
+        state.background_tasks.append(asyncio.create_task(tail_progress_log(state, sessions_dir)))
+        state.background_tasks.append(asyncio.create_task(monitor_process(state, sessions_dir)))
+
+        return {"session_id": session_id, "status": "running"}
+
+    @app.get("/api/sessions")
+    async def list_sessions() -> list[dict[str, str]]:
+        sessions = session_mgr.list_sessions()
+        return [
+            {
+                "id": s.id,
+                "status": s.status,
+                "spec_path": str(s.spec_path),
+                "created_at": s.created_at,
+            }
+            for s in sessions
+        ]
+
+    @app.get("/api/sessions/{session_id}")
+    async def get_session(session_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        return {
+            "id": state.id,
+            "status": state.status,
+            "spec_path": str(state.spec_path),
+            "pid": state.process.pid if state.process else None,
+        }
+
+    @app.delete("/api/sessions/{session_id}")
+    async def delete_session(session_id: str) -> dict[str, str]:
+        from fastapi import HTTPException
+
+        if not session_mgr.kill_session(session_id):
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        session_mgr.archive_session(session_id)
+        return {"status": "deleted", "session_id": session_id}
+
+    # ------------------------------------------------------------------
+    # Session lifecycle
+    # ------------------------------------------------------------------
+
+    @app.post("/api/sessions/{session_id}/pause")
+    async def pause_session(session_id: str) -> dict[str, str]:
+        from fastapi import HTTPException
+
+        if not session_mgr.pause_session(session_id):
+            raise HTTPException(status_code=400, detail="Cannot pause session")
+        return {"status": "paused", "session_id": session_id}
+
+    @app.post("/api/sessions/{session_id}/resume")
+    async def resume_session(session_id: str) -> dict[str, str]:
+        from fastapi import HTTPException
+
+        if not session_mgr.resume_session(session_id):
+            raise HTTPException(status_code=400, detail="Cannot resume session")
+        return {"status": "running", "session_id": session_id}
+
+    @app.post("/api/sessions/{session_id}/guidance")
+    async def send_guidance(session_id: str, req: GuidanceRequest) -> dict[str, object]:
+        from fastapi import HTTPException
+        from golem.tickets import Ticket, TicketContext, TicketStore
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        session_dir = sessions_dir / session_id
+        tickets_dir = session_dir / "tickets"
+        tickets_dir.mkdir(parents=True, exist_ok=True)
+        store = TicketStore(tickets_dir)
+
+        ticket = Ticket(
+            id="",
+            type="guidance",
+            title="Operator Guidance",
+            status="pending",
+            priority="high",
+            created_by="operator",
+            assigned_to="tech_lead",
+            context=TicketContext(),
+            session_id=session_id,
+        )
+        ticket_id = await store.create(ticket)
+        await store.update(
+            ticket_id=ticket_id,
+            status="pending",
+            note=req.text,
+            agent="operator",
+        )
+        return {"ok": True, "ticket_id": ticket_id}
 
     return app
