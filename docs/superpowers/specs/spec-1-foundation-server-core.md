@@ -352,68 +352,120 @@ SERVER_STATUS: PASS
 
 ---
 
-## Task 6: Server Core
+## Task 6: Server Skeleton + Session Manager
 
 **Files:**
 - Create: `src/golem/server.py`
 
-- [ ] **Step 1: Create server.py with app factory**
+This task creates the server module with its core infrastructure. Do NOT implement endpoints yet — those come in Tasks 7 and 8.
+
+- [ ] **Step 1: Create server.py with core types and app factory**
   Create `src/golem/server.py` with `create_app() -> FastAPI`. Include:
   - `SessionState` dataclass: `id`, `process`, `status`, `config`, `event_queue`, `log_buffer`, `background_tasks`
   - `SessionManager` class with methods: `create_session()`, `pause_session()`, `resume_session()`, `kill_session()`, `archive_session()`, `get_session()`, `list_sessions()`
   - Stub `MergeCoordinator` class (empty methods, implemented in Spec 3)
-  - Server lifecycle: `write_server_json()`, `remove_server_json()`, lifespan handler
+  - Server lifecycle helpers: `write_server_json(golem_dir, pid, port)`, `remove_server_json(golem_dir)`, lifespan handler that calls remove on shutdown
   - **Pydantic request models must be module-level** (not inside `create_app()`)
+  - Module-level `CreateSessionRequest(BaseModel)`: `spec_path: str`, `project_root: str = ""`
+  - `_startup_time` module-level datetime for uptime tracking
+  - Use `datetime.UTC` (not `timezone.utc`) per ruff UP017
 
-- [ ] **Step 2: Implement session CRUD endpoints**
-  - `POST /api/sessions` — accepts `{"spec_path": str, "project_root": str}`, creates session dir, spawns subprocess, returns session ID
-  - `GET /api/sessions` — list all sessions with status
-  - `GET /api/sessions/{id}` — session detail (config, tickets, cost from progress.log)
-  - `DELETE /api/sessions/{id}` — kill + archive
-
-- [ ] **Step 3: Implement session lifecycle endpoints**
-  - `POST /api/sessions/{id}/pause` — send SIGSTOP/suspend to subprocess
-  - `POST /api/sessions/{id}/resume` — send SIGCONT/resume
-  - `POST /api/sessions/{id}/guidance` — write guidance ticket to session's ticket dir
-
-- [ ] **Step 4: Implement per-session SSE**
-  - `GET /api/sessions/{id}/events` — SSE stream tailing session's `progress.log`
-  - `GET /api/events` — aggregate SSE stream prefixing each event with session ID
-  - Each session gets its own `event_queue` and `log_buffer` (deque, maxlen=200)
-  - Background tasks: `tail_progress_log()`, `monitor_process()`, `stream_subprocess_output()`
-  - Session completion signaling: `monitor_process()` awaits subprocess exit, updates `session.json` to `awaiting_merge` (success) or `failed` (non-zero exit)
-
-- [ ] **Step 5: Implement per-session data endpoints**
-  - `GET /api/sessions/{id}/tickets` — list tickets from session's ticket dir
-  - `GET /api/sessions/{id}/diff` — `git diff` from session's worktree branches
-  - `GET /api/sessions/{id}/cost` — parse `AGENT_COST` from session's progress.log
-  - `GET /api/sessions/{id}/plan` — read session's `plans/overview.md`
-
-- [ ] **Step 6: Preserve existing endpoints**
-  - `GET /api/specs` — find .md files (same as current ui.py)
-  - `GET /api/browse/file` — native file picker (same as current ui.py)
-  - `GET /api/browse/folder` — native folder picker (same as current ui.py)
-  - `GET /api/config` — server-level config defaults
-  - `POST /api/preflight` — pre-run tool check
-  - `GET /api/server/status` — server info, uptime, session counts
+- [ ] **Step 2: Implement the root endpoint and server status**
+  Inside `create_app()`, register:
+  - `GET /` — serve dashboard HTML from `ui_template.html` (same as current `ui.py`)
+  - `GET /api/server/status` — return `{"pid", "port", "uptime_seconds", "session_counts": {by_status}}`
   - `POST /api/server/stop` — graceful shutdown
-  - `GET /` — serve dashboard HTML template
 
-- [ ] **Step 7: Create test_server.py**
+- [ ] **Step 3: Write initial tests for server skeleton**
   Create `tests/test_server.py` with tests:
-  - Session CRUD: create, list, get, delete
-  - Session status transitions
-  - SSE event stream (use `async for` with early break + `aclose()`, same pattern as test_ui.py)
-  - Subprocess spawning (mock `asyncio.create_subprocess_exec`)
-  - Server.json lifecycle (write on start, remove on stop)
-  - Guidance injection
-  - Endpoint response shapes for tickets, diff, cost, plan
+  - `test_create_app_returns_fastapi` — app factory returns FastAPI instance
+  - `test_session_manager_create_and_list` — create session, verify it appears in list
+  - `test_session_manager_get_missing` — returns None for unknown ID
+  - `test_write_remove_server_json` — write creates file, remove deletes it
+  - `test_server_status_endpoint` — GET `/api/server/status` returns 200 with expected keys
+  - `test_root_returns_html` — GET `/` returns 200 with HTML content
   Use `httpx.AsyncClient` with `ASGITransport` (no running server needed).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 4: Commit**
   ```bash
   git add src/golem/server.py tests/test_server.py
-  git commit -m "feat: add multi-session server with session manager, SSE, and REST API"
+  git commit -m "feat: add server skeleton with SessionManager, app factory, and server status"
+  ```
+
+#### Completion Gate
+
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
+
+```bash
+cd F:/Tools/Projects/golem-cli
+
+# 1. Core types import
+uv run python -c "
+from golem.server import create_app, SessionManager, SessionState, write_server_json, remove_server_json
+app = create_app()
+print('SERVER_SKELETON: PASS')
+"
+
+# 2. Minimum routes registered (root + server status + stop = 3)
+uv run python -c "
+from golem.server import create_app
+app = create_app()
+routes = [r.path for r in app.routes if hasattr(r, 'path')]
+assert '/' in routes, f'FAIL: / missing from {routes}'
+assert '/api/server/status' in routes, f'FAIL: /api/server/status missing'
+print(f'SKELETON_ROUTES: PASS ({len(routes)} routes)')
+"
+
+# 3. Skeleton tests pass (exactly 6)
+uv run pytest tests/test_server.py -v --tb=short 2>&1 | tail -1
+```
+
+Expected:
+```
+SERVER_SKELETON: PASS
+SKELETON_ROUTES: PASS ([N] routes)
+6 passed
+```
+
+---
+
+## Task 7: Session CRUD + Lifecycle Endpoints
+
+**Files:**
+- Modify: `src/golem/server.py`
+- Modify: `tests/test_server.py`
+
+This task adds all session management endpoints. Each endpoint must be tested before moving on.
+
+- [ ] **Step 1: Implement session CRUD endpoints**
+  Add to `create_app()`:
+  - `POST /api/sessions` — accepts `CreateSessionRequest`, creates session dir via `create_session_dir()`, spawns subprocess via `asyncio.create_subprocess_exec`, returns `{"session_id": str, "status": "running"}`
+  - `GET /api/sessions` — list all sessions with status, returns `[{"id", "status", "spec_path", "created_at"}]`
+  - `GET /api/sessions/{session_id}` — session detail (config, tickets, cost from progress.log)
+  - `DELETE /api/sessions/{session_id}` — kill subprocess + archive session
+
+- [ ] **Step 2: Implement session lifecycle endpoints**
+  - `POST /api/sessions/{session_id}/pause` — send SIGSTOP/suspend to subprocess, update status
+  - `POST /api/sessions/{session_id}/resume` — send SIGCONT/resume, update status
+  - `POST /api/sessions/{session_id}/guidance` — write operator guidance ticket to session's ticket dir using `TicketStore`
+
+- [ ] **Step 3: Add CRUD + lifecycle tests**
+  Add to `tests/test_server.py`:
+  - `test_create_session_returns_id` — POST `/api/sessions` returns session_id (mock subprocess)
+  - `test_list_sessions_empty` — GET `/api/sessions` returns empty list initially
+  - `test_list_sessions_after_create` — session appears after creation
+  - `test_get_session_detail` — GET `/api/sessions/{id}` returns expected shape
+  - `test_get_session_not_found` — returns 404 for unknown ID
+  - `test_delete_session` — DELETE removes session, returns success
+  - `test_pause_resume_session` — status transitions correctly
+  - `test_guidance_creates_ticket` — POST guidance writes ticket JSON to session dir
+  Mock `asyncio.create_subprocess_exec` in all tests that spawn processes.
+
+- [ ] **Step 4: Run tests and commit**
+  ```bash
+  uv run pytest tests/test_server.py -v --tb=short
+  git add src/golem/server.py tests/test_server.py
+  git commit -m "feat: add session CRUD and lifecycle endpoints"
   ```
 
 #### Completion Gate
@@ -421,37 +473,116 @@ SERVER_STATUS: PASS
 ```bash
 cd F:/Tools/Projects/golem-cli
 
-# 1. Server module imports
-uv run python -c "
-from golem.server import create_app, SessionManager, SessionState
-app = create_app()
-print('SERVER_IMPORT: PASS')
-"
-
-# 2. Key endpoints registered
+# 1. Session endpoints registered
 uv run python -c "
 from golem.server import create_app
 app = create_app()
 routes = [r.path for r in app.routes if hasattr(r, 'path')]
-required = ['/api/sessions', '/api/events', '/api/server/status']
+required = ['/api/sessions', '/api/sessions/{session_id}']
 missing = [r for r in required if r not in routes]
-assert not missing, f'FAIL: missing routes {missing}'
-print(f'ROUTES: PASS ({len(routes)} routes registered)')
+assert not missing, f'FAIL: missing {missing}'
+print(f'CRUD_ROUTES: PASS')
 "
 
-# 3. Server tests pass
+# 2. Server tests pass (skeleton 6 + CRUD/lifecycle 8 = 14)
 uv run pytest tests/test_server.py -v --tb=short 2>&1 | tail -1
 
-# 4. Full test suite still passes
+# 3. Full suite still passes
 uv run pytest --tb=short -q 2>&1 | tail -1
 ```
 
 Expected:
 ```
-SERVER_IMPORT: PASS
-ROUTES: PASS ([N] routes registered)
-[N] passed
-[N] passed
+CRUD_ROUTES: PASS
+14 passed
+[N] passed, 0 failed
+```
+
+---
+
+## Task 8: SSE Streams, Data Endpoints + Preserved Endpoints
+
+**Files:**
+- Modify: `src/golem/server.py`
+- Modify: `tests/test_server.py`
+
+This task adds real-time event streaming, per-session data access, and ports over endpoints from the existing `ui.py`.
+
+- [ ] **Step 1: Implement per-session SSE**
+  - `GET /api/sessions/{session_id}/events` — SSE stream tailing session's `progress.log`
+  - `GET /api/events` — aggregate SSE stream prefixing each event with session ID
+  - Each session gets its own `event_queue` (`asyncio.Queue`) and `log_buffer` (`deque`, maxlen=200)
+  - Background tasks: `tail_progress_log()` reads new lines from progress.log, `monitor_process()` awaits subprocess exit and updates `session.json` to `awaiting_merge` (exit 0) or `failed` (non-zero)
+
+- [ ] **Step 2: Implement per-session data endpoints**
+  - `GET /api/sessions/{session_id}/tickets` — list tickets from session's ticket dir via `TicketStore`
+  - `GET /api/sessions/{session_id}/diff` — run `git diff` for session's worktree branches
+  - `GET /api/sessions/{session_id}/cost` — parse `AGENT_COST` lines from session's `progress.log`
+  - `GET /api/sessions/{session_id}/plan` — read session's `plans/overview.md`
+
+- [ ] **Step 3: Preserve existing endpoints from ui.py**
+  Port these from the existing `ui.py` module:
+  - `GET /api/specs` — find .md files in project
+  - `GET /api/browse/file` — native file picker dialog
+  - `GET /api/browse/folder` — native folder picker dialog
+  - `GET /api/config` — server-level config defaults
+  - `POST /api/preflight` — pre-run tool/environment check
+
+- [ ] **Step 4: Add SSE + data + preserved endpoint tests**
+  Add to `tests/test_server.py`:
+  - `test_session_events_sse` — SSE stream yields events (use `async for` with early `break` + `aclose()`, NOT `TestClient`)
+  - `test_aggregate_events_sse` — aggregate stream prefixes session ID
+  - `test_session_tickets_endpoint` — returns ticket list from session dir
+  - `test_session_cost_endpoint` — parses AGENT_COST from progress.log
+  - `test_session_plan_endpoint` — returns plan content or 404
+  - `test_session_diff_endpoint` — returns diff output
+  - `test_specs_endpoint` — lists .md files
+  - `test_config_endpoint` — returns config dict
+  - `test_preflight_endpoint` — runs checks and returns results
+  - `test_monitor_process_updates_status` — subprocess exit updates session.json
+
+- [ ] **Step 5: Run tests and commit**
+  ```bash
+  uv run pytest tests/test_server.py -v --tb=short
+  uv run pytest --tb=short -q
+  git add src/golem/server.py tests/test_server.py
+  git commit -m "feat: add SSE streams, data endpoints, and preserved endpoints to server"
+  ```
+
+#### Completion Gate
+
+```bash
+cd F:/Tools/Projects/golem-cli
+
+# 1. All endpoint categories registered
+uv run python -c "
+from golem.server import create_app
+app = create_app()
+routes = [r.path for r in app.routes if hasattr(r, 'path')]
+required = [
+    '/api/sessions', '/api/events', '/api/server/status',
+    '/api/specs', '/api/config',
+]
+missing = [r for r in required if r not in routes]
+assert not missing, f'FAIL: missing {missing}'
+# Verify parameterized routes exist
+param_routes = [r for r in routes if '{session_id}' in r]
+assert len(param_routes) >= 5, f'FAIL: only {len(param_routes)} session param routes'
+print(f'ALL_ROUTES: PASS ({len(routes)} total routes)')
+"
+
+# 2. Server tests pass (skeleton 6 + CRUD 8 + SSE/data/preserved 10 = 24)
+uv run pytest tests/test_server.py -v --tb=short 2>&1 | tail -1
+
+# 3. Full suite still passes
+uv run pytest --tb=short -q 2>&1 | tail -1
+```
+
+Expected:
+```
+ALL_ROUTES: PASS ([N] total routes)
+24 passed
+[N] passed, 0 failed
 ```
 
 ---
@@ -460,7 +591,7 @@ ROUTES: PASS ([N] routes registered)
 
 **Phase 1 is NOT complete until every check below passes.** If any check fails, return to the responsible task, fix the issue, and re-run this entire gate.
 
-### Gate 1: All New Files Exist
+### Gate 1: All New Files Exist and Are Non-Empty
 
 ```bash
 cd F:/Tools/Projects/golem-cli
@@ -471,7 +602,7 @@ done
 
 Expected: all PASS
 
-### Gate 2: Core Imports
+### Gate 2: Core Imports + Field Checks
 
 ```bash
 cd F:/Tools/Projects/golem-cli
@@ -484,18 +615,18 @@ from golem.worktree import create_worktree
 from golem.progress import ProgressLogger
 
 c = GolemConfig()
-assert hasattr(c, 'session_id')
-assert hasattr(c, 'branch_prefix')
+assert hasattr(c, 'session_id'), 'FAIL: GolemConfig missing session_id'
+assert hasattr(c, 'branch_prefix'), 'FAIL: GolemConfig missing branch_prefix'
 
 t = Ticket.__dataclass_fields__
-assert 'session_id' in t
+assert 'session_id' in t, 'FAIL: Ticket missing session_id field'
 
 import inspect
 sig = inspect.signature(create_worktree)
-assert 'branch_prefix' in sig.parameters
+assert 'branch_prefix' in sig.parameters, 'FAIL: create_worktree missing branch_prefix param'
 
-for m in ['log_session_start', 'log_session_complete', 'log_merge_queued']:
-    assert hasattr(ProgressLogger, m)
+for m in ['log_session_start', 'log_session_complete', 'log_merge_queued', 'log_pr_created', 'log_pr_merged', 'log_rebase_start', 'log_rebase_complete', 'log_rebase_failed']:
+    assert hasattr(ProgressLogger, m), f'FAIL: ProgressLogger missing {m}'
 
 print('IMPORTS: PASS')
 "
@@ -507,26 +638,53 @@ Expected: `IMPORTS: PASS`
 
 ```bash
 cd F:/Tools/Projects/golem-cli
-uv run golem run --help 2>&1 | grep -c "session-id\|golem-dir\|no-server" | xargs -I{} test {} -eq 3 && echo "CLI_FLAGS: PASS" || echo "CLI_FLAGS: FAIL"
-uv run golem server --help 2>&1 | grep -c "start\|stop\|status" | xargs -I{} test {} -ge 3 && echo "SERVER_CMDS: PASS" || echo "SERVER_CMDS: FAIL"
+uv run golem run --help 2>&1 | grep -q "session-id" && echo "FLAG_SESSION: PASS" || echo "FLAG_SESSION: FAIL"
+uv run golem run --help 2>&1 | grep -q "golem-dir" && echo "FLAG_DIR: PASS" || echo "FLAG_DIR: FAIL"
+uv run golem run --help 2>&1 | grep -q "no-server" && echo "FLAG_NOSERVER: PASS" || echo "FLAG_NOSERVER: FAIL"
+uv run golem server --help 2>&1 | grep -q "start" && echo "SERVER_START: PASS" || echo "SERVER_START: FAIL"
+uv run golem server --help 2>&1 | grep -q "stop" && echo "SERVER_STOP: PASS" || echo "SERVER_STOP: FAIL"
+uv run golem server --help 2>&1 | grep -q "status" && echo "SERVER_STATUS: PASS" || echo "SERVER_STATUS: FAIL"
 ```
 
-Expected:
-```
-CLI_FLAGS: PASS
-SERVER_CMDS: PASS
+Expected: all 6 PASS
+
+### Gate 4: Server Route Coverage
+
+```bash
+cd F:/Tools/Projects/golem-cli
+uv run python -c "
+from golem.server import create_app
+app = create_app()
+routes = [r.path for r in app.routes if hasattr(r, 'path')]
+required = [
+    '/',
+    '/api/sessions',
+    '/api/sessions/{session_id}',
+    '/api/events',
+    '/api/server/status',
+    '/api/specs',
+    '/api/config',
+]
+missing = [r for r in required if r not in routes]
+if missing:
+    print(f'ROUTE_COVERAGE: FAIL -- missing: {missing}')
+else:
+    print(f'ROUTE_COVERAGE: PASS ({len(routes)} routes)')
+"
 ```
 
-### Gate 4: Full Test Suite
+Expected: `ROUTE_COVERAGE: PASS`
+
+### Gate 5: Full Test Suite
 
 ```bash
 cd F:/Tools/Projects/golem-cli
 uv run pytest -v --tb=short 2>&1 | tail -5
 ```
 
-Expected: `[N] passed` (must be >= 314 existing + new tests, 0 failed)
+Expected: `[N] passed` (must be >= 382 — 350 existing + ~8 session + ~6 config/ticket/worktree/progress + ~24 server, 0 failed)
 
-### Gate 5: Backward Compatibility
+### Gate 6: Backward Compatibility
 
 ```bash
 cd F:/Tools/Projects/golem-cli
@@ -535,22 +693,18 @@ uv run golem version 2>&1 | grep -q "golem" && echo "VERSION_CMD: PASS" || echo 
 uv run golem doctor 2>&1 | grep -q "git\|uv\|claude" && echo "DOCTOR_CMD: PASS" || echo "DOCTOR_CMD: FAIL"
 ```
 
-Expected:
-```
-NOSERVER_COMPAT: PASS
-VERSION_CMD: PASS
-DOCTOR_CMD: PASS
-```
+Expected: all 3 PASS
 
 ### Phase 1 Verdict
 
-Run all 5 gates. If **all gates pass**, Phase 1 is complete.
+Run all 6 gates. If **all gates pass**, Phase 1 is complete.
 If **any gate fails**, identify the responsible task from the table below, fix it, and re-run the full gate sequence.
 
 | Gate | Validates Tasks |
 |------|----------------|
-| Gate 1 | Task 1 (session.py), Task 6 (server.py) |
-| Gate 2 | Task 1, 2, 3, 4 (all module changes) |
+| Gate 1 | Task 1 (session.py), Tasks 6-8 (server.py) |
+| Gate 2 | Tasks 1-4 (all module changes) |
 | Gate 3 | Task 5 (CLI flags + server sub-typer) |
-| Gate 4 | All tasks (regression) |
-| Gate 5 | Task 5 (backward compat) |
+| Gate 4 | Tasks 6-8 (server endpoints) |
+| Gate 5 | All tasks (regression + new test count) |
+| Gate 6 | Task 5 (backward compat) |
