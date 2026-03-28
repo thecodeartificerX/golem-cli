@@ -1930,8 +1930,11 @@
         renderSidebar();
         updateStats();
 
-        // If selected session no longer exists, deselect
-        if (selectedSessionId && !sessionsCache[selectedSessionId]) {
+        // Refresh header buttons for the selected session
+        if (selectedSessionId && sessionsCache[selectedSessionId]) {
+          updateSessionHeader(sessionsCache[selectedSessionId]);
+        } else if (selectedSessionId) {
+          // Selected session no longer exists, deselect
           selectedSessionId = null;
           showEmptyState();
         }
