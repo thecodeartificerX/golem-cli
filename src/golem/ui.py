@@ -604,7 +604,7 @@ def configure_logging(debug: bool = False) -> None:
 
 
 def start_server(
-    host: str = "127.0.0.1", port: int = 9664, log_level: str = "warning", debug: bool = False
+    host: str = "127.0.0.1", port: int = 7665, log_level: str = "warning", debug: bool = False
 ) -> None:
     """Start the uvicorn server. Blocks until Ctrl+C."""
     import uvicorn

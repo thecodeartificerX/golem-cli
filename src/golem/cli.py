@@ -39,7 +39,7 @@ app.add_typer(server_app, name="server")
 
 @server_app.command()
 def start(
-    port: int = typer.Option(9664, "--port", help="Server port"),
+    port: int = typer.Option(7665, "--port", help="Server port"),
     host: str = typer.Option("127.0.0.1", "--host", help="Server host"),
 ) -> None:
     """Start the Golem server as a background process."""
@@ -625,7 +625,7 @@ def version() -> None:
 
 @app.command()
 def ui(
-    port: int = typer.Option(9664, help="Port to serve the dashboard on"),
+    port: int = typer.Option(7665, help="Port to serve the dashboard on"),
     debug: bool = typer.Option(False, help="Enable debug logging to terminal"),
 ) -> None:
     """Launch the Golem web dashboard."""

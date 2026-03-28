@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = 'http://127.0.0.1:9664';
+const BASE = 'http://127.0.0.1:7665';
 
 test('BROWSE shows dropdown with spec files', async ({ page }) => {
   await page.goto(BASE);

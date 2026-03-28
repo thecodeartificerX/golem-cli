@@ -461,11 +461,11 @@ def test_start_server_signature_accepts_kwargs() -> None:
 
 
 def test_start_server_default_port() -> None:
-    """start_server default port must be 9664."""
+    """start_server default port must be 7665."""
     import inspect
 
     sig = inspect.signature(start_server)
-    assert sig.parameters["port"].default == 9664
+    assert sig.parameters["port"].default == 7665
 
 
 # ---------------------------------------------------------------------------

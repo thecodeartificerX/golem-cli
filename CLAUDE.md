@@ -27,8 +27,8 @@ uv run golem config set KEY VAL  # Set a config value
 uv run golem config reset        # Reset config to defaults
 uv run golem clean               # Remove .golem/ + golem/* branches
 uv run golem version             # Version, architecture, Python, platform
-uv run golem ui                  # Launch web dashboard (port 9664)
-uv run golem server start        # Start multi-session server (port 9664)
+uv run golem ui                  # Launch web dashboard (port 7665)
+uv run golem server start        # Start multi-session server (port 7665)
 uv run golem server stop         # Stop running server
 uv run golem server status       # Check server status
 uv run golem pause SESSION       # Pause a running session
@@ -41,7 +41,9 @@ uv run golem merge SESSION       # Enqueue session for merge
 uv run golem approve SESSION     # Approve and merge session's PR
 uv run golem merge-queue         # Show current merge queue
 uv run golem conflicts           # Show cross-session file conflicts
-.\Golem.ps1                      # PowerShell ops dashboard (setup + server + TUI)
+.\Golem.ps1                      # PowerShell ops dashboard (env checks + multi-session server)
+.\Golem.ps1 -Clean               # Wipe .golem/ then start fresh
+.\Golem.ps1 -Port 8000           # Use a custom port (default: 7665)
 uv run pytest                    # Run tests
 ```
 
@@ -76,6 +78,7 @@ Created by `golem run` in the project root (gitignored):
 - **No emoji in CLI/TUI output** — rich crashes on Windows cp1252 console; use ASCII text only
 - **Tests must use `git init -b main`** — Windows git defaults vary; never assume `master`
 - **Validation subprocesses read fresh PATH from Windows registry** — `_subprocess_env()` in `validator.py` reads `HKCU\Environment\Path` and prepends new entries; long-running parent processes (Claude Code) may have stale PATH
+- **Windows PATH goes stale in long-lived shells** — tools installed after the shell opened aren't found; `Golem.ps1` calls `Sync-PathFromRegistry` (mirrors `validator.py:_subprocess_env()` registry refresh); `config.py:run_environment_checks()` uses `shutil.which()` which also misses stale PATH
 - **Spec validation commands must not assume Unix quoting** — `_normalize_cmd()` in `validator.py` converts single quotes to double quotes for cmd.exe; spec authors can use either style
 
 ### Style
@@ -177,6 +180,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Mock `run_session` in server tests** — session creation uses in-process `run_session()`, not subprocesses; `patch("golem.server.run_session", side_effect=async_noop)` where `async_noop` does `await asyncio.sleep(999)`
 - **Pause/resume returns 400 for in-process sessions** — SIGSTOP/SIGCONT don't apply to coroutines; only subprocess-based sessions support pause
 - **`conftest.py` has shared fixtures** — `make_ticket`, `git_repo`, `golem_dir`, `write_ticket_json` — use these instead of redefining per-file
+- **Validate PowerShell syntax from bash** — write a temp `.ps1` that calls `[System.Management.Automation.Language.Parser]::ParseFile(...)` and run with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`; bash `$` escaping makes inline PS one-liners unreliable
 
 ### Claude Agent SDK Gotchas
 - **Use `permission_mode="bypassPermissions"`** for all SDK sessions — `acceptEdits` blocks headless file writes
@@ -204,10 +208,10 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 ### FastAPI / UI Gotchas
 - **Pydantic models must be module-level** — defining `BaseModel` subclasses inside `create_app()` breaks FastAPI's annotation resolution; requests get 422 instead of binding to the body
 - **SSE tests must drive the generator directly** — `TestClient` hangs on infinite SSE streams; use `async for` with early `break` + `aclose()` instead
-- **UI server for direct PID control:** `python -m uvicorn golem.ui:create_app --factory --host 127.0.0.1 --port 9664` (when venv is activated, avoids double-process nesting from `uv run`)
+- **UI server for direct PID control:** `python -m uvicorn golem.ui:create_app --factory --host 127.0.0.1 --port 7665` (when venv is activated, avoids double-process nesting from `uv run`)
 - **Native file dialogs via ctypes** — `dialogs.py` uses `GetOpenFileNameW` / `SHBrowseForFolderW`; called via `asyncio.to_thread()` from browse endpoints; `OFN_NOCHANGEDIR` prevents CWD corruption
 - **UI control bar has two inputs** — SPEC (file path) + ROOT (project directory); SPEC browse auto-fills ROOT with parent dir; `/api/run` accepts `project_root` field (backward-compatible, empty = spec's parent)
-- **Golem.ps1 uses polling loop, not `WaitForExit()`** — .NET `WaitForExit()` swallows Ctrl+C; poll `$proc.HasExited` with `Start-Sleep -Milliseconds 300` instead; `try/finally` kills child process on exit
+- **Golem.ps1 launches `golem.server:create_app`** — writes `server.json` for CLI discovery, polls `/api/server/status` for health (verifying PID match), kills stale Python processes on the port, refreshes PATH from Windows registry. Uses `.NET ProcessStartInfo` with `HasExited` polling (not `WaitForExit()` which swallows Ctrl+C)
 - **`server.py` vs `ui.py`** — `server.py` is the multi-session server (concurrent spec execution, session lifecycle); `ui.py` is the legacy single-session dashboard. New features go in `server.py`
 - **Sessions run in-process** — `server.py` uses `asyncio.create_task(run_session(...))` not subprocesses; tests must mock `golem.server.run_session` (not `create_subprocess_exec`)
 
@@ -222,6 +226,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
 - **Merge coordinator** — FIFO merge queue with JSON persistence. Auto-enqueues sessions on completion, creates PRs via `gh`, rebase cascades queued sessions after each merge, detects cross-session file conflicts.
 - **CLI-as-client architecture** — CLI is a thin HTTP client (`client.py`) that delegates to the server. `find_server()` reads `.golem/server.json` with cross-platform PID liveness check. `--no-server` flag preserves direct execution for CI.
+- **Default port is 7665** — chosen to avoid conflicts with WSL port forwarding (`wslrelay.exe` commonly occupies 9664); all defaults in `cli.py`, `server.py`, `client.py`, `config.py`, `ui.py`, and `Golem.ps1` must stay in sync
 - **Cross-session intelligence** — conflict resolution strategies, session analytics, cost aggregation across concurrent sessions.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 

@@ -42,7 +42,7 @@ def find_server(project_root: Path) -> tuple[str, int] | None:
 
     pid = data.get("pid")
     host = data.get("host", "127.0.0.1")
-    port = data.get("port", 9664)
+    port = data.get("port", 7665)
 
     if pid is None:
         return None

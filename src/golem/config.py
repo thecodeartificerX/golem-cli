@@ -359,16 +359,16 @@ async def run_environment_checks(project_root: Path) -> list[dict[str, object]]:
         "detail": "clean" if not golem_dir.exists() else ".golem directory exists",
     })
 
-    # Check port 9664
+    # Check port 7665
     port_free = True
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
-            port_free = s.connect_ex(("127.0.0.1", 9664)) != 0
+            port_free = s.connect_ex(("127.0.0.1", 7665)) != 0
     except Exception:
         pass
     checks.append({
-        "check": "port 9664",
+        "check": "port 7665",
         "passed": port_free,
         "detail": "available" if port_free else "in use",
     })
