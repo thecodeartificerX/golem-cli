@@ -771,6 +771,403 @@
     }
 
     /* -----------------------------------------------------------------------
+       Observe tab
+    ----------------------------------------------------------------------- */
+    #pane-observe {
+      padding: 0;
+      overflow: hidden;
+      display: none;
+    }
+
+    #pane-observe.active {
+      display: flex;
+    }
+
+    .observe-split {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* Left: agent tree panel */
+    .agent-tree-panel {
+      width: 240px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .agent-tree-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    #agent-tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    #agent-tree::-webkit-scrollbar { width: 4px; }
+    #agent-tree::-webkit-scrollbar-track { background: transparent; }
+    #agent-tree::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+    .agent-node {
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      border-left: 2px solid transparent;
+      transition: background 0.1s ease;
+    }
+
+    .agent-node:hover { background: var(--panel-hover); }
+
+    .agent-node.depth-1 { padding-left: 24px; }
+    .agent-node.depth-2 { padding-left: 36px; }
+
+    .agent-node.running { border-left-color: var(--success); }
+    .agent-node.done    { border-left-color: var(--muted); }
+
+    .agent-status-icon {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .agent-status-icon.running { background: var(--success); box-shadow: 0 0 4px rgba(34, 197, 94, 0.5); }
+    .agent-status-icon.done    { background: var(--muted); }
+    .agent-status-icon.idle    { background: var(--dim-text); }
+
+    .agent-role {
+      color: var(--body-text);
+      font-weight: 700;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-turns {
+      font-size: 10px;
+      color: var(--dim-text);
+      white-space: nowrap;
+    }
+
+    /* Right: event stream panel */
+    .event-stream-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .event-stream-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .live-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.08);
+      color: var(--success);
+      display: none;
+    }
+
+    .live-badge.active { display: inline-block; }
+
+    #event-stream {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+
+    #event-stream::-webkit-scrollbar { width: 5px; }
+    #event-stream::-webkit-scrollbar-track { background: transparent; }
+    #event-stream::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+    .ev-line {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 1px;
+      padding: 1px 0;
+    }
+
+    .ev-ts {
+      color: var(--dim-text);
+      flex-shrink: 0;
+      font-size: 10px;
+      user-select: none;
+      min-width: 56px;
+    }
+
+    .ev-role {
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+      min-width: 68px;
+    }
+
+    .ev-role.planner    { color: var(--info); }
+    .ev-role.tech_lead  { color: var(--success); }
+    .ev-role.junior_dev { color: #f97316; }
+    .ev-role.unknown    { color: var(--muted); }
+
+    .ev-content { color: var(--body-text); word-break: break-word; flex: 1; }
+    .ev-content.thinking { color: var(--dim-text); font-style: italic; }
+    .ev-content.tool-call { color: #eab308; }
+
+    .ev-warn-bar {
+      background: rgba(234, 179, 8, 0.08);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      border-radius: 3px;
+      color: var(--warning);
+      padding: 3px 10px;
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+
+    .ev-error-bar {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 3px;
+      color: var(--error);
+      padding: 3px 10px;
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+
+    /* -----------------------------------------------------------------------
+       Preflight tab
+    ----------------------------------------------------------------------- */
+    #pane-preflight {
+      padding: 0;
+      overflow: hidden;
+      display: none;
+    }
+
+    #pane-preflight.active {
+      display: flex;
+    }
+
+    .preflight-split {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .preflight-left {
+      width: 280px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .preflight-right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 12px 16px;
+      gap: 16px;
+    }
+
+    .preflight-right::-webkit-scrollbar { width: 5px; }
+    .preflight-right::-webkit-scrollbar-track { background: transparent; }
+    .preflight-right::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+    .preflight-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #preflight-topology {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    #preflight-topology::-webkit-scrollbar { width: 4px; }
+    #preflight-topology::-webkit-scrollbar-track { background: transparent; }
+    #preflight-topology::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+    .topo-role {
+      padding: 7px 12px;
+      font-size: 11px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topo-role-name {
+      font-weight: 700;
+      color: var(--label);
+      margin-bottom: 3px;
+    }
+
+    .topo-detail {
+      color: var(--muted-light);
+      font-size: 10px;
+    }
+
+    .topo-tools {
+      color: var(--dim-text);
+      font-size: 10px;
+      margin-top: 2px;
+      word-break: break-word;
+    }
+
+    /* Env checks */
+    .env-check-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .env-check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 11px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .env-check-item:last-child { border-bottom: none; }
+
+    .env-check-icon {
+      font-size: 11px;
+      flex-shrink: 0;
+      font-style: normal;
+    }
+
+    .env-check-icon.pass  { color: var(--success); }
+    .env-check-icon.warn  { color: var(--warning); }
+    .env-check-icon.fail  { color: var(--error); }
+    .env-check-icon.info  { color: var(--info); }
+
+    .env-check-text { color: var(--body-text); flex: 1; word-break: break-word; }
+
+    /* Cost estimate */
+    .cost-estimate-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .cost-estimate-table th {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      text-align: left;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cost-estimate-table td {
+      font-size: 11px;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--body-text);
+    }
+
+    .cost-estimate-total td {
+      font-weight: 700;
+      color: var(--label);
+    }
+
+    .preflight-load-btn {
+      background: linear-gradient(135deg, #059669, #10b981);
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+      align-self: flex-start;
+    }
+
+    .preflight-load-btn:hover { box-shadow: 0 0 10px rgba(16, 185, 129, 0.35); }
+    .preflight-load-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+    .preflight-ready-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid;
+      display: none;
+    }
+
+    .preflight-ready-badge.ready {
+      display: inline-block;
+      color: var(--success);
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .preflight-ready-badge.not-ready {
+      display: inline-block;
+      color: var(--error);
+      border-color: rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    /* Tab accent colours for observe (purple) and preflight (green) */
+    .tab-btn[data-tab="observe"].active {
+      color: #a78bfa;
+      border-bottom-color: #8b5cf6;
+    }
+
+    .tab-btn[data-tab="preflight"].active {
+      color: #34d399;
+      border-bottom-color: #10b981;
+    }
+
+    /* -----------------------------------------------------------------------
        Merge queue indicator (sidebar group)
     ----------------------------------------------------------------------- */
     .session-entry.merge-queue .session-name {
@@ -1051,6 +1448,8 @@
           <button class="tab-btn" data-tab="plan">Plan</button>
           <button class="tab-btn" data-tab="diff">Diff</button>
           <button class="tab-btn" data-tab="cost">Cost</button>
+          <button class="tab-btn" data-tab="observe">Observe</button>
+          <button class="tab-btn" data-tab="preflight">Preflight</button>
         </div>
 
         <div id="tab-content">
@@ -1108,6 +1507,72 @@
                 <tr><td colspan="4" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Observe pane -->
+          <div class="tab-pane" id="pane-observe">
+            <div class="observe-split">
+              <!-- Left: agent tree -->
+              <div class="agent-tree-panel">
+                <div class="agent-tree-header">
+                  <span>Agent Tree</span>
+                </div>
+                <div id="agent-tree">
+                  <div style="padding:12px;color:var(--dim-text);font-size:11px">No agents yet.</div>
+                </div>
+              </div>
+              <!-- Right: event stream -->
+              <div class="event-stream-panel">
+                <div class="event-stream-header">
+                  <span>Event Stream</span>
+                  <span class="live-badge" id="observe-live-badge">LIVE</span>
+                </div>
+                <div id="event-stream">
+                  <div style="color:var(--dim-text);font-size:11px;padding:8px 0">Waiting for events...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preflight pane -->
+          <div class="tab-pane" id="pane-preflight">
+            <div class="preflight-split">
+              <!-- Left: topology -->
+              <div class="preflight-left">
+                <div class="preflight-section-title">Agent Topology</div>
+                <div id="preflight-topology">
+                  <div style="padding:12px;color:var(--dim-text);font-size:11px">Run preflight to see topology.</div>
+                </div>
+              </div>
+              <!-- Right: env checks + cost estimate -->
+              <div class="preflight-right">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button class="preflight-load-btn" id="preflight-run-btn">RUN PREFLIGHT</button>
+                  <span class="preflight-ready-badge" id="preflight-ready-badge"></span>
+                </div>
+                <div>
+                  <div class="preflight-section-title" style="padding:0 0 6px 0;border-bottom:none">Environment Checks</div>
+                  <ul class="env-check-list" id="preflight-env-list">
+                    <li style="color:var(--dim-text);font-size:11px">Not yet loaded.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="preflight-section-title" style="padding:0 0 6px 0;border-bottom:none">Cost Estimate</div>
+                  <table class="cost-estimate-table" id="preflight-cost-table">
+                    <thead>
+                      <tr>
+                        <th>Role</th>
+                        <th style="text-align:right">Min</th>
+                        <th style="text-align:right">Max</th>
+                      </tr>
+                    </thead>
+                    <tbody id="preflight-cost-tbody">
+                      <tr><td colspan="3" style="color:var(--dim-text)">Not yet loaded.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
 
         </div><!-- #tab-content -->
@@ -1184,6 +1649,18 @@
   /** @type {Object.<string, Object>} */
   var sessionsCache = {};
 
+  /** @type {EventSource|null} */
+  var observeEventSource = null;
+
+  /** @type {Object.<string, {role:string, status:string, turns:number}>} */
+  var agentNodes = {};
+
+  /** @type {string|null} — session id for which observe SSE is connected */
+  var observeSessionId = null;
+
+  /** @type {string|null} — session id for which preflight was last loaded */
+  var preflightSessionId = null;
+
   // -----------------------------------------------------------------------
   // DOM refs
   // -----------------------------------------------------------------------
@@ -1214,6 +1691,15 @@
   var btnGuidance  = document.getElementById('btn-guidance');
   var btnPause     = document.getElementById('btn-pause');
   var btnKill      = document.getElementById('btn-kill');
+
+  var agentTreeEl      = document.getElementById('agent-tree');
+  var eventStreamEl    = document.getElementById('event-stream');
+  var observeLiveBadge = document.getElementById('observe-live-badge');
+  var preflightTopology    = document.getElementById('preflight-topology');
+  var preflightEnvList     = document.getElementById('preflight-env-list');
+  var preflightCostTbody   = document.getElementById('preflight-cost-tbody');
+  var preflightRunBtn      = document.getElementById('preflight-run-btn');
+  var preflightReadyBadge  = document.getElementById('preflight-ready-badge');
 
   var newSessionBtn = document.getElementById('new-session-btn');
   var modalOverlay = document.getElementById('modal-overlay');
@@ -1272,6 +1758,8 @@
       if (tab === 'plan') fetchPlan(selectedSessionId);
       if (tab === 'diff') fetchDiff(selectedSessionId);
       if (tab === 'cost') fetchCost(selectedSessionId);
+      if (tab === 'observe') connectObserveSSE(selectedSessionId);
+      if (tab === 'preflight') { preflightSessionId = null; /* reset so user can re-run */ }
     }
   });
 
@@ -1465,14 +1953,26 @@
   function selectSession(id) {
     if (selectedSessionId === id) return;
 
-    // Disconnect previous SSE
+    // Disconnect previous SSE connections
     if (sessionEventSource) {
       sessionEventSource.close();
       sessionEventSource = null;
     }
+    if (observeEventSource) {
+      observeEventSource.close();
+      observeEventSource = null;
+    }
 
     selectedSessionId = id;
     logConsole.innerHTML = '';
+    // Reset observe/preflight state for the new session
+    agentNodes = {};
+    agentTreeEl.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">No agents yet.</div>';
+    eventStreamEl.innerHTML = '<div style="color:var(--dim-text);font-size:11px;padding:8px 0">Waiting for events...</div>';
+    observeLiveBadge.classList.remove('active');
+    observeSessionId = null;
+    preflightSessionId = null;
+    resetPreflightUI();
 
     // Update sidebar active state
     renderSidebar();
@@ -1757,6 +2257,293 @@
       '</tr>'
     );
     costTbody.innerHTML = html;
+  }
+
+  // -----------------------------------------------------------------------
+  // Observe SSE — agent tree + event stream
+  // -----------------------------------------------------------------------
+
+  function connectObserveSSE(sessionId) {
+    // Already connected for this session
+    if (observeSessionId === sessionId && observeEventSource) return;
+
+    if (observeEventSource) {
+      observeEventSource.close();
+      observeEventSource = null;
+    }
+
+    observeSessionId = sessionId;
+    agentNodes = {};
+    agentTreeEl.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">Connecting...</div>';
+    eventStreamEl.innerHTML = '';
+    observeLiveBadge.classList.remove('active');
+
+    var es = new EventSource('/api/sessions/' + encodeURIComponent(sessionId) + '/observe');
+    observeEventSource = es;
+
+    es.onopen = function () {
+      observeLiveBadge.classList.add('active');
+    };
+
+    es.addEventListener('agent_event', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        handleAgentEvent(data);
+      } catch (ex) { /* ignore parse errors */ }
+    });
+
+    es.onerror = function () {
+      observeLiveBadge.classList.remove('active');
+    };
+  }
+
+  /**
+   * Handle a single agent event from the observe SSE stream.
+   * @param {Object} data
+   */
+  function handleAgentEvent(data) {
+    var evType = data.event_type || data.type || '';
+    var role   = (data.role || data.agent_role || 'unknown').toLowerCase();
+    var ts     = formatObserveTs(data.timestamp || data.ts || '');
+
+    // Update agent tree on spawn/complete and reflect phase in sidebar
+    if (evType === 'agent_spawned' || evType === 'AgentSpawned') {
+      var agentId = data.agent_id || role;
+      agentNodes[agentId] = { role: role, status: 'running', turns: 0 };
+      // Update session phase in sidebar cache
+      if (observeSessionId && sessionsCache[observeSessionId]) {
+        var phaseLabel = role.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        sessionsCache[observeSessionId].phase = phaseLabel;
+        renderSidebar();
+      }
+      renderAgentTree();
+    } else if (evType === 'agent_complete' || evType === 'AgentComplete') {
+      var agentId2 = data.agent_id || role;
+      if (agentNodes[agentId2]) {
+        agentNodes[agentId2].status = 'done';
+        if (data.turns) agentNodes[agentId2].turns = data.turns;
+      }
+      renderAgentTree();
+    }
+
+    // Always append to event stream
+    appendObserveEvent(evType, role, ts, data);
+  }
+
+  function renderAgentTree() {
+    var nodes = Object.values(agentNodes);
+    if (!nodes.length) {
+      agentTreeEl.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">No agents yet.</div>';
+      return;
+    }
+    var order = ['planner', 'tech_lead', 'junior_dev'];
+    nodes.sort(function (a, b) {
+      var ai = order.indexOf(a.role), bi = order.indexOf(b.role);
+      if (ai === -1) ai = 99;
+      if (bi === -1) bi = 99;
+      return ai - bi;
+    });
+    var html = '';
+    nodes.forEach(function (n) {
+      var depth = n.role === 'junior_dev' ? 'depth-2' : (n.role === 'tech_lead' ? 'depth-1' : '');
+      var statusCls = n.status === 'running' ? 'running' : 'done';
+      var roleLabel = n.role.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+      html += (
+        '<div class="agent-node ' + depth + ' ' + statusCls + '">' +
+          '<div class="agent-status-icon ' + statusCls + '"></div>' +
+          '<div class="agent-role">' + esc(roleLabel) + '</div>' +
+          (n.turns ? '<div class="agent-turns">' + n.turns + 't</div>' : '') +
+        '</div>'
+      );
+    });
+    agentTreeEl.innerHTML = html;
+  }
+
+  function appendObserveEvent(evType, role, ts, data) {
+    var roleCls = role.replace(/[^a-z_]/g, '');
+    var isWarn  = evType === 'AgentStallWarning' || evType === 'agent_stall_warning';
+    var isKill  = evType === 'AgentStallKill'    || evType === 'agent_stall_kill';
+
+    if (isWarn || isKill) {
+      var bar = document.createElement('div');
+      bar.className = isWarn ? 'ev-warn-bar' : 'ev-error-bar';
+      bar.textContent = '[' + ts + '] ' + (data.message || evType);
+      eventStreamEl.appendChild(bar);
+      eventStreamEl.scrollTop = eventStreamEl.scrollHeight;
+      return;
+    }
+
+    var line = document.createElement('div');
+    line.className = 'ev-line';
+
+    var tsEl = document.createElement('span');
+    tsEl.className = 'ev-ts';
+    tsEl.textContent = ts;
+
+    var roleEl = document.createElement('span');
+    roleEl.className = 'ev-role ' + roleCls;
+    roleEl.textContent = role.replace(/_/g, ' ').toUpperCase().slice(0, 10);
+
+    var contentEl = document.createElement('span');
+    contentEl.className = 'ev-content';
+
+    var isText = evType === 'AgentText' || evType === 'agent_text';
+    var isTool = evType === 'AgentToolCall' || evType === 'agent_tool_call';
+
+    if (isText) {
+      contentEl.className += ' thinking';
+      contentEl.textContent = data.text || data.content || '(thinking)';
+    } else if (isTool) {
+      contentEl.className += ' tool-call';
+      var toolName = data.tool || data.tool_name || '?';
+      var toolInput = data.input ? JSON.stringify(data.input).slice(0, 80) : '';
+      contentEl.textContent = 'tool: ' + toolName + '(' + toolInput + ')';
+    } else {
+      contentEl.textContent = data.message || data.content || evType;
+    }
+
+    line.appendChild(tsEl);
+    line.appendChild(roleEl);
+    line.appendChild(contentEl);
+    eventStreamEl.appendChild(line);
+    eventStreamEl.scrollTop = eventStreamEl.scrollHeight;
+  }
+
+  function formatObserveTs(ts) {
+    if (!ts) return '';
+    // ISO timestamp — extract HH:MM:SS
+    var m = String(ts).match(/T(\d{2}:\d{2}:\d{2})/);
+    if (m) return m[1];
+    // Already short
+    if (String(ts).length <= 8) return ts;
+    return String(ts).slice(-8);
+  }
+
+  // -----------------------------------------------------------------------
+  // Preflight
+  // -----------------------------------------------------------------------
+
+  function resetPreflightUI() {
+    preflightTopology.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">Run preflight to see topology.</div>';
+    preflightEnvList.innerHTML  = '<li style="color:var(--dim-text);font-size:11px">Not yet loaded.</li>';
+    preflightCostTbody.innerHTML = '<tr><td colspan="3" style="color:var(--dim-text)">Not yet loaded.</td></tr>';
+    preflightReadyBadge.className = 'preflight-ready-badge';
+    preflightReadyBadge.textContent = '';
+    preflightRunBtn.disabled = false;
+  }
+
+  preflightRunBtn.addEventListener('click', function () {
+    if (!selectedSessionId) { showError('No session selected.'); return; }
+    var s = sessionsCache[selectedSessionId];
+    if (!s || !s.spec_path) { showError('Session has no spec path.'); return; }
+    runPreflight(s.spec_path, s.project_root || '');
+  });
+
+  function runPreflight(specPath, projectRoot) {
+    preflightRunBtn.disabled = true;
+    preflightRunBtn.textContent = 'LOADING...';
+    preflightTopology.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">Loading...</div>';
+    preflightEnvList.innerHTML  = '<li style="color:var(--dim-text);font-size:11px">Loading...</li>';
+    preflightCostTbody.innerHTML = '<tr><td colspan="3" style="color:var(--dim-text)">Loading...</td></tr>';
+
+    fetch('/api/preflight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec_path: specPath, project_root: projectRoot }),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'HTTP ' + r.status); });
+        return r.json();
+      })
+      .then(function (data) {
+        preflightRunBtn.textContent = 'RUN PREFLIGHT';
+        preflightRunBtn.disabled = false;
+        renderPreflightTopology(data.roles || {});
+        renderPreflightEnv(data.pitfalls || {});
+        renderPreflightCost(data.roles || {});
+        // Ready badge
+        if (data.ready) {
+          preflightReadyBadge.className = 'preflight-ready-badge ready';
+          preflightReadyBadge.textContent = 'READY';
+        } else {
+          preflightReadyBadge.className = 'preflight-ready-badge not-ready';
+          preflightReadyBadge.textContent = 'NOT READY';
+        }
+      })
+      .catch(function (err) {
+        preflightRunBtn.textContent = 'RUN PREFLIGHT';
+        preflightRunBtn.disabled = false;
+        preflightTopology.innerHTML = '<div style="padding:12px;color:var(--error);font-size:11px">' + esc(err.message || 'Error loading preflight.') + '</div>';
+      });
+  }
+
+  function renderPreflightTopology(roles) {
+    var roleOrder = ['planner', 'tech_lead', 'writer'];
+    var html = '';
+    roleOrder.forEach(function (roleName) {
+      var r = roles[roleName];
+      if (!r) return;
+      var tools = (r.golem_tools || []).join(', ');
+      var sources = (r.setting_sources || []).join(', ');
+      html += (
+        '<div class="topo-role">' +
+          '<div class="topo-role-name">' + esc(roleName.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); })) + '</div>' +
+          '<div class="topo-detail">sources: ' + esc(sources || '--') + '</div>' +
+          (tools ? '<div class="topo-tools">tools: ' + esc(tools) + '</div>' : '') +
+        '</div>'
+      );
+    });
+    preflightTopology.innerHTML = html || '<div style="padding:12px;color:var(--dim-text);font-size:11px">No topology data.</div>';
+  }
+
+  function renderPreflightEnv(pitfalls) {
+    var errors   = pitfalls.errors   || [];
+    var warnings = pitfalls.warnings || [];
+    var infos    = pitfalls.infos    || [];
+    var html = '';
+
+    errors.forEach(function (msg) {
+      html += '<li class="env-check-item"><em class="env-check-icon fail">[X]</em><span class="env-check-text">' + esc(msg) + '</span></li>';
+    });
+    warnings.forEach(function (msg) {
+      html += '<li class="env-check-item"><em class="env-check-icon warn">[!]</em><span class="env-check-text">' + esc(msg) + '</span></li>';
+    });
+    infos.forEach(function (msg) {
+      html += '<li class="env-check-item"><em class="env-check-icon info">[i]</em><span class="env-check-text">' + esc(msg) + '</span></li>';
+    });
+
+    if (!html) {
+      html = '<li class="env-check-item"><em class="env-check-icon pass">[+]</em><span class="env-check-text">All checks passed.</span></li>';
+    }
+    preflightEnvList.innerHTML = html;
+  }
+
+  function renderPreflightCost(roles) {
+    // Rough cost estimate per role based on token budgets from config
+    var roleBudgets = { planner: [0.02, 0.08], tech_lead: [0.05, 0.20], writer: [0.01, 0.05] };
+    var html = '';
+    var totalMin = 0, totalMax = 0;
+    Object.keys(roleBudgets).forEach(function (role) {
+      if (!roles[role]) return;
+      var range = roleBudgets[role];
+      totalMin += range[0];
+      totalMax += range[1];
+      html += (
+        '<tr>' +
+          '<td>' + esc(role.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); })) + '</td>' +
+          '<td style="text-align:right">$' + range[0].toFixed(2) + '</td>' +
+          '<td style="text-align:right">$' + range[1].toFixed(2) + '</td>' +
+        '</tr>'
+      );
+    });
+    html += (
+      '<tr class="cost-estimate-total">' +
+        '<td>Total</td>' +
+        '<td style="text-align:right">$' + totalMin.toFixed(2) + '</td>' +
+        '<td style="text-align:right">$' + totalMax.toFixed(2) + '</td>' +
+      '</tr>'
+    );
+    preflightCostTbody.innerHTML = html || '<tr><td colspan="3" style="color:var(--dim-text)">No data.</td></tr>';
   }
 
   // -----------------------------------------------------------------------

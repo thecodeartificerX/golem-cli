@@ -979,3 +979,33 @@ def test_template_has_new_session() -> None:
     """The dashboard template must contain a New Session button or element."""
     html = _read_template_html()
     assert "New Session" in html or "new-session" in html or "newSession" in html
+
+
+def test_template_has_observe_tab() -> None:
+    """Template HTML contains observe tab."""
+    html = _read_template_html().lower()
+    assert "observe" in html
+
+
+def test_template_has_preflight_tab() -> None:
+    """Template HTML contains preflight tab."""
+    html = _read_template_html().lower()
+    assert "preflight" in html
+
+
+def test_template_has_agent_tree() -> None:
+    """Template HTML contains agent tree component."""
+    html = _read_template_html()
+    assert "agent-tree" in html or "agentTree" in html or "agent_tree" in html
+
+
+def test_template_has_event_stream() -> None:
+    """Template HTML contains event stream component."""
+    html = _read_template_html()
+    assert "event-stream" in html or "eventStream" in html or "event_stream" in html
+
+
+def test_template_connects_observe_sse() -> None:
+    """Template connects to observe SSE endpoint."""
+    html = _read_template_html()
+    assert "/observe" in html
