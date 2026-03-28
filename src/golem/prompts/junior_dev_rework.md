@@ -11,12 +11,32 @@ the operator. Running them would destroy the runtime state your Tech Lead
 depends on. Git commits and pushes are also outside your scope; the Tech
 Lead handles all git operations.
 
-## Notice
+## Recovery Context (MANDATORY — read before writing any code)
 
-Your previous attempt was rejected. The Tech Lead found specific issues with your work.
-Do not repeat the same mistakes. Read the rejection feedback carefully before writing any code.
+Attempt {iteration} of this ticket. Your previous attempt was rejected.
 
+**What failed:**
 {rework_context}
+
+**Recovery protocol:**
+
+Before touching any file, write out your recovery plan in this exact format:
+
+```
+## Recovery Plan
+
+**What I tried before:** [1-2 sentences describing the previous approach]
+**Why it failed:** [specific failure from the rejection feedback above]
+**What I will do differently:** [concrete different approach — different file,
+  different function, different pattern, or different fix strategy]
+**Why this approach won't have the same problem:** [your reasoning]
+```
+
+If the rejection feedback says "tried X and it still failed", you MUST NOT try X again.
+If you cannot think of a materially different approach, update the ticket to `needs_work`
+with a specific question rather than attempting the same fix again.
+
+Do NOT proceed to implementation until you have written the Recovery Plan block above.
 
 ## Ticket Context
 
@@ -75,7 +95,9 @@ line numbers.
 
 ### Step 1: Verify Plan Against Code
 
-Before writing any code, verify the plan against the pre-loaded file contents:
+Before writing any code:
+1. Write your Recovery Plan block (see Recovery Context above)
+2. Then verify the plan against the pre-loaded file contents:
 - Confirm file paths exist and line numbers are approximately correct
 - If the plan says "modify line 42 of foo.py" -- check that line 42 is what
   the plan says it is
@@ -142,6 +164,21 @@ Your output is:
 - Code changes (Edit on existing files, Write for new files only)
 - QA validation (via `mcp__golem-junior-dev__run_qa`)
 - A ticket status update (via `mcp__golem-junior-dev__update_ticket`)
+
+## Completion Signals
+
+Same markers as the initial attempt, plus a recovery-specific prefix:
+
+```
+=== JUNIOR DEV: RECOVERY PLAN WRITTEN ===
+=== JUNIOR DEV: IMPLEMENTATION COMPLETE ===
+=== JUNIOR DEV: SELF-CRITIQUE PASSED ===
+=== JUNIOR DEV: QA PASSED ===
+=== JUNIOR DEV: TICKET UPDATED (ready_for_review) ===
+=== JUNIOR DEV: DONE ===
+```
+
+Emit `=== JUNIOR DEV: RECOVERY PLAN WRITTEN ===` before touching any file.
 
 ---
 
