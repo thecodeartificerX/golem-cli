@@ -16,12 +16,17 @@ from claude_agent_sdk import (
     ClaudeSDKError,
 )
 
+from typing import TYPE_CHECKING
+
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
 from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
+
+if TYPE_CHECKING:
+    from golem.events import EventBus
 
 
 @dataclass
@@ -126,6 +131,7 @@ async def run_tech_lead(
     golem_dir: Path,
     config: GolemConfig,
     project_root: Path,
+    event_bus: EventBus | None = None,
 ) -> TechLeadResult:
     """Spawn persistent Tech Lead session that orchestrates junior devs and creates a PR.
 
@@ -152,7 +158,7 @@ async def run_tech_lead(
     original_prompt = original_prompt.replace("{project_root}", str(project_root))
 
     # Build in-process MCP server with all orchestration tools registered
-    mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
+    mcp_server = create_golem_mcp_server(golem_dir, config, project_root, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
 
     options = ClaudeAgentOptions(
@@ -191,6 +197,7 @@ async def run_tech_lead(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
             break  # Success
         except CLINotFoundError:
@@ -234,6 +241,7 @@ async def run_tech_lead(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             _cleanup_golem_worktrees(golem_dir, project_root)
@@ -266,6 +274,7 @@ async def run_tech_lead(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             _cleanup_golem_worktrees(golem_dir, project_root)

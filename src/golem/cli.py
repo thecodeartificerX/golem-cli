@@ -336,11 +336,15 @@ def run(
         console.print(f"  Infra:   {', '.join(config.infrastructure_checks)}")
 
     async def _run_async() -> None:
+        from golem.events import EventBus, FileBackend
+        events_path = golem_dir / "events.jsonl"
+        event_bus = EventBus(FileBackend(events_path), session_id=config.session_id)
+
         progress.log_classification(classification.complexity, classification.reasoning)
         console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
         t_plan = time.monotonic()
-        planner_result = await run_planner(spec, golem_dir, config, project_root)
+        planner_result = await run_planner(spec, golem_dir, config, project_root, event_bus=event_bus)
         ticket_id = planner_result.ticket_id
         plan_elapsed = time.monotonic() - t_plan
         plan_m, plan_s = divmod(int(plan_elapsed), 60)
@@ -363,7 +367,7 @@ def run(
         # Check if Tech Lead should be skipped (TRIVIAL complexity)
         if config.skip_tech_lead:
             console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
-            writer_result = await spawn_junior_dev(ticket, str(project_root), config, golem_dir)
+            writer_result = await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus)
             total_cost = (planner_result.cost_usd or 0.0) + (writer_result.cost_usd or 0.0)
             progress.log_run_cost_summary(total_cost)
             if total_cost > 0:
@@ -375,7 +379,7 @@ def run(
 
         console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
         progress.log_tech_lead_start(ticket_id)
-        tech_lead_result = await run_tech_lead(ticket_id, golem_dir, config, project_root)
+        tech_lead_result = await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus)
         elapsed = time.monotonic() - t0
         mins, secs = divmod(int(elapsed), 60)
         progress.log_tech_lead_complete(elapsed_s=elapsed)

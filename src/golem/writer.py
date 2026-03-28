@@ -18,11 +18,16 @@ from claude_agent_sdk import (
     ClaudeSDKError,
 )
 
+from typing import TYPE_CHECKING
+
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
 from golem.supervisor import StallConfig, SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
 from golem.tickets import Ticket
 from golem.tools import create_junior_dev_mcp_server
+
+if TYPE_CHECKING:
+    from golem.events import EventBus
 
 
 @dataclass
@@ -123,6 +128,7 @@ async def spawn_junior_dev(
     worktree_path: str,
     config: GolemConfig,
     golem_dir: Path | None = None,
+    event_bus: EventBus | None = None,
 ) -> JuniorDevResult:
     """Spawn a junior dev SDK session for the given ticket in the worktree.
 
@@ -142,7 +148,7 @@ async def spawn_junior_dev(
         print(f"[JUNIOR DEV] {ticket.id}: jitter delay {delay:.1f}s", file=sys.stderr)
         await asyncio.sleep(delay)
 
-    junior_dev_server = create_junior_dev_mcp_server(golem_dir) if golem_dir else create_junior_dev_mcp_server(Path(worktree_path))
+    junior_dev_server = create_junior_dev_mcp_server(golem_dir, event_bus=event_bus) if golem_dir else create_junior_dev_mcp_server(Path(worktree_path), event_bus=event_bus)
     sources, mcps = resolve_agent_options(
         config, "writer", junior_dev_server, golem_mcp_name="golem-junior-dev",
     )
@@ -183,6 +189,7 @@ async def spawn_junior_dev(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
             break  # Success (or stall handled internally by supervised_session)
         except CLINotFoundError:
@@ -231,6 +238,7 @@ async def spawn_junior_dev(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             raise RuntimeError(
@@ -292,6 +300,7 @@ async def spawn_junior_dev(
                 on_text=on_text,
                 on_tool=on_tool,
                 golem_dir=golem_dir,
+                event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
             raise RuntimeError(

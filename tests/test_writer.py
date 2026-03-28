@@ -233,7 +233,7 @@ async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
 
         original_create = spawn_writer_pair.__module__
 
-        def fake_create_writer_mcp(golem_dir: Path, registry=None):
+        def fake_create_writer_mcp(golem_dir: Path, registry=None, event_bus=None):
             captured_mcp_dir.append(golem_dir)
             # Return a minimal server config
             from unittest.mock import MagicMock
