@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from golem.worktree import commit_task, create_pr, create_worktree, delete_worktree, list_worktrees, merge_group_branches, verify_pr
+from golem.worktree import commit_task, create_pr, create_worktree, delete_worktree, detect_worktree_isolation, list_worktrees, merge_group_branches, verify_pr
 
 
 def _init_git_repo(path: Path) -> None:
@@ -401,3 +401,188 @@ def test_create_worktree_default_prefix() -> None:
         worktrees = list_worktrees(repo)
         assert any("group-b" in wt for wt in worktrees)
         delete_worktree(wt_path, repo)
+
+
+# ---------------------------------------------------------------------------
+# detect_worktree_isolation tests
+# ---------------------------------------------------------------------------
+
+
+def test_detect_worktree_isolation_regular_repo(tmp_path: Path) -> None:
+    """detect_worktree_isolation returns (False, None) for a plain git repo."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    is_worktree, parent_path = detect_worktree_isolation(repo)
+    assert is_worktree is False
+    assert parent_path is None
+
+
+def test_detect_worktree_isolation_in_worktree(tmp_path: Path) -> None:
+    """detect_worktree_isolation returns (True, parent_path) for a real git worktree."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    wt_path = tmp_path / "worktrees" / "test-wt"
+    create_worktree("test-wt", "golem/spec/test-wt", "main", wt_path, repo)
+
+    try:
+        is_worktree, parent_path = detect_worktree_isolation(wt_path)
+        assert is_worktree is True
+        assert parent_path is not None
+        # Parent path should resolve to the repo root
+        assert Path(parent_path).resolve() == repo.resolve()
+    finally:
+        delete_worktree(wt_path, repo)
+
+
+def test_detect_worktree_isolation_nonexistent_path(tmp_path: Path) -> None:
+    """detect_worktree_isolation returns (False, None) for a path with no .git marker."""
+    non_git = tmp_path / "not_a_repo"
+    non_git.mkdir()
+
+    is_worktree, parent_path = detect_worktree_isolation(non_git)
+    assert is_worktree is False
+    assert parent_path is None
+
+
+def test_detect_worktree_isolation_git_dir_not_file(tmp_path: Path) -> None:
+    """detect_worktree_isolation returns (False, None) when .git is a directory (normal repo)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    # .git is a directory in a normal repo — should not be detected as worktree
+    is_worktree, parent_path = detect_worktree_isolation(repo)
+    assert is_worktree is False
+    assert parent_path is None
+
+
+def test_detect_worktree_isolation_malformed_git_file(tmp_path: Path) -> None:
+    """detect_worktree_isolation returns (False, None) when .git file has unexpected content."""
+    fake_wt = tmp_path / "fake-wt"
+    fake_wt.mkdir()
+    # Write a .git file without the "gitdir:" prefix
+    (fake_wt / ".git").write_text("not a gitdir reference\n", encoding="utf-8")
+
+    is_worktree, parent_path = detect_worktree_isolation(fake_wt)
+    assert is_worktree is False
+    assert parent_path is None
+
+
+def test_build_worktree_isolation_warning_in_worktree(tmp_path: Path) -> None:
+    """_build_worktree_isolation_warning returns warning text inside a real worktree."""
+    from golem.writer import _build_worktree_isolation_warning
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    wt_path = tmp_path / "worktrees" / "warn-wt"
+    create_worktree("warn-wt", "golem/spec/warn-wt", "main", wt_path, repo)
+
+    try:
+        warning = _build_worktree_isolation_warning(wt_path)
+        assert "ISOLATED WORKTREE" in warning
+        assert str(wt_path) in warning
+        assert str(repo.resolve()) in warning
+        assert "NEVER" in warning
+        assert "parent repository" in warning
+    finally:
+        delete_worktree(wt_path, repo)
+
+
+def test_build_worktree_isolation_warning_regular_repo(tmp_path: Path) -> None:
+    """_build_worktree_isolation_warning returns empty string for a plain repo."""
+    from golem.writer import _build_worktree_isolation_warning
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    warning = _build_worktree_isolation_warning(repo)
+    assert warning == ""
+
+
+def test_build_writer_prompt_injects_isolation_warning(tmp_path: Path) -> None:
+    """build_writer_prompt injects isolation warning when worktree_path is a git worktree."""
+    from golem.tickets import TicketContext
+    from golem.writer import build_writer_prompt
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    wt_path = tmp_path / "worktrees" / "prompt-wt"
+    create_worktree("prompt-wt", "golem/spec/prompt-wt", "main", wt_path, repo)
+
+    try:
+        ctx = TicketContext(blueprint="test", acceptance=["done"], qa_checks=["true"])
+        from golem.tickets import Ticket
+        ticket = Ticket(
+            id="TICKET-WRN-001",
+            type="task",
+            title="Warning injection test",
+            status="pending",
+            priority="medium",
+            created_by="planner",
+            assigned_to="writer",
+            context=ctx,
+        )
+
+        prompt = build_writer_prompt(ticket, worktree_path=wt_path)
+        assert "ISOLATED WORKTREE" in prompt
+        assert str(wt_path) in prompt
+        assert "{worktree_isolation_warning}" not in prompt
+    finally:
+        delete_worktree(wt_path, repo)
+
+
+def test_build_writer_prompt_no_warning_outside_worktree(tmp_path: Path) -> None:
+    """build_writer_prompt does not inject warning when worktree_path is a plain repo."""
+    from golem.tickets import Ticket, TicketContext
+    from golem.writer import build_writer_prompt
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    ctx = TicketContext(blueprint="test", acceptance=["done"], qa_checks=["true"])
+    ticket = Ticket(
+        id="TICKET-WRN-002",
+        type="task",
+        title="No warning test",
+        status="pending",
+        priority="medium",
+        created_by="planner",
+        assigned_to="writer",
+        context=ctx,
+    )
+
+    prompt = build_writer_prompt(ticket, worktree_path=repo)
+    assert "ISOLATED WORKTREE" not in prompt
+    assert "{worktree_isolation_warning}" not in prompt
+
+
+def test_build_writer_prompt_no_warning_when_path_is_none() -> None:
+    """build_writer_prompt does not inject warning when worktree_path is None."""
+    from golem.tickets import Ticket, TicketContext
+    from golem.writer import build_writer_prompt
+
+    ctx = TicketContext(blueprint="test", acceptance=["done"], qa_checks=["true"])
+    ticket = Ticket(
+        id="TICKET-WRN-003",
+        type="task",
+        title="No path test",
+        status="pending",
+        priority="medium",
+        created_by="planner",
+        assigned_to="writer",
+        context=ctx,
+    )
+
+    prompt = build_writer_prompt(ticket, worktree_path=None)
+    assert "ISOLATED WORKTREE" not in prompt
+    assert "{worktree_isolation_warning}" not in prompt

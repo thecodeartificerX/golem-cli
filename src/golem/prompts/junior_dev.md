@@ -11,6 +11,7 @@ the operator. Running them would destroy the runtime state your Tech Lead
 depends on. Git commits and pushes are also outside your scope; the Tech
 Lead handles all git operations.
 
+{worktree_isolation_warning}
 ## Ticket Context
 
 {ticket_context}

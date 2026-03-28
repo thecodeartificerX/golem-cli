@@ -61,8 +61,38 @@ def _get_rework_info(ticket: Ticket) -> tuple[int, list[str]]:
     return rework_count, rework_notes
 
 
-def build_writer_prompt(ticket: Ticket, rework_count: int = 0, rework_notes: list[str] | None = None) -> str:
-    """Build junior dev prompt from ticket context, with optional rework context."""
+def _build_worktree_isolation_warning(worktree_path: Path) -> str:
+    """Return a formatted isolation warning block if path is a git worktree, else empty string."""
+    from golem.worktree import detect_worktree_isolation
+
+    is_worktree, parent_path = detect_worktree_isolation(worktree_path)
+    if not is_worktree or parent_path is None:
+        return ""
+
+    worktree_str = str(worktree_path)
+    return (
+        f"## ISOLATED WORKTREE -- CRITICAL\n"
+        f"You are working inside an isolated git worktree at: {worktree_str}\n"
+        f"The parent repository is at: {parent_path}\n"
+        f"\n"
+        f"NEVER use `cd {parent_path}` or any absolute path outside your worktree.\n"
+        f"NEVER read or write files in the parent repository.\n"
+        f"All file operations must be relative to your worktree root.\n"
+        f"If a spec or context references files using the parent path, translate them to your worktree path.\n"
+    )
+
+
+def build_writer_prompt(
+    ticket: Ticket,
+    rework_count: int = 0,
+    rework_notes: list[str] | None = None,
+    worktree_path: Path | None = None,
+) -> str:
+    """Build junior dev prompt from ticket context, with optional rework context.
+
+    If worktree_path is provided and is detected as a git worktree, injects a
+    prominent isolation warning naming the parent repo the agent must not escape to.
+    """
     template_name = "junior_dev_rework.md" if rework_count > 0 else "junior_dev.md"
     template_path = Path(__file__).parent / "prompts" / template_name
     # Fall back to junior_dev.md if rework template doesn't exist yet
@@ -102,6 +132,11 @@ def build_writer_prompt(ticket: Ticket, rework_count: int = 0, rework_notes: lis
             "Address ALL previous feedback before submitting.\n"
         )
 
+    # Build worktree isolation warning (empty string when not in a worktree)
+    worktree_isolation_warning = ""
+    if worktree_path is not None:
+        worktree_isolation_warning = _build_worktree_isolation_warning(worktree_path)
+
     replacements = {
         "ticket_context": ticket_context,
         "plan_section": plan_section,
@@ -113,6 +148,7 @@ def build_writer_prompt(ticket: Ticket, rework_count: int = 0, rework_notes: lis
         "parallelism_hints": parallelism_hints,
         "iteration": str(rework_count + 1),
         "rework_context": rework_context,
+        "worktree_isolation_warning": worktree_isolation_warning,
     }
 
     prompt = template
@@ -140,7 +176,12 @@ async def spawn_junior_dev(
     Returns a JuniorDevResult with result text and cost/token data.
     """
     rework_count, rework_notes = _get_rework_info(ticket)
-    original_prompt = build_writer_prompt(ticket, rework_count=rework_count, rework_notes=rework_notes)
+    original_prompt = build_writer_prompt(
+        ticket,
+        rework_count=rework_count,
+        rework_notes=rework_notes,
+        worktree_path=Path(worktree_path),
+    )
 
     # Stagger parallel junior dev spawns to reduce I/O contention on uv cache
     jitter = config.dispatch_jitter_max

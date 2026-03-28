@@ -11,6 +11,55 @@ def _run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: i
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check, timeout=timeout)
 
 
+def detect_worktree_isolation(worktree_path: Path) -> tuple[bool, str | None]:
+    """Detect if path is inside a git worktree. Returns (is_worktree, parent_repo_path).
+
+    Git worktrees have a `.git` *file* (not a directory) that contains a ``gitdir:``
+    line pointing back into the parent repository's ``worktrees/<name>`` directory.
+    We parse that line to derive the parent repo root.
+
+    Also treats paths whose components include ``.golem/worktrees/`` or
+    ``.auto-claude/worktrees/`` as worktrees when the `.git` file heuristic matches,
+    so spec authors using known Golem path conventions get the warning unconditionally.
+    """
+    git_marker = worktree_path / ".git"
+
+    # Primary heuristic: .git must be a file, not a directory
+    if not git_marker.exists() or git_marker.is_dir():
+        return (False, None)
+
+    try:
+        content = git_marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return (False, None)
+
+    # Expected format: "gitdir: /abs/path/to/.git/worktrees/<name>"
+    if not content.startswith("gitdir:"):
+        return (False, None)
+
+    gitdir_value = content[len("gitdir:"):].strip()
+    gitdir_path = Path(gitdir_value)
+
+    # Resolve to absolute path relative to the worktree if necessary
+    if not gitdir_path.is_absolute():
+        gitdir_path = (worktree_path / gitdir_path).resolve()
+
+    # Walk up from the gitdir to find the parent .git directory
+    # Typical structure: <repo>/.git/worktrees/<name>
+    # We want <repo> — so go up until we find a directory named ".git"
+    candidate = gitdir_path
+    for _ in range(10):  # bounded walk to avoid infinite loops on malformed paths
+        if candidate.name == ".git" and candidate.is_dir():
+            parent_repo = str(candidate.parent)
+            return (True, parent_repo)
+        candidate = candidate.parent
+        if candidate == candidate.parent:
+            break
+
+    # Fallback: use the gitdir path's parent as best effort
+    return (True, str(gitdir_path.parent))
+
+
 def create_worktree(
     group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path,
     branch_prefix: str = "golem",
