@@ -532,13 +532,33 @@ def create_app() -> FastAPI:
         }
 
     @app.delete("/api/sessions/{session_id}")
-    async def delete_session(session_id: str) -> dict[str, str]:
+    async def delete_session(session_id: str, keep_files: bool = False) -> dict[str, str]:
+        """Kill, archive, remove from memory, and optionally delete files."""
         from fastapi import HTTPException
+        from golem.session import delete_session_dir
 
-        if not session_mgr.kill_session(session_id):
+        if not session_mgr.get_session(session_id):
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-        session_mgr.archive_session(session_id)
+        session_mgr.kill_session(session_id)
+        if not keep_files:
+            delete_session_dir(sessions_dir, session_id)
+        session_mgr.remove_session(session_id)
         return {"status": "deleted", "session_id": session_id}
+
+    @app.post("/api/sessions/cleanup")
+    async def cleanup_sessions() -> dict[str, object]:
+        """Bulk-delete all finished sessions (archived, failed, merged, awaiting_merge)."""
+        from golem.session import delete_session_dir
+
+        cleanable = {"archived", "failed", "merged", "awaiting_merge"}
+        removed: list[str] = []
+        for s in list(session_mgr.list_sessions()):
+            if s.status in cleanable:
+                session_mgr.kill_session(s.id)
+                delete_session_dir(sessions_dir, s.id)
+                session_mgr.remove_session(s.id)
+                removed.append(s.id)
+        return {"removed": removed, "count": len(removed)}
 
     # ------------------------------------------------------------------
     # Session lifecycle

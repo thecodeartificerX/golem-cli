@@ -99,3 +99,12 @@ def create_session_dir(sessions_dir: Path, session_id: str, spec_path: Path) -> 
     write_session(session_dir, meta)
 
     return session_dir
+
+
+def delete_session_dir(sessions_dir: Path, session_id: str) -> bool:
+    """Remove a session directory from disk. Returns True if removed."""
+    session_dir = sessions_dir / session_id
+    if session_dir.exists() and (session_dir / "session.json").exists():
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return True
+    return False

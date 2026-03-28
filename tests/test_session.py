@@ -5,6 +5,7 @@ from pathlib import Path
 from golem.session import (
     SessionMetadata,
     create_session_dir,
+    delete_session_dir,
     generate_session_id,
     read_session,
     write_session,
@@ -119,3 +120,22 @@ def test_status_transitions() -> None:
         for t in targets:
             assert t in all_statuses, f"Transition {src}->{t} targets unknown status"
     assert "running" in _VALID_TRANSITIONS["pending"]
+
+
+def test_delete_session_dir(tmp_path: Path) -> None:
+    """delete_session_dir removes the session directory."""
+    sessions_dir = tmp_path / "sessions"
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+    session_dir = create_session_dir(sessions_dir, "del-1", spec)
+    assert session_dir.exists()
+
+    result = delete_session_dir(sessions_dir, "del-1")
+    assert result is True
+    assert not session_dir.exists()
+
+
+def test_delete_session_dir_nonexistent(tmp_path: Path) -> None:
+    """delete_session_dir returns False for nonexistent session."""
+    result = delete_session_dir(tmp_path, "nope")
+    assert result is False

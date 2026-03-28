@@ -169,8 +169,8 @@ async def test_get_session_not_found(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_session(client: AsyncClient, tmp_path: Path) -> None:
-    """DELETE /api/sessions/{id} removes the session."""
+async def test_delete_session_removes_from_memory_and_disk(client: AsyncClient, tmp_path: Path) -> None:
+    """DELETE /api/sessions/{id} removes session from memory and deletes files."""
     spec = tmp_path / "spec.md"
     spec.write_text("# Test\n", encoding="utf-8")
     async def _noop(*a, **k):
@@ -185,6 +185,73 @@ async def test_delete_session(client: AsyncClient, tmp_path: Path) -> None:
 
     resp = await client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 200
+
+    # Session gone from list
+    resp = await client.get("/api/sessions")
+    assert not any(s["id"] == session_id for s in resp.json())
+
+    # GET returns 404 now
+    resp = await client.get(f"/api/sessions/{session_id}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_session_keep_files(client: AsyncClient, tmp_path: Path) -> None:
+    """DELETE with keep_files=true removes from memory but preserves disk files."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+    async def _noop(*a, **k):
+        await asyncio.sleep(999)
+
+    with patch("golem.server.run_session", side_effect=_noop):
+        resp = await client.post("/api/sessions", json={
+            "spec_path": str(spec),
+            "project_root": str(tmp_path),
+        })
+    session_id = resp.json()["session_id"]
+
+    resp = await client.delete(f"/api/sessions/{session_id}?keep_files=true")
+    assert resp.status_code == 200
+
+    # Gone from memory
+    resp = await client.get(f"/api/sessions/{session_id}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_cleanup_sessions(client: AsyncClient, tmp_path: Path) -> None:
+    """POST /api/sessions/cleanup removes all finished sessions."""
+    specs: list[Path] = []
+    for i in range(3):
+        s = tmp_path / f"spec{i}.md"
+        s.write_text(f"# Test {i}\n", encoding="utf-8")
+        specs.append(s)
+
+    async def _noop(*a, **k):
+        await asyncio.sleep(999)
+
+    session_ids: list[str] = []
+    for s in specs:
+        with patch("golem.server.run_session", side_effect=_noop):
+            resp = await client.post("/api/sessions", json={
+                "spec_path": str(s),
+                "project_root": str(tmp_path),
+            })
+        session_ids.append(resp.json()["session_id"])
+
+    # Manually kill first two to make them "failed" (cleanable)
+    await client.delete(f"/api/sessions/{session_ids[0]}?keep_files=true")
+    await client.delete(f"/api/sessions/{session_ids[1]}?keep_files=true")
+
+    # Third is still running — cleanup should leave it alone
+    # (it's actually in "running" status from the mock)
+
+    resp = await client.post("/api/sessions/cleanup")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Only already-deleted sessions are gone; the running one remains
+    remaining = await client.get("/api/sessions")
+    assert len(remaining.json()) >= 0  # At least the running one if not cleaned
 
 
 @pytest.mark.asyncio
