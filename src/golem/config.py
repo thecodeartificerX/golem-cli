@@ -63,6 +63,11 @@ class GolemConfig:
     security_allowlist: list[str] = field(default_factory=list)
     # Whether to scan file writes for secrets (default: True)
     secret_scan_enabled: bool = True
+    # Merge strategy settings
+    merge_strategies_enabled: bool = True      # kill switch for pre-resolution
+    merge_ai_fallback: bool = True             # allow AI fallback for hard conflicts
+    merge_staging_dir: str = ""               # override staging dir (default: .golem/merge_staging)
+
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
         "TRIVIAL": {"planner_model": "claude-haiku-4-5-20251001", "planner_max_turns": 10,

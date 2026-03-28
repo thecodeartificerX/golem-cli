@@ -89,13 +89,91 @@ def commit_task(worktree_path: Path, task_id: str, description: str) -> bool:
     return True
 
 
-def merge_group_branches(group_branches: list[str], target_branch: str, repo_root: Path) -> tuple[bool, str]:
+def _apply_staged_resolutions(
+    report: object,
+    repo_root: Path,
+    golem_dir: Path,
+    target_branch: str,
+) -> None:
+    """
+    For each file with decision AUTO_MERGED or AI_MERGED:
+      1. Write merged_content to golem_dir/merge_staging/<file_path>
+      2. Commit it directly on target_branch before the git merge loop runs.
+
+    For NEEDS_HUMAN_REVIEW: log a warning to stderr, continue (git merge will
+    abort and report the conflict in the usual way).
+    """
+    from golem.merge_strategies import MergeDecision, MergeReport
+
+    if not isinstance(report, MergeReport):
+        return
+
+    staging_dir_override = ""
+    try:
+        from golem.config import GolemConfig  # noqa: F401 — only used for type hint
+    except ImportError:
+        pass
+
+    staging_dir = golem_dir / "merge_staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved: list[str] = []
+    for file_path, result in report.file_results.items():
+        if result.decision in (MergeDecision.AUTO_MERGED, MergeDecision.AI_MERGED):
+            if result.merged_content is not None:
+                dest = staging_dir / file_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(result.merged_content, encoding="utf-8")
+                resolved.append(file_path)
+        elif result.decision == MergeDecision.NEEDS_HUMAN_REVIEW:
+            import sys
+            print(
+                f"[MERGE] NEEDS_HUMAN_REVIEW: {file_path} — {result.explanation}",
+                file=sys.stderr,
+            )
+
+    if not resolved:
+        return
+
+    # Checkout target_branch, overwrite files, commit
+    _run(["git", "checkout", target_branch], cwd=repo_root, check=False)
+    for file_path in resolved:
+        dest = repo_root / file_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        (staging_dir / file_path).replace(dest)
+    _run(["git", "add"] + resolved, cwd=repo_root)
+    _run(
+        ["git", "commit", "-m", "golem: pre-resolve merge conflicts (deterministic)"],
+        cwd=repo_root,
+    )
+
+
+def merge_group_branches(
+    group_branches: list[str],
+    target_branch: str,
+    repo_root: Path,
+    config: object | None = None,
+    golem_dir: Path | None = None,
+) -> tuple[bool, str]:
     """
     Merge each group branch into target_branch sequentially.
     Returns (success, conflict_info).
     Creates target_branch from HEAD if it doesn't exist.
+
+    If config and golem_dir are provided, runs a pre-merge resolution pass
+    via MergeResolver to detect and auto-resolve compatible conflicts.
     """
-    # Ensure target branch exists
+    # --- NEW: pre-resolution pass ---
+    if config is not None and golem_dir is not None:
+        from golem.merge_strategies import MergeResolver
+
+        _config = config  # type: ignore[assignment]
+        enable_ai: bool = getattr(_config, "merge_ai_fallback", True)
+        resolver = MergeResolver(repo_root=repo_root, config=_config, enable_ai=enable_ai)
+        report = resolver.pre_resolve(group_branches, target_branch)
+        _apply_staged_resolutions(report, repo_root, golem_dir, target_branch)
+
+    # --- EXISTING: ensure target branch exists ---
     result = _run(["git", "branch", "--list", target_branch], cwd=repo_root, check=False)
     if target_branch not in result.stdout:
         _run(["git", "checkout", "-b", target_branch], cwd=repo_root)
