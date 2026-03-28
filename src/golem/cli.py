@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from golem.client import GolemClient, find_server
 from golem.conductor import classify_spec
 from golem.config import load_config, save_config
 from golem.qa import detect_infrastructure_checks
@@ -158,6 +159,58 @@ def _create_golem_dirs(golem_dir: Path) -> None:
         (golem_dir / subdir).mkdir(parents=True, exist_ok=True)
 
 
+def _ensure_server(project_root: Path) -> tuple[str, int]:
+    """Find or auto-start server. Returns (host, port). Raises RuntimeError if unavailable."""
+    import time as _time
+
+    result = find_server(project_root)
+    if result is not None:
+        return result
+
+    golem_dir = _get_golem_dir(project_root)
+    golem_dir.mkdir(parents=True, exist_ok=True)
+    import subprocess as _sp
+    _sp.Popen(
+        ["uv", "run", "golem", "server", "start"],
+        cwd=str(project_root),
+        stdout=_sp.DEVNULL,
+        stderr=_sp.DEVNULL,
+    )
+
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        _time.sleep(0.5)
+        result = find_server(project_root)
+        if result is not None:
+            return result
+
+    raise RuntimeError("Server did not start within 5 seconds. Try 'golem server start' manually.")
+
+
+def _require_server(project_root: Path) -> GolemClient | None:
+    """Return GolemClient if server is running, else print message and return None."""
+    result = find_server(project_root)
+    if result is None:
+        console.print("Server not running. Start with 'golem server start' or use 'golem run --no-server' for direct execution.")
+        return None
+    host, port = result
+    return GolemClient(host, port)
+
+
+async def _stream_to_console(client: GolemClient, session_id: str) -> None:
+    """Stream SSE events from server to console."""
+    import httpx as _httpx
+    try:
+        async for event in client.stream_events(session_id):
+            msg = event.get("message") or event.get("data") or str(event)
+            console.print(str(msg))
+    except (_httpx.ConnectError, _httpx.RemoteProtocolError, _httpx.ReadError):
+        pass  # Server closed connection normally (session ended or server stopped)
+    except Exception as exc:
+        console.print(f"[red]Stream error: {exc}[/red]")
+        raise
+
+
 def _validate_spec(spec: Path) -> None:
     """Validate that a spec file exists and has meaningful content."""
     if not spec.exists():
@@ -180,7 +233,7 @@ def _validate_spec(spec: Path) -> None:
 
 @app.command()
 def run(
-    spec: Path = typer.Argument(..., help="Path to spec markdown file"),
+    specs: list[Path] = typer.Argument(..., help="Path(s) to spec markdown file(s)"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompts (for CI/non-interactive)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
@@ -192,6 +245,7 @@ def run(
     """Full autonomous run: plan, orchestrate writers, validate, create PR.
 
     Example: golem run spec.md
+    Example: golem run spec1.md spec2.md
     Example: golem run spec.md --force --dry-run
     """
     from golem import __version__
@@ -201,6 +255,35 @@ def run(
         os.environ["GOLEM_DEBUG"] = "1"
 
     console.print(f"[bold cyan]Golem[/bold cyan] v{__version__} (v2 ticket-driven)")
+
+    spec = specs[0]
+
+    if not no_server:
+        _validate_spec(spec)
+        project_root = _get_project_root()
+        try:
+            host, port = _ensure_server(project_root)
+        except RuntimeError as exc:
+            console.print(f"[red]Failed to start server: {exc}[/red]")
+            raise typer.Exit(1)
+        client = GolemClient(host, port)
+        session_ids: list[str] = []
+        for s in specs:
+            try:
+                sess_result = asyncio.run(client.create_session(str(s.resolve()), str(project_root)))
+                sid = str(sess_result.get("session_id", ""))
+                session_ids.append(sid)
+                console.print(f"Session: {sid} (streaming logs...)")
+            except Exception as exc:
+                console.print(f"[red]Failed to create session for {s}: {exc}[/red]")
+                raise typer.Exit(1)
+        if session_ids:
+            try:
+                asyncio.run(_stream_to_console(client, session_ids[0]))
+            except KeyboardInterrupt:
+                pass
+        return
+
     _validate_spec(spec)
     project_root = _get_project_root()
     if golem_dir_override:
@@ -371,9 +454,28 @@ def plan(
 
 
 @app.command()
-def status() -> None:
+def status(
+    session_id: str = typer.Argument("", help="Session ID for server-routed session detail"),
+) -> None:
     """Show current run progress from ticket store."""
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _session_detail() -> None:
+            try:
+                data = await client.get_session(session_id)
+                console.print(f"Session: {data.get('id')}")
+                console.print(f"  Status:    {data.get('status')}")
+                console.print(f"  Spec:      {data.get('spec_path')}")
+                console.print(f"  PID:       {data.get('pid')}")
+            except Exception as exc:
+                console.print(f"[red]Failed to get session: {exc}[/red]")
+        asyncio.run(_session_detail())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -434,14 +536,25 @@ def status() -> None:
     asyncio.run(_status_async())
 
 
-# Alias: golem tickets = golem status
-app.command(name="tickets", hidden=True)(status)
-
-
 @app.command()
-def resume() -> None:
-    """Resume interrupted run from ticket store."""
+def resume(
+    session_id: str = typer.Argument("", help="Session ID to resume via server (empty = resume local run)"),
+) -> None:
+    """Resume a session via server, or resume interrupted local run from ticket store."""
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        try:
+            asyncio.run(client.resume_session(session_id))
+            console.print(f"Session {session_id} resumed.")
+        except Exception as exc:
+            console.print(f"[red]Failed to resume session: {exc}[/red]")
+            raise typer.Exit(1)
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -523,9 +636,26 @@ def ui(
 
 
 @app.command()
-def history() -> None:
+def history(
+    session_id: str = typer.Argument("", help="Session ID for server-routed history"),
+) -> None:
     """Show chronological event timeline across all tickets."""
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _session_history() -> None:
+            try:
+                data = await client.get_session(session_id)
+                console.print(f"Session: {data.get('id')} ({data.get('status')})")
+                console.print(f"  Spec: {data.get('spec_path')}")
+            except Exception as exc:
+                console.print(f"[red]Failed to get history: {exc}[/red]")
+        asyncio.run(_session_history())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -573,9 +703,29 @@ def history() -> None:
 @app.command()
 def inspect(
     ticket_id: str = typer.Argument(..., help="Ticket ID to inspect (e.g. TICKET-001)"),
+    session: str = typer.Option("", "--session", help="Session ID for server-routed ticket lookup"),
 ) -> None:
     """Show full details of a single ticket."""
     project_root = _get_project_root()
+
+    if session:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _session_ticket() -> None:
+            try:
+                tickets = await client.get_session_tickets(session)
+                for t in tickets:
+                    if str(t.get("id", "")).upper() == ticket_id.upper():
+                        console.print(f"\n[bold cyan]{t.get('id')}[/bold cyan] -- {t.get('title')}")
+                        console.print(f"  Status: {t.get('status')}")
+                        return
+                console.print(f"[red]Ticket {ticket_id} not found in session {session}.[/red]")
+            except Exception as exc:
+                console.print(f"[red]Failed to inspect ticket: {exc}[/red]")
+        asyncio.run(_session_ticket())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -640,6 +790,7 @@ def inspect(
 
 @app.command()
 def logs(
+    session_id: str = typer.Argument("", help="Session ID for server log streaming"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow mode — tail new lines as they appear"),
     lines: int = typer.Option(20, "--lines", "-n", help="Number of recent lines to show"),
 ) -> None:
@@ -647,6 +798,26 @@ def logs(
     import time
 
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        if follow:
+            try:
+                asyncio.run(_stream_to_console(client, session_id))
+            except KeyboardInterrupt:
+                pass
+        else:
+            async def _get_session_logs() -> None:
+                try:
+                    data = await client.get_session(session_id)
+                    console.print(f"Session {session_id}: {data.get('status')}")
+                except Exception as exc:
+                    console.print(f"[red]Failed to get logs: {exc}[/red]")
+            asyncio.run(_get_session_logs())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     log_path = golem_dir / "progress.log"
 
@@ -680,6 +851,7 @@ def logs(
 
 @app.command()
 def clean(
+    session_id: str = typer.Argument("", help="Session ID to clean via server (empty = clean all local state)"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
 ) -> None:
     """Remove .golem/ state, worktrees, and golem/* branches.
@@ -687,6 +859,19 @@ def clean(
     Example: golem clean --force
     """
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        try:
+            asyncio.run(client.kill_session(session_id))
+            console.print(f"Session {session_id} cleaned.")
+        except Exception as exc:
+            console.print(f"[red]Failed to clean session: {exc}[/red]")
+            raise typer.Exit(1)
+        return
+
     golem_dir = _get_golem_dir(project_root)
 
     if not golem_dir.exists():
@@ -738,10 +923,29 @@ def clean(
 
 @app.command()
 def diff(
+    session_id: str = typer.Argument("", help="Session ID for server-routed diff"),
     base: str = typer.Option("main", "--base", "-b", help="Base branch to diff against"),
 ) -> None:
     """Show git diff of changes from the last golem run."""
     project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _session_diff() -> None:
+            try:
+                data = await client.get_session_diff(session_id)
+                diff_text = data.get("diff", "")
+                if diff_text:
+                    console.print(str(diff_text))
+                else:
+                    console.print("[dim]No diff available.[/dim]")
+            except Exception as exc:
+                console.print(f"[red]Failed to get diff: {exc}[/red]")
+        asyncio.run(_session_diff())
+        return
+
     result = subprocess.run(
         ["git", "diff", base],
         cwd=project_root, capture_output=True, text=True, encoding="utf-8",
@@ -837,6 +1041,7 @@ def stats() -> None:
 
 @app.command()
 def export(
+    session_id: str = typer.Argument("", help="Session ID to export (empty = export all local state)"),
     output: Path = typer.Option(Path("golem-export.zip"), "--output", "-o", help="Output zip file path"),
 ) -> None:
     """Export .golem/ run artifacts as a zip archive."""
@@ -858,6 +1063,131 @@ def export(
                 count += 1
 
     console.print(f"[green]Exported {count} file(s) to {output}[/green]")
+
+
+# --------------------------------------------------------------------------
+# Session management commands (server-routed)
+# --------------------------------------------------------------------------
+
+
+@app.command()
+def pause(
+    session_id: str = typer.Argument(..., help="Session ID to pause"),
+) -> None:
+    """Pause a running session (routes to server)."""
+    project_root = _get_project_root()
+    client = _require_server(project_root)
+    if client is None:
+        return
+    try:
+        asyncio.run(client.pause_session(session_id))
+        console.print(f"Session {session_id} paused.")
+    except Exception as exc:
+        console.print(f"[red]Failed to pause session: {exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def kill(
+    session_id: str = typer.Argument(..., help="Session ID to kill"),
+) -> None:
+    """Kill a running session (routes to server)."""
+    project_root = _get_project_root()
+    client = _require_server(project_root)
+    if client is None:
+        return
+    try:
+        asyncio.run(client.kill_session(session_id))
+        console.print(f"Session {session_id} killed.")
+    except Exception as exc:
+        console.print(f"[red]Failed to kill session: {exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def guidance(
+    session_id: str = typer.Argument(..., help="Session ID to send guidance to"),
+    text: str = typer.Argument(..., help="Guidance text to send to the Tech Lead"),
+) -> None:
+    """Send operator guidance to a running session (routes to server)."""
+    project_root = _get_project_root()
+    client = _require_server(project_root)
+    if client is None:
+        return
+    try:
+        asyncio.run(client.send_guidance(session_id, text))
+        console.print(f"Guidance sent to session {session_id}.")
+    except Exception as exc:
+        console.print(f"[red]Failed to send guidance: {exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command(name="tickets")
+def tickets_cmd(
+    session_id: str = typer.Argument("", help="Session ID for server-routed tickets (empty = show local tickets)"),
+) -> None:
+    """Show tickets for a session or the current local run."""
+    project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _server_tickets() -> None:
+            try:
+                ticket_list = await client.get_session_tickets(session_id)
+                if not ticket_list:
+                    console.print("[dim]No tickets for this session.[/dim]")
+                    return
+                table = Table(title=f"Tickets: {session_id}", show_header=True)
+                table.add_column("ID", style="cyan")
+                table.add_column("Status")
+                table.add_column("Title")
+                for t in ticket_list:
+                    table.add_row(str(t.get("id", "")), str(t.get("status", "")), str(t.get("title", "")))
+                console.print(table)
+            except Exception as exc:
+                console.print(f"[red]Failed to get tickets: {exc}[/red]")
+        asyncio.run(_server_tickets())
+        return
+
+    # Fallback: local ticket store (same as status)
+    status(session_id="")
+
+
+@app.command()
+def cost(
+    session_id: str = typer.Argument("", help="Session ID for server-routed cost (empty = show local cost)"),
+) -> None:
+    """Show run cost. Pass a session ID to query the server, or leave empty for local cost."""
+    project_root = _get_project_root()
+
+    if session_id:
+        client = _require_server(project_root)
+        if client is None:
+            return
+        async def _server_cost() -> None:
+            try:
+                data = await client.get_session_cost(session_id)
+                total = data.get("total_cost_usd", 0.0)
+                console.print(f"Session {session_id} cost: ${total:.6f}")
+            except Exception as exc:
+                console.print(f"[red]Failed to get cost: {exc}[/red]")
+        asyncio.run(_server_cost())
+        return
+
+    golem_dir = _get_golem_dir(project_root)
+    cost_events = _parse_cost_events(golem_dir)
+    if not cost_events:
+        console.print("[dim]No cost data found.[/dim]")
+        return
+    total = 0.0
+    for event in cost_events:
+        try:
+            total += float(event.get("cost", "$0").lstrip("$"))
+        except ValueError:
+            pass
+    console.print(f"Total run cost: ${total:.4f}")
 
 
 @app.command()
