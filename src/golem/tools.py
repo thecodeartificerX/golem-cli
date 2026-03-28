@@ -428,6 +428,19 @@ def create_golem_mcp_server(
     return create_sdk_mcp_server("golem", tools=tools)
 
 
+def create_golem_mcp_sse_config(
+    session_id: str,
+    server_url: str,
+    name: str = "golem",
+) -> dict[str, str]:
+    """Return an SSE MCP server config pointing at the Golem server.
+
+    Used when the Golem server is running — SDK connects to MCP tools
+    over HTTP/SSE instead of in-process pipes.
+    """
+    return {"type": "sse", "url": f"{server_url}/mcp/{session_id}/sse"}
+
+
 def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG001
     """Create a minimal in-process MCP server with only the run_qa tool (for writers)."""
     qa_tool = SdkMcpTool(

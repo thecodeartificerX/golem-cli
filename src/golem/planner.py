@@ -58,9 +58,14 @@ async def _run_planner_session(
     cwd: Path,
     is_retry: bool = False,
     event_bus: EventBus | None = None,
+    server_url: str = "",
 ) -> SupervisedResult:
     """Run a single planner supervised session."""
-    mcp_server = create_golem_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
+    if server_url:
+        from golem.tools import create_golem_mcp_sse_config
+        mcp_server = create_golem_mcp_sse_config(config.session_id, server_url)
+    else:
+        mcp_server = create_golem_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "planner", mcp_server)
 
     options = ClaudeAgentOptions(
@@ -102,6 +107,7 @@ async def run_planner(
     config: GolemConfig,
     repo_root: Path | None = None,
     event_bus: EventBus | None = None,
+    server_url: str = "",
 ) -> PlannerResult:
     """Spawn Opus planner session that writes plans/ + references/ and creates a ticket.
 
@@ -147,7 +153,7 @@ async def run_planner(
 
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            session_result = await _run_planner_session(original_prompt, golem_dir, config, cwd, event_bus=event_bus)
+            session_result = await _run_planner_session(original_prompt, golem_dir, config, cwd, event_bus=event_bus, server_url=server_url)
             break  # Success
         except CLINotFoundError:
             raise RuntimeError(
@@ -179,7 +185,7 @@ async def run_planner(
             "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
         try:
-            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus)
+            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus, server_url=server_url)
         except (CLIConnectionError, ClaudeSDKError) as e:
             raise RuntimeError(f"Planner retry failed: {e}") from None
 
@@ -208,7 +214,7 @@ async def run_planner(
             "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
         try:
-            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus)
+            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus, server_url=server_url)
         except (CLIConnectionError, ClaudeSDKError) as e:
             raise RuntimeError(f"Planner verification-retry failed: {e}") from None
 

@@ -270,6 +270,7 @@ async def run_session(
     config: GolemConfig,
     event_bus: EventBus,
     golem_dir: Path,
+    server_url: str = "",
 ) -> None:
     """Run the full Golem pipeline in-process (replaces subprocess spawning)."""
     import sys
@@ -318,20 +319,20 @@ async def run_session(
         progress = ProgressLogger(golem_dir)
         progress.log_planner_start()
 
-        planner_result = await run_planner(spec_path, golem_dir, config, project_root, event_bus=event_bus)
+        planner_result = await run_planner(spec_path, golem_dir, config, project_root, event_bus=event_bus, server_url=server_url)
         ticket_id = planner_result.ticket_id
         progress.log_planner_complete(ticket_id)
 
         if not config.skip_tech_lead:
             progress.log_tech_lead_start(ticket_id)
-            await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus)
+            await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus, server_url=server_url)
             elapsed = time.monotonic() - start
             progress.log_tech_lead_complete(elapsed_s=elapsed)
         else:
             from golem.tickets import TicketStore
             store = TicketStore(golem_dir / "tickets")
             ticket = await store.read(ticket_id)
-            await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus)
+            await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus, server_url=server_url)
 
         total_cost = progress.sum_agent_costs()
         duration = time.monotonic() - start
@@ -584,8 +585,9 @@ def create_app() -> FastAPI:
         config.session_id = session_id
 
         # Run session in-process as async task
+        server_url = f"http://127.0.0.1:{os.environ.get('GOLEM_PORT', '7665')}"
         task = asyncio.create_task(
-            run_session(state.spec_path, project_root, config, event_bus, session_dir)
+            run_session(state.spec_path, project_root, config, event_bus, session_dir, server_url=server_url)
         )
         state.task = task
         task.add_done_callback(lambda t: _on_session_done(t, state, session_mgr))

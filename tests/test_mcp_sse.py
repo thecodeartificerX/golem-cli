@@ -109,6 +109,23 @@ async def test_unknown_tool_returns_error() -> None:
     assert "not found" in resp["error"]["message"].lower()
 
 
+from golem.tools import create_golem_mcp_sse_config
+
+
+def test_create_golem_mcp_sse_config() -> None:
+    """create_golem_mcp_sse_config returns McpSSEServerConfig."""
+    config = create_golem_mcp_sse_config("sess-1", "http://127.0.0.1:7665")
+    assert config["type"] == "sse"
+    assert config["url"] == "http://127.0.0.1:7665/mcp/sess-1/sse"
+
+
+def test_create_junior_dev_mcp_sse_config() -> None:
+    """Junior dev SSE config uses session-jd path."""
+    config = create_golem_mcp_sse_config("sess-1-jd", "http://127.0.0.1:7665", name="golem-junior-dev")
+    assert config["type"] == "sse"
+    assert config["url"] == "http://127.0.0.1:7665/mcp/sess-1-jd/sse"
+
+
 from httpx import ASGITransport, AsyncClient
 
 from golem.server import create_app

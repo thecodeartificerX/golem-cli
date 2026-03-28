@@ -131,6 +131,7 @@ async def run_tech_lead(
     config: GolemConfig,
     project_root: Path,
     event_bus: EventBus | None = None,
+    server_url: str = "",
 ) -> TechLeadResult:
     """Spawn persistent Tech Lead session that orchestrates junior devs and creates a PR.
 
@@ -156,8 +157,12 @@ async def run_tech_lead(
     original_prompt = original_prompt.replace("{spec_content}", spec_content)
     original_prompt = original_prompt.replace("{project_root}", str(project_root))
 
-    # Build in-process MCP server with all orchestration tools registered
-    mcp_server = create_golem_mcp_server(golem_dir, config, project_root, event_bus=event_bus)
+    # Build MCP server — SSE if server_url provided, else in-process
+    if server_url:
+        from golem.tools import create_golem_mcp_sse_config
+        mcp_server = create_golem_mcp_sse_config(config.session_id, server_url)
+    else:
+        mcp_server = create_golem_mcp_server(golem_dir, config, project_root, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
 
     options = ClaudeAgentOptions(

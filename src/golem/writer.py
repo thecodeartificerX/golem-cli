@@ -129,6 +129,7 @@ async def spawn_junior_dev(
     config: GolemConfig,
     golem_dir: Path | None = None,
     event_bus: EventBus | None = None,
+    server_url: str = "",
 ) -> JuniorDevResult:
     """Spawn a junior dev SDK session for the given ticket in the worktree.
 
@@ -148,9 +149,13 @@ async def spawn_junior_dev(
         print(f"[JUNIOR DEV] {ticket.id}: jitter delay {delay:.1f}s", file=sys.stderr)
         await asyncio.sleep(delay)
 
-    junior_dev_server = create_junior_dev_mcp_server(golem_dir, event_bus=event_bus) if golem_dir else create_junior_dev_mcp_server(Path(worktree_path), event_bus=event_bus)
+    if server_url:
+        from golem.tools import create_golem_mcp_sse_config
+        mcp_server = create_golem_mcp_sse_config(f"{config.session_id}-jd", server_url, name="golem-junior-dev")
+    else:
+        mcp_server = create_junior_dev_mcp_server(golem_dir, event_bus=event_bus) if golem_dir else create_junior_dev_mcp_server(Path(worktree_path), event_bus=event_bus)
     sources, mcps = resolve_agent_options(
-        config, "writer", junior_dev_server, golem_mcp_name="golem-junior-dev",
+        config, "writer", mcp_server, golem_mcp_name="golem-junior-dev",
     )
 
     options = ClaudeAgentOptions(
