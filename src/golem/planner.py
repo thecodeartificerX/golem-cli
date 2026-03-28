@@ -6,15 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_agent_sdk import (
-    AssistantMessage,
     CLIConnectionError,
     CLINotFoundError,
     ClaudeAgentOptions,
     ClaudeSDKError,
-    ResultMessage,
-    TextBlock,
-    ToolUseBlock,
-    query,
 )
 
 _MAX_RETRIES = 2
@@ -22,6 +17,7 @@ _RETRY_DELAY_S = 10
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
+from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 
@@ -51,6 +47,49 @@ except Exception:
     pass
 
 
+async def _run_planner_session(
+    prompt: str,
+    golem_dir: Path,
+    config: GolemConfig,
+    cwd: Path,
+    is_retry: bool = False,
+) -> SupervisedResult:
+    """Run a single planner supervised session."""
+    mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
+    sources, mcps = resolve_agent_options(config, "planner", mcp_server)
+
+    options = ClaudeAgentOptions(
+        model=config.planner_model,
+        cwd=str(cwd),
+        tools={"type": "preset", "preset": "claude_code"},
+        mcp_servers=mcps,
+        setting_sources=sources,
+        max_turns=config.planner_max_turns,
+        permission_mode="bypassPermissions",
+        env=sdk_env(),
+    )
+
+    stall_cfg = stall_config_for_role("planner", config.planner_max_turns)
+
+    def on_text(text: str) -> None:
+        preview = text[:120].replace("\n", " ")
+        print(f"[LEAD ARCHITECT] {preview}", file=sys.stderr)
+
+    def on_tool(name: str) -> None:
+        print(f"[LEAD ARCHITECT] tool: {name}(...)", file=sys.stderr)
+
+    return await supervised_session(
+        prompt=prompt,
+        options=options,
+        role="planner",
+        config=config,
+        stall_config=stall_cfg,
+        on_text=on_text,
+        on_tool=on_tool,
+        golem_dir=golem_dir,
+    )
+
+
 async def run_planner(
     spec_path: Path,
     golem_dir: Path,
@@ -59,10 +98,11 @@ async def run_planner(
 ) -> PlannerResult:
     """Spawn Opus planner session that writes plans/ + references/ and creates a ticket.
 
-    Retries up to 2 times on CLIConnectionError/ClaudeSDKError with configurable delay.
-    SDK initialize timeout is monkey-patched from 60s to config.sdk_timeout at import time.
+    Uses supervised_session() for stall detection. Retries up to 2 times on
+    CLIConnectionError/ClaudeSDKError. On stall, retries with escalated prompt.
+    Post-session: verifies overview.md exists with >3 lines and task-*.md files exist.
     If the planner doesn't call create_ticket via MCP, a self-healing fallback creates
-    a ticket programmatically from AssistantMessage text blocks.
+    a ticket programmatically.
 
     Returns a PlannerResult with ticket_id and cost/token data.
     """
@@ -88,58 +128,20 @@ async def run_planner(
     (golem_dir / "references").mkdir(parents=True, exist_ok=True)
 
     template = _PLANNER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
-    prompt = template.replace("{spec_content}", spec_content)
-    prompt = prompt.replace("{project_context}", project_context or "(none)")
-    prompt = prompt.replace("{golem_dir}", str(golem_dir))
+    original_prompt = template.replace("{spec_content}", spec_content)
+    original_prompt = original_prompt.replace("{project_context}", project_context or "(none)")
+    original_prompt = original_prompt.replace("{golem_dir}", str(golem_dir))
     infra_checks_str = "\n".join(f"- `{c}`" for c in config.infrastructure_checks) if config.infrastructure_checks else "(none detected)"
-    prompt = prompt.replace("{infrastructure_checks}", infra_checks_str)
+    original_prompt = original_prompt.replace("{infrastructure_checks}", infra_checks_str)
 
-    # Build in-process MCP server with ticket tools registered
-    mcp_server = create_golem_mcp_server(golem_dir, config, cwd)
-    sources, mcps = resolve_agent_options(config, "planner", mcp_server)
-
-    cost_usd: float = 0.0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read: int = 0
-    num_turns: int = 0
-    duration_ms: int = 0
-
+    progress = ProgressLogger(golem_dir)
     last_error: Exception | None = None
+    session_result: SupervisedResult | None = None
+
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            async for message in query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    model=config.planner_model,
-                    cwd=str(cwd),
-                    tools={"type": "preset", "preset": "claude_code"},
-                    mcp_servers=mcps,
-                    setting_sources=sources,
-                    max_turns=config.planner_max_turns,
-                    permission_mode="bypassPermissions",
-                    env=sdk_env(),
-                ),
-            ):
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            preview = block.text[:120].replace("\n", " ")
-                            print(f"[LEAD ARCHITECT] {preview}", file=sys.stderr)
-                        elif isinstance(block, ToolUseBlock):
-                            print(f"[LEAD ARCHITECT] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-                elif isinstance(message, ResultMessage):
-                    cost_usd = message.total_cost_usd or 0.0
-                    usage = message.usage or {}
-                    input_tokens = usage.get("input_tokens", 0)
-                    output_tokens = usage.get("output_tokens", 0)
-                    cache_read = usage.get("cache_read_input_tokens", 0)
-                    num_turns = message.num_turns
-                    duration_ms = message.duration_ms
-                    if message.result:
-                        preview = message.result[:120].replace("\n", " ")
-                        print(f"[LEAD ARCHITECT] result: {preview}", file=sys.stderr)
-            break  # Success — exit retry loop
+            session_result = await _run_planner_session(original_prompt, golem_dir, config, cwd)
+            break  # Success
         except CLINotFoundError:
             raise RuntimeError(
                 "Planner failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
@@ -157,8 +159,58 @@ async def run_planner(
                     f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
-    # Verify plans/overview.md was created
+    if session_result is None:
+        raise RuntimeError("Planner session produced no result")
+
+    stall_cfg = stall_config_for_role("planner", config.planner_max_turns)
+
+    # Handle stall: retry with escalated prompt
+    if session_result.stalled:
+        progress.log_stall_detected("planner", session_result.turns, config.planner_max_turns, session_result.registry.action_call_count())
+        progress.log_stall_retry("planner")
+        escalated = build_escalated_prompt(
+            "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
+        )
+        try:
+            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True)
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            raise RuntimeError(f"Planner retry failed: {e}") from None
+
+        if retry_result.stalled:
+            progress.log_stall_fatal("planner", retry_result.turns)
+            raise RuntimeError(
+                f"Planner stalled after retry -- {retry_result.turns} turns with no progress"
+            )
+        session_result = retry_result
+
+    # Post-session content verification
     overview_path = golem_dir / "plans" / "overview.md"
+    plans_dir = golem_dir / "plans"
+    overview_ok = (
+        overview_path.exists()
+        and len(overview_path.read_text(encoding="utf-8").splitlines()) > 3
+    )
+    task_files = list(plans_dir.glob("task-*.md")) if plans_dir.exists() else []
+
+    if not overview_ok or not task_files:
+        # Verification failed: treat as stall and retry
+        progress.log_stall_warning(
+            "planner", session_result.turns, config.planner_max_turns, session_result.registry.action_call_count()
+        )
+        escalated = build_escalated_prompt(
+            "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
+        )
+        try:
+            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True)
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            raise RuntimeError(f"Planner verification-retry failed: {e}") from None
+
+        if retry_result.stalled:
+            progress.log_stall_fatal("planner", retry_result.turns)
+            raise RuntimeError("Planner produced no valid plan after retry")
+        session_result = retry_result
+
+    # Verify overview.md was created (original check preserved)
     if not overview_path.exists():
         raise RuntimeError(
             f"Planner did not create plans/overview.md at {overview_path}. "
@@ -169,7 +221,10 @@ async def run_planner(
     store = TicketStore(golem_dir / "tickets")
     all_tickets = await store.list_tickets()
     if not all_tickets:
-        print("[LEAD ARCHITECT] Warning: planner did not call create_ticket — creating fallback ticket", file=sys.stderr)
+        print("[LEAD ARCHITECT] Warning: planner did not call create_ticket -- creating fallback ticket", file=sys.stderr)
+        progress.log_stall_warning(
+            "planner", session_result.turns, config.planner_max_turns, session_result.registry.action_call_count()
+        )
         # Self-heal: create the ticket the planner should have created
         overview = golem_dir / "plans" / "overview.md"
         blueprint = overview.read_text(encoding="utf-8")[:500] if overview.exists() else ""
@@ -188,47 +243,52 @@ async def run_planner(
                 plan_file=str(overview),
                 references=[str(p) for p in plan_files],
                 blueprint=blueprint,
-                acceptance=["All tasks completed", "All QA checks pass", "PR created"],
+                acceptance=[
+                    "All tasks completed",
+                    "All QA checks pass",
+                    "PR created",
+                    f"Task files: {len(plan_files)}",
+                ],
             ),
             history=[],
         )
         ticket_id = await store.create(ticket)
-        ProgressLogger(golem_dir).log_agent_cost(
+        progress.log_agent_cost(
             role="lead_architect",
-            cost_usd=cost_usd,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read=cache_read,
-            turns=num_turns,
-            duration_s=duration_ms // 1000,
+            cost_usd=session_result.cost_usd,
+            input_tokens=session_result.input_tokens,
+            output_tokens=session_result.output_tokens,
+            cache_read=0,
+            turns=session_result.turns,
+            duration_s=int(session_result.duration_s),
         )
         return PlannerResult(
             ticket_id=ticket_id,
-            cost_usd=cost_usd,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read,
-            num_turns=num_turns,
-            duration_ms=duration_ms,
+            cost_usd=session_result.cost_usd,
+            input_tokens=session_result.input_tokens,
+            output_tokens=session_result.output_tokens,
+            cache_read_tokens=0,
+            num_turns=session_result.turns,
+            duration_ms=int(session_result.duration_s * 1000),
         )
 
-    # Return the last ticket created (by ID sort — TICKET-001, TICKET-002, etc.)
+    # Return the last ticket created (by ID sort -- TICKET-001, TICKET-002, etc.)
     last_ticket = sorted(all_tickets, key=lambda t: t.id)[-1]
-    ProgressLogger(golem_dir).log_agent_cost(
+    progress.log_agent_cost(
         role="lead_architect",
-        cost_usd=cost_usd,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read=cache_read,
-        turns=num_turns,
-        duration_s=duration_ms // 1000,
+        cost_usd=session_result.cost_usd,
+        input_tokens=session_result.input_tokens,
+        output_tokens=session_result.output_tokens,
+        cache_read=0,
+        turns=session_result.turns,
+        duration_s=int(session_result.duration_s),
     )
     return PlannerResult(
         ticket_id=last_ticket.id,
-        cost_usd=cost_usd,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read_tokens=cache_read,
-        num_turns=num_turns,
-        duration_ms=duration_ms,
+        cost_usd=session_result.cost_usd,
+        input_tokens=session_result.input_tokens,
+        output_tokens=session_result.output_tokens,
+        cache_read_tokens=0,
+        num_turns=session_result.turns,
+        duration_ms=int(session_result.duration_s * 1000),
     )

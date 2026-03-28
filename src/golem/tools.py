@@ -2,7 +2,7 @@
 
 Provides SdkMcpTool instances for ticket CRUD, QA, worktree operations,
 and branch merging. Tools are injected into SDK sessions via in-process
-MCP servers (golem, golem-qa, golem-writer).
+MCP servers (golem, golem-qa, golem-junior-dev).
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import asdict
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server
 
@@ -19,6 +20,9 @@ from golem.config import GolemConfig
 from golem.qa import QAResult, run_qa
 from golem.tickets import Ticket, TicketContext, TicketStore
 from golem.worktree import commit_task, create_worktree, merge_group_branches
+
+if TYPE_CHECKING:
+    from golem.supervisor import ToolCallRegistry
 
 # ---------------------------------------------------------------------------
 # Input schemas (JSON Schema format used by SdkMcpTool.input_schema)
@@ -255,57 +259,76 @@ async def _handle_commit_worktree(args: dict[str, object]) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _build_tools(golem_dir: Path, config: GolemConfig, project_root: Path) -> list[SdkMcpTool]:  # noqa: ARG001
-    """Build SdkMcpTool instances with handlers bound to golem_dir/config/project_root."""
+def _build_tools(
+    golem_dir: Path,
+    config: GolemConfig,  # noqa: ARG001
+    project_root: Path,
+    registry: ToolCallRegistry | None = None,
+) -> list[SdkMcpTool]:
+    """Build SdkMcpTool instances with handlers bound to golem_dir/config/project_root.
+
+    If registry is provided, each tool call records itself via registry.record().
+    """
     store = TicketStore(golem_dir / "tickets")
+
+    def _wrap(name: str, handler: object) -> object:
+        if registry is None:
+            return handler
+
+        async def _instrumented(args: dict[str, object]) -> dict[str, object]:
+            registry.record(name, 0)
+            return await handler(args)  # type: ignore[misc]
+
+        return _instrumented
+
     return [
         SdkMcpTool(
             name="create_ticket",
             description="Create a new ticket in the ticket store.",
             input_schema=_CREATE_TICKET_INPUT_SCHEMA,
-            handler=partial(_handle_create_ticket, store),
+            handler=_wrap("create_ticket", partial(_handle_create_ticket, store)),
         ),
         SdkMcpTool(
             name="update_ticket",
             description="Update ticket status and append a history event.",
             input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
-            handler=partial(_handle_update_ticket, store),
+            handler=_wrap("update_ticket", partial(_handle_update_ticket, store)),
         ),
         SdkMcpTool(
             name="read_ticket",
             description="Read a ticket by ID.",
             input_schema=_READ_TICKET_INPUT_SCHEMA,
-            handler=partial(_handle_read_ticket, store),
+            handler=_wrap("read_ticket", partial(_handle_read_ticket, store)),
         ),
         SdkMcpTool(
             name="list_tickets",
             description="List tickets, optionally filtered by status or assignee.",
             input_schema=_LIST_TICKETS_INPUT_SCHEMA,
-            handler=partial(_handle_list_tickets, store),
+            handler=_wrap("list_tickets", partial(_handle_list_tickets, store)),
         ),
         SdkMcpTool(
             name="run_qa",
             description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
             input_schema=_RUN_QA_INPUT_SCHEMA,
-            handler=_handle_run_qa,
+            handler=_wrap("run_qa", _handle_run_qa),
         ),
         SdkMcpTool(
             name="create_worktree",
             description="Create a git worktree for a group on a new branch.",
             input_schema=_CREATE_WORKTREE_INPUT_SCHEMA,
-            handler=_handle_create_worktree,
+            handler=_wrap("create_worktree", _handle_create_worktree),
         ),
         SdkMcpTool(
             name="merge_branches",
             description="Merge group branches into a target branch.",
             input_schema=_MERGE_BRANCHES_INPUT_SCHEMA,
-            handler=_handle_merge_branches,
+            handler=_wrap("merge_branches", _handle_merge_branches),
         ),
         SdkMcpTool(
             name="commit_worktree",
             description="Stage and commit all changes in a worktree.",
             input_schema=_COMMIT_WORKTREE_INPUT_SCHEMA,
-            handler=_handle_commit_worktree,
+            handler=_wrap("commit_worktree", _handle_commit_worktree),
         ),
     ]
 
@@ -315,14 +338,27 @@ def _build_tools(golem_dir: Path, config: GolemConfig, project_root: Path) -> li
 # ---------------------------------------------------------------------------
 
 
-def get_tech_lead_tools(golem_dir: Path, config: GolemConfig, project_root: Path) -> list[SdkMcpTool]:
+def get_tech_lead_tools(
+    golem_dir: Path,
+    config: GolemConfig,
+    project_root: Path,
+    registry: ToolCallRegistry | None = None,
+) -> list[SdkMcpTool]:
     """Return all SdkMcpTool instances for the Tech Lead SDK session."""
-    return _build_tools(golem_dir, config, project_root)
+    return _build_tools(golem_dir, config, project_root, registry=registry)
 
 
-def create_golem_mcp_server(golem_dir: Path, config: GolemConfig, project_root: Path) -> McpSdkServerConfig:
-    """Create an in-process MCP server with all Golem orchestration tools."""
-    tools = _build_tools(golem_dir, config, project_root)
+def create_golem_mcp_server(
+    golem_dir: Path,
+    config: GolemConfig,
+    project_root: Path,
+    registry: ToolCallRegistry | None = None,
+) -> McpSdkServerConfig:
+    """Create an in-process MCP server with all Golem orchestration tools.
+
+    If registry is provided, each tool call is recorded via registry.record().
+    """
+    tools = _build_tools(golem_dir, config, project_root, registry=registry)
     return create_sdk_mcp_server("golem", tools=tools)
 
 
@@ -337,30 +373,56 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
     return create_sdk_mcp_server("golem-qa", tools=[qa_tool])
 
 
-def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
-    """Create an MCP server for Junior Devs with run_qa + update_ticket + read_ticket tools."""
+def create_junior_dev_mcp_server(
+    golem_dir: Path,
+    registry: ToolCallRegistry | None = None,
+) -> McpSdkServerConfig:
+    """Create an MCP server for Junior Devs with run_qa + update_ticket + read_ticket tools.
+
+    If registry is provided, each tool call is recorded via registry.record().
+    """
     store = TicketStore(golem_dir / "tickets")
+
+    async def _instrumented_run_qa(args: dict[str, object]) -> dict[str, object]:
+        if registry is not None:
+            registry.record("run_qa", 0)
+        return await _handle_run_qa(args)
+
+    async def _instrumented_update_ticket(args: dict[str, object]) -> dict[str, object]:
+        if registry is not None:
+            registry.record("update_ticket", 0)
+        return await _handle_update_ticket(store, args)
+
+    async def _instrumented_read_ticket(args: dict[str, object]) -> dict[str, object]:
+        if registry is not None:
+            registry.record("read_ticket", 0)
+        return await _handle_read_ticket(store, args)
+
     tools = [
         SdkMcpTool(
             name="run_qa",
             description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
             input_schema=_RUN_QA_INPUT_SCHEMA,
-            handler=_handle_run_qa,
+            handler=_instrumented_run_qa,
         ),
         SdkMcpTool(
             name="update_ticket",
             description="Update a ticket's status and append a history event.",
             input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
-            handler=partial(_handle_update_ticket, store),
+            handler=_instrumented_update_ticket,
         ),
         SdkMcpTool(
             name="read_ticket",
             description="Read a ticket by ID. Used to poll for Tech Lead review status.",
             input_schema=_READ_TICKET_INPUT_SCHEMA,
-            handler=partial(_handle_read_ticket, store),
+            handler=_instrumented_read_ticket,
         ),
     ]
-    return create_sdk_mcp_server("golem-writer", tools=tools)
+    return create_sdk_mcp_server("golem-junior-dev", tools=tools)
+
+
+# Backward-compatible alias
+create_writer_mcp_server = create_junior_dev_mcp_server
 
 
 async def handle_tool_call(

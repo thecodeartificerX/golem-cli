@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from golem.config import GolemConfig
-from golem.tools import create_golem_mcp_server, create_qa_mcp_server, create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
+from golem.supervisor import ToolCallRegistry
+from golem.tools import create_golem_mcp_server, create_junior_dev_mcp_server, create_qa_mcp_server, create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
 
 _EXPECTED_TOOL_NAMES = {
     "create_ticket",
@@ -112,16 +113,25 @@ async def test_handle_tool_call_unknown_tool_raises() -> None:
             )
 
 
-def test_create_writer_mcp_server_has_both_tools() -> None:
+def test_create_junior_dev_mcp_server_has_tools() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        (golem_dir / "tickets").mkdir()
+        server = create_junior_dev_mcp_server(golem_dir)
+        assert server is not None
+        assert server["name"] == "golem-junior-dev"
+        assert server["type"] == "sdk"
+        assert hasattr(server["instance"], "call_tool")
+
+
+def test_create_writer_mcp_server_backward_compat() -> None:
+    """create_writer_mcp_server is a backward-compatible alias."""
     with tempfile.TemporaryDirectory() as tmpdir:
         golem_dir = Path(tmpdir)
         (golem_dir / "tickets").mkdir()
         server = create_writer_mcp_server(golem_dir)
         assert server is not None
-        assert server["name"] == "golem-writer"
-        assert server["type"] == "sdk"
-        # The server instance should have a call_tool method (MCP server)
-        assert hasattr(server["instance"], "call_tool")
+        assert server["name"] == "golem-junior-dev"
 
 
 def test_create_golem_mcp_server_name() -> None:
@@ -385,3 +395,26 @@ async def test_handle_tool_call_create_ticket_files_dict() -> None:
         )
         data = json.loads(read_str)
         assert data["context"]["files"] == {"src/main.py": "# main module", "src/utils.py": "# utils"}
+
+
+@pytest.mark.asyncio
+async def test_tool_call_records_to_registry() -> None:
+    """When registry is provided to get_tech_lead_tools, tool calls record to it."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        config = GolemConfig()
+        registry = ToolCallRegistry()
+
+        tools = get_tech_lead_tools(Path(tmpdir), config, Path(tmpdir), registry=registry)
+        create_ticket_tool = next(t for t in tools if t.name == "create_ticket")
+
+        # Call the instrumented handler directly
+        await create_ticket_tool.handler({
+            "type": "task",
+            "title": "Registry test ticket",
+            "assigned_to": "writer",
+        })
+
+        assert registry.has_called("create_ticket")
+        assert registry.action_call_count() == 1

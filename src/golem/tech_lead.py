@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,19 +10,15 @@ _MAX_RETRIES = 2
 _RETRY_DELAY_S = 10
 
 from claude_agent_sdk import (
-    AssistantMessage,
     CLIConnectionError,
     CLINotFoundError,
     ClaudeAgentOptions,
     ClaudeSDKError,
-    ResultMessage,
-    TextBlock,
-    ToolUseBlock,
-    query,
 )
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
+from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
@@ -41,7 +38,6 @@ _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 def _ensure_merged_to_main(project_root: Path) -> None:
     """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
-    import subprocess
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -55,7 +51,6 @@ def _ensure_merged_to_main(project_root: Path) -> None:
         return
 
     # Check if main already has the integration commits
-    current = _git("rev-parse", "HEAD")
     checkout_result = _git("checkout", "main")
     if checkout_result.returncode != 0:
         # Fallback: try 'master' or detect default branch
@@ -73,7 +68,7 @@ def _ensure_merged_to_main(project_root: Path) -> None:
         # Skip branches with no actual changes (diff against HEAD which is now on main/master)
         diff_stat = _git("diff", "--stat", f"HEAD...{branch}")
         if not diff_stat.stdout.strip():
-            print(f"[TECH LEAD] Skipping {branch} — no changes", file=sys.stderr)
+            print(f"[TECH LEAD] Skipping {branch} -- no changes", file=sys.stderr)
             continue
 
         print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
@@ -100,22 +95,47 @@ def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
                 print(f"[TECH LEAD] Warning: could not clean worktree {wt.name}: {cleanup_err}", file=sys.stderr)
 
 
+def _check_integration_commits(project_root: Path) -> bool:
+    """Return True if at least one golem integration branch has commits beyond main."""
+    result = subprocess.run(
+        ["git", "branch", "--list", "golem/*/integration"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
+    if not branches:
+        return False
+
+    for branch in branches:
+        log_result = subprocess.run(
+            ["git", "log", "--oneline", branch, "--not", "main"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if log_result.stdout.strip():
+            return True
+    return False
+
+
 async def run_tech_lead(
     ticket_id: str,
     golem_dir: Path,
     config: GolemConfig,
     project_root: Path,
 ) -> TechLeadResult:
-    """Spawn persistent Tech Lead session that orchestrates writers and creates a PR.
+    """Spawn persistent Tech Lead session that orchestrates junior devs and creates a PR.
 
-    The Tech Lead reads plans, creates worktrees, spawns writer pairs, reviews work,
+    The Tech Lead reads plans, creates worktrees, spawns junior dev pairs, reviews work,
     merges branches, runs integration QA, and creates a PR. Blocks until complete.
-    The SDK automatically routes all tool calls to the registered MCP server.
+    Uses supervised_session() for stall detection and auto-retry with escalated prompts.
 
     Self-healing: _ensure_merged_to_main() runs after the session to merge any
     integration branches the Tech Lead didn't merge. _cleanup_golem_worktrees()
-    removes orphaned worktrees on session failure. Retries up to 2 times on
-    CLIConnectionError/ClaudeSDKError with configurable delay.
+    removes orphaned worktrees on session failure.
     """
     store = TicketStore(golem_dir / "tickets")
     ticket = await store.read(ticket_id)
@@ -127,56 +147,52 @@ async def run_tech_lead(
         spec_content = Path(plan_file).read_text(encoding="utf-8")
 
     template = _TECH_LEAD_PROMPT_TEMPLATE.read_text(encoding="utf-8")
-    prompt = template.replace("{golem_dir}", str(golem_dir))
-    prompt = prompt.replace("{spec_content}", spec_content)
-    prompt = prompt.replace("{project_root}", str(project_root))
+    original_prompt = template.replace("{golem_dir}", str(golem_dir))
+    original_prompt = original_prompt.replace("{spec_content}", spec_content)
+    original_prompt = original_prompt.replace("{project_root}", str(project_root))
 
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)
     sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
+
+    options = ClaudeAgentOptions(
+        model=config.tech_lead_model,
+        cwd=str(project_root),
+        tools={"type": "preset", "preset": "claude_code"},
+        mcp_servers=mcps,
+        setting_sources=sources,
+        max_turns=config.max_tech_lead_turns,
+        permission_mode="bypassPermissions",
+        env=sdk_env(),
+    )
+
+    stall_cfg = stall_config_for_role("tech_lead", config.max_tech_lead_turns)
+
+    def on_text(text: str) -> None:
+        preview = text[:120].replace("\n", " ")
+        print(f"[TECH LEAD] {preview}", file=sys.stderr)
+
+    def on_tool(name: str) -> None:
+        print(f"[TECH LEAD] tool: {name}(...)", file=sys.stderr)
+
+    progress = ProgressLogger(golem_dir)
     _session_failed = False
     last_error: Exception | None = None
-    cost_usd: float = 0.0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read: int = 0
-    num_turns: int = 0
-    duration_ms: int = 0
+    session_result: SupervisedResult | None = None
 
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            async for message in query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    model=config.tech_lead_model,
-                    cwd=str(project_root),
-                    tools={"type": "preset", "preset": "claude_code"},
-                    mcp_servers=mcps,
-                    setting_sources=sources,
-                    max_turns=config.max_tech_lead_turns,
-                    permission_mode="bypassPermissions",
-                    env=sdk_env(),
-                ),
-            ):
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            preview = block.text[:120].replace("\n", " ")
-                            print(f"[TECH LEAD] {preview}", file=sys.stderr)
-                        elif isinstance(block, ToolUseBlock):
-                            print(f"[TECH LEAD] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
-                elif isinstance(message, ResultMessage):
-                    cost_usd = message.total_cost_usd or 0.0
-                    usage = message.usage or {}
-                    input_tokens = usage.get("input_tokens", 0)
-                    output_tokens = usage.get("output_tokens", 0)
-                    cache_read = usage.get("cache_read_input_tokens", 0)
-                    num_turns = message.num_turns
-                    duration_ms = message.duration_ms
-                    if message.result:
-                        preview = message.result[:120].replace("\n", " ")
-                        print(f"[TECH LEAD] result: {preview}", file=sys.stderr)
-            break  # Success — exit retry loop
+            session_result = await supervised_session(
+                prompt=original_prompt,
+                options=options,
+                role="tech_lead",
+                config=config,
+                stall_config=stall_cfg,
+                on_text=on_text,
+                on_tool=on_tool,
+                golem_dir=golem_dir,
+            )
+            break  # Success
         except CLINotFoundError:
             _session_failed = True
             _cleanup_golem_worktrees(golem_dir, project_root)
@@ -198,24 +214,89 @@ async def run_tech_lead(
                     f"Tech Lead failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
-    ProgressLogger(golem_dir).log_agent_cost(
+    if session_result is None:
+        raise RuntimeError("Tech Lead session produced no result")
+
+    # Handle stall: retry with escalated prompt
+    if session_result.stalled:
+        progress.log_stall_detected("tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count())
+        progress.log_stall_retry("tech_lead")
+        escalated = build_escalated_prompt(
+            "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
+        )
+        try:
+            retry_result = await supervised_session(
+                prompt=escalated,
+                options=options,
+                role="tech_lead",
+                config=config,
+                stall_config=stall_cfg,
+                on_text=on_text,
+                on_tool=on_tool,
+                golem_dir=golem_dir,
+            )
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            _cleanup_golem_worktrees(golem_dir, project_root)
+            raise RuntimeError(f"Tech Lead retry failed: {e}") from None
+
+        if retry_result.stalled:
+            progress.log_stall_fatal("tech_lead", retry_result.turns)
+            _cleanup_golem_worktrees(golem_dir, project_root)
+            raise RuntimeError(
+                f"Tech Lead stalled after retry — {retry_result.turns} turns with no progress"
+            )
+        session_result = retry_result
+
+    # Post-session verification: check for commits on integration branch beyond main
+    if not _check_integration_commits(project_root):
+        # No commits produced — treat as stall and retry with escalated prompt
+        progress.log_stall_warning(
+            "tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count()
+        )
+        escalated = build_escalated_prompt(
+            "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
+        )
+        try:
+            retry_result = await supervised_session(
+                prompt=escalated,
+                options=options,
+                role="tech_lead",
+                config=config,
+                stall_config=stall_cfg,
+                on_text=on_text,
+                on_tool=on_tool,
+                golem_dir=golem_dir,
+            )
+        except (CLIConnectionError, ClaudeSDKError) as e:
+            _cleanup_golem_worktrees(golem_dir, project_root)
+            raise RuntimeError(f"Tech Lead no-commits retry failed: {e}") from None
+
+        if retry_result.stalled:
+            progress.log_stall_fatal("tech_lead", retry_result.turns)
+            _cleanup_golem_worktrees(golem_dir, project_root)
+            raise RuntimeError(
+                "Tech Lead produced no commits after retry"
+            )
+        session_result = retry_result
+
+    progress.log_agent_cost(
         role="tech_lead",
-        cost_usd=cost_usd,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read=cache_read,
-        turns=num_turns,
-        duration_s=duration_ms // 1000,
+        cost_usd=session_result.cost_usd,
+        input_tokens=session_result.input_tokens,
+        output_tokens=session_result.output_tokens,
+        cache_read=0,
+        turns=session_result.turns,
+        duration_s=int(session_result.duration_s),
     )
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     _ensure_merged_to_main(project_root)
 
     return TechLeadResult(
-        cost_usd=cost_usd,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read_tokens=cache_read,
-        num_turns=num_turns,
-        duration_ms=duration_ms,
+        cost_usd=session_result.cost_usd,
+        input_tokens=session_result.input_tokens,
+        output_tokens=session_result.output_tokens,
+        cache_read_tokens=0,
+        num_turns=session_result.turns,
+        duration_ms=int(session_result.duration_s * 1000),
     )

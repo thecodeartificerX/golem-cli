@@ -22,7 +22,7 @@ from golem.planner import run_planner
 from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
 from golem.tickets import TicketStore
-from golem.writer import spawn_writer_pair
+from golem.writer import spawn_junior_dev
 
 app = typer.Typer(
     name="golem",
@@ -194,7 +194,7 @@ def run(
         # Check if Tech Lead should be skipped (TRIVIAL complexity)
         if config.skip_tech_lead:
             console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
-            writer_result = await spawn_writer_pair(ticket, str(project_root), config, golem_dir)
+            writer_result = await spawn_junior_dev(ticket, str(project_root), config, golem_dir)
             total_cost = (planner_result.cost_usd or 0.0) + (writer_result.cost_usd or 0.0)
             progress.log_run_cost_summary(total_cost)
             if total_cost > 0:
