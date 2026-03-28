@@ -312,6 +312,122 @@ def resolve_plugins_for_role(
     return project_plugins, user_plugins
 
 
+async def run_environment_checks(project_root: Path) -> list[dict[str, object]]:
+    """Run preflight environment checks."""
+    import shutil
+    import socket
+    import subprocess
+
+    checks: list[dict[str, object]] = []
+
+    # Check claude CLI
+    claude_path = shutil.which("claude")
+    checks.append({
+        "check": "claude CLI",
+        "passed": claude_path is not None,
+        "detail": str(claude_path) if claude_path else "not found on PATH",
+    })
+
+    # Check rg (ripgrep)
+    rg_path = shutil.which("rg")
+    checks.append({
+        "check": "ripgrep (rg)",
+        "passed": rg_path is not None,
+        "detail": str(rg_path) if rg_path else "not found on PATH",
+    })
+
+    # Check git clean
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(project_root), capture_output=True, text=True, encoding="utf-8",
+        )
+        is_clean = result.returncode == 0 and not result.stdout.strip()
+        checks.append({
+            "check": "git clean",
+            "passed": is_clean,
+            "detail": "working tree clean" if is_clean else "uncommitted changes",
+        })
+    except Exception as e:
+        checks.append({"check": "git clean", "passed": False, "detail": str(e)})
+
+    # Check stale .golem
+    golem_dir = project_root / ".golem"
+    checks.append({
+        "check": "no stale .golem",
+        "passed": not golem_dir.exists(),
+        "detail": "clean" if not golem_dir.exists() else ".golem directory exists",
+    })
+
+    # Check port 9664
+    port_free = True
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            port_free = s.connect_ex(("127.0.0.1", 9664)) != 0
+    except Exception:
+        pass
+    checks.append({
+        "check": "port 9664",
+        "passed": port_free,
+        "detail": "available" if port_free else "in use",
+    })
+
+    return checks
+
+
+def estimate_cost(config: GolemConfig, history_dir: Path | None = None) -> dict[str, object]:
+    """Estimate cost from historical AGENT_COST data or model pricing."""
+    import re
+
+    # Try historical data first
+    costs_by_role: dict[str, list[float]] = {}
+    based_on = 0
+    if history_dir and history_dir.exists():
+        for log_file in history_dir.rglob("progress.log"):
+            for line in log_file.read_text(encoding="utf-8").splitlines():
+                m = re.search(r"AGENT_COST role=(\S+) cost=\$([0-9.]+)", line)
+                if m:
+                    role = m.group(1).split("/")[0]  # junior_dev/TICKET-001 -> junior_dev
+                    cost = float(m.group(2))
+                    costs_by_role.setdefault(role, []).append(cost)
+                    based_on += 1
+
+    if based_on > 0:
+        result: dict[str, object] = {}
+        total_min = 0.0
+        total_max = 0.0
+        for role in ["planner", "tech_lead", "junior_dev"]:
+            role_costs = costs_by_role.get(role, [0.0])
+            rmin = min(role_costs)
+            rmax = max(role_costs)
+            result[role] = {"min": round(rmin, 4), "max": round(rmax, 4)}
+            total_min += rmin
+            total_max += rmax
+        result["total"] = {"min": round(total_min, 4), "max": round(total_max, 4)}
+        result["based_on"] = based_on
+        return result
+
+    # Fallback: estimate from model pricing (rough per-session estimates)
+    pricing: dict[str, float] = {
+        "claude-opus-4-6": 0.08,
+        "claude-sonnet-4-6": 0.03,
+        "claude-haiku-4-5": 0.005,
+    }
+    planner_cost = pricing.get(config.planner_model, 0.05)
+    tech_lead_cost = pricing.get(config.tech_lead_model, 0.05)
+    worker_cost = pricing.get(config.worker_model, 0.05)
+    total = planner_cost + tech_lead_cost + worker_cost * 3  # assume 3 workers
+
+    return {
+        "planner": {"min": round(planner_cost * 0.5, 4), "max": round(planner_cost * 2.0, 4)},
+        "tech_lead": {"min": round(tech_lead_cost * 0.5, 4), "max": round(tech_lead_cost * 2.0, 4)},
+        "junior_dev": {"min": round(worker_cost * 0.5, 4), "max": round(worker_cost * 2.0, 4)},
+        "total": {"min": round(total * 0.5, 4), "max": round(total * 2.0, 4)},
+        "based_on": 0,
+    }
+
+
 _EPHEMERAL_FIELDS = {"infrastructure_checks"}
 
 

@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from golem.config import GolemConfig
+
 
 @dataclass
 class ClassificationResult:
@@ -65,3 +67,73 @@ def classify_spec(spec_text: str, project_context: str = "") -> ClassificationRe
 
     reasons.append(f"{file_mentions} files, {spec_length} chars (default)")
     return ClassificationResult("STANDARD", "; ".join(reasons), 0.5)
+
+
+def derive_agent_topology(config: GolemConfig) -> dict[str, object]:
+    """Derive the agent tree that would spawn for the given config."""
+    return {
+        "planner": {
+            "model": config.planner_model,
+            "max_turns": config.planner_max_turns,
+            "mcp_server": "golem",
+            "mcp_tools": ["create_ticket", "update_ticket", "read_ticket", "list_tickets",
+                           "run_qa", "create_worktree", "merge_branches", "commit_worktree"],
+            "stall_warn": int(config.planner_max_turns * 0.6),
+            "stall_kill": int(config.planner_max_turns * 0.8),
+            "sub_agents": [
+                {"role": "explorer", "model": "claude-haiku-4-5"},
+                {"role": "researcher", "model": "claude-sonnet-4-6"},
+            ],
+        },
+        "tech_lead": {
+            "model": config.tech_lead_model,
+            "max_turns": config.max_tech_lead_turns,
+            "mcp_server": "golem",
+            "mcp_tools": ["create_ticket", "update_ticket", "read_ticket", "list_tickets",
+                           "run_qa", "create_worktree", "merge_branches", "commit_worktree"],
+            "stall_warn": int(config.max_tech_lead_turns * 0.3),
+            "stall_kill": int(config.max_tech_lead_turns * 0.5),
+        },
+        "junior_dev": {
+            "model": config.worker_model,
+            "max_turns": config.max_worker_turns,
+            "mcp_server": "golem-junior-dev",
+            "mcp_tools": ["run_qa", "update_ticket", "read_ticket"],
+            "stall_warn": int(config.max_worker_turns * 0.3),
+            "stall_kill": int(config.max_worker_turns * 0.5),
+            "dispatch_jitter_max": config.dispatch_jitter_max,
+        },
+        "skip_tech_lead": config.skip_tech_lead,
+    }
+
+
+def predict_conflicts(spec_paths: list[Path]) -> list[dict[str, object]]:
+    """Parse specs for file references and predict cross-spec conflicts."""
+    if len(spec_paths) < 2:
+        return []
+
+    # Collect file references per spec
+    spec_files: dict[str, set[str]] = {}
+    for spec_path in spec_paths:
+        name = spec_path.stem
+        content = spec_path.read_text(encoding="utf-8")
+        files: set[str] = set()
+        # Match backtick-quoted paths and src/golem/*.py or tests/test_*.py patterns
+        for match in re.finditer(r'`([^`]*\.(py|ts|js|md|html))`', content):
+            files.add(match.group(1))
+        for match in re.finditer(r'(?:src/golem/|tests/test_)\S+\.py', content):
+            files.add(match.group(0))
+        spec_files[name] = files
+
+    # Find overlaps
+    conflicts: list[dict[str, object]] = []
+    all_files: set[str] = set()
+    for files in spec_files.values():
+        all_files |= files
+
+    for file in sorted(all_files):
+        specs_touching = [name for name, files in spec_files.items() if file in files]
+        if len(specs_touching) > 1:
+            conflicts.append({"file": file, "specs": specs_touching})
+
+    return conflicts
