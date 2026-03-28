@@ -11,7 +11,10 @@ def _run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: i
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check, timeout=timeout)
 
 
-def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path) -> None:
+def create_worktree(
+    group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path,
+    branch_prefix: str = "golem",
+) -> None:
     """Create a git worktree for a group at `path` on a new `branch` from `base_branch`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # Check if branch already exists

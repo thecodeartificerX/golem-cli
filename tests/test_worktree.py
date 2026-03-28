@@ -355,3 +355,49 @@ async def test_create_pr_draft_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert url == "https://github.com/owner/repo/pull/99"
     assert "--draft" in captured_cmd
+
+
+def test_create_worktree_with_branch_prefix() -> None:
+    """create_worktree with branch_prefix creates branch using the prefix."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        wt_path = Path(tmpdir) / "worktrees" / "group-a"
+        create_worktree(
+            "group-a",
+            "golem/session-1/group-a",
+            "main",
+            wt_path,
+            repo,
+            branch_prefix="golem/session-1",
+        )
+
+        worktrees = list_worktrees(repo)
+        assert any("group-a" in wt for wt in worktrees)
+
+        # Verify the branch name uses the prefix
+        result = subprocess.run(
+            ["git", "branch", "--list", "golem/session-1/group-a"],
+            cwd=repo, capture_output=True, text=True, check=True,
+        )
+        assert "golem/session-1/group-a" in result.stdout
+
+        delete_worktree(wt_path, repo)
+
+
+def test_create_worktree_default_prefix() -> None:
+    """create_worktree without branch_prefix still works (backward compat)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        wt_path = Path(tmpdir) / "worktrees" / "group-b"
+        # No branch_prefix argument — should still work
+        create_worktree("group-b", "golem/spec/group-b", "main", wt_path, repo)
+
+        worktrees = list_worktrees(repo)
+        assert any("group-b" in wt for wt in worktrees)
+        delete_worktree(wt_path, repo)

@@ -36,7 +36,7 @@ class TechLeadResult:
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 
-def _ensure_merged_to_main(project_root: Path) -> None:
+def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem") -> None:
     """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -45,7 +45,7 @@ def _ensure_merged_to_main(project_root: Path) -> None:
         )
 
     # Find golem integration branches
-    result = _git("branch", "--list", "golem/*/integration")
+    result = _git("branch", "--list", f"{branch_prefix}/*/integration")
     integration_branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
     if not integration_branches:
         return
@@ -290,7 +290,8 @@ async def run_tech_lead(
     )
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
-    _ensure_merged_to_main(project_root)
+    branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
+    _ensure_merged_to_main(project_root, branch_prefix=branch_prefix)
 
     return TechLeadResult(
         cost_usd=session_result.cost_usd,
