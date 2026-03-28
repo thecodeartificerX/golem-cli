@@ -1012,14 +1012,18 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.get("/mcp/{session_id}/sse")
-    async def mcp_sse_endpoint(session_id: str) -> StreamingResponse:
+    async def mcp_sse_endpoint(session_id: str, request: Request) -> StreamingResponse:
         """SSE stream for MCP-over-SSE protocol."""
         from fastapi import HTTPException
         if not mcp_registry.has_session(session_id):
             raise HTTPException(status_code=404, detail=f"MCP session not registered: {session_id}")
 
+        # Build absolute message URL from the request's base
+        base_url = str(request.base_url).rstrip("/")
+        message_url = f"{base_url}/mcp/{session_id}/message"
+
         async def event_stream() -> AsyncGenerator[str, None]:
-            yield f"event: endpoint\ndata: /mcp/{session_id}/message\n\n"
+            yield f"event: endpoint\ndata: {message_url}\n\n"
             while mcp_registry.has_session(session_id):
                 yield ": keepalive\n\n"
                 await asyncio.sleep(15)
