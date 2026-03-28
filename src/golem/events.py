@@ -109,6 +109,28 @@ class AgentStallKill(GolemEvent):
     turn: int = 0
 
 
+@dataclass
+class AgentErrorClassified(GolemEvent):
+    """Emitted when RecoveryCoordinator classifies an exception or stall result."""
+
+    role: str = ""
+    label: str = ""             # ticket_id or human label
+    failure_type: str = ""      # FailureType.value -- str avoids circular import
+    attempt: int = 0
+    error_preview: str = ""     # first 300 chars of exception message
+
+
+@dataclass
+class AgentRecoveryStarted(GolemEvent):
+    """Emitted immediately before RecoveryCoordinator sleeps and retries."""
+
+    role: str = ""
+    label: str = ""
+    failure_type: str = ""
+    attempt: int = 0
+    delay_s: float = 0.0
+
+
 # -- Claude Code internal events (inferred from ToolUseBlock.name) --
 
 
@@ -213,10 +235,11 @@ EVENT_TYPES: dict[str, type[GolemEvent]] = {}
 
 
 def _register_events() -> None:
-    """Populate EVENT_TYPES from all GolemEvent subclasses."""
+    """Populate EVENT_TYPES from all GolemEvent subclasses (23 event types)."""
     for klass in [
         AgentSpawned, AgentText, AgentToolCall, AgentToolResult,
         AgentTurnComplete, AgentComplete, AgentStallWarning, AgentStallKill,
+        AgentErrorClassified, AgentRecoveryStarted,
         SubAgentSpawned, SubAgentComplete, SkillInvoked, PlanModeEntered, TaskProgress,
         TicketCreated, TicketUpdated, QAResult, WorktreeCreated, MergeComplete,
         SessionStart, SessionComplete, ConflictDetected,

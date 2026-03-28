@@ -32,6 +32,13 @@ class GolemConfig:
     max_tech_lead_turns: int = 100
     sdk_timeout: int = 180
     retry_delay: int = 10
+    # Recovery coordinator settings
+    rate_limit_cooldown_s: int = 300          # 5-minute wait on rate limit hit
+    max_rate_limit_retries: int = 3           # How many times to retry a rate-limited session
+    circular_fix_threshold: int = 3           # Same error hash this many times = circular fix
+    recovery_backoff_base: float = 1.0        # Multiplier for retry_delay on sdk_error backoff
+                                              # (reserved for future tuning; not used in v1)
+    recovery_emit_events: bool = True         # Set False to suppress recovery events (testing)
     dispatch_jitter_max: float = 5.0  # Max seconds of random jitter before writer spawn
     pr_target: str = "main"
     session_id: str = ""
@@ -96,6 +103,12 @@ class GolemConfig:
             warnings.append(f"max_parallel must be >= 1, got {self.max_parallel}")
         if self.max_retries < 0:
             warnings.append(f"max_retries must be >= 0, got {self.max_retries}")
+        if self.rate_limit_cooldown_s < 0:
+            warnings.append(f"rate_limit_cooldown_s must be >= 0, got {self.rate_limit_cooldown_s}")
+        if self.max_rate_limit_retries < 0:
+            warnings.append(f"max_rate_limit_retries must be >= 0, got {self.max_rate_limit_retries}")
+        if self.circular_fix_threshold < 2:
+            warnings.append(f"circular_fix_threshold should be >= 2, got {self.circular_fix_threshold}")
         if self.max_worker_turns < 1:
             warnings.append(f"max_worker_turns must be >= 1, got {self.max_worker_turns}")
         valid_sources = {"project", "user"}

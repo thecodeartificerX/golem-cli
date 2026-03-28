@@ -182,12 +182,14 @@ async def run_tech_lead(
         print(f"[TECH LEAD] tool: {name}(...)", file=sys.stderr)
 
     progress = ProgressLogger(golem_dir)
-    last_error: Exception | None = None
     session_result: SupervisedResult | None = None
 
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            session_result = await supervised_session(
+    from golem.recovery import RecoveryCoordinator, RecoveryExhausted
+
+    coordinator = RecoveryCoordinator(config)
+    try:
+        session_result = await coordinator.run_with_recovery(
+            session_fn=lambda: supervised_session(
                 prompt=original_prompt,
                 options=options,
                 role="tech_lead",
@@ -197,27 +199,15 @@ async def run_tech_lead(
                 on_tool=on_tool,
                 golem_dir=golem_dir,
                 event_bus=event_bus,
-            )
-            break  # Success
-        except CLINotFoundError:
-            _cleanup_golem_worktrees(golem_dir, project_root)
-            raise RuntimeError(
-                "Tech Lead failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
-            ) from None
-        except (CLIConnectionError, ClaudeSDKError) as e:
-            last_error = e
-            if attempt < _MAX_RETRIES:
-                print(
-                    f"[TECH LEAD] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
-                    file=sys.stderr,
-                )
-                await asyncio.sleep(config.retry_delay)
-            else:
-                _session_failed = True
-                _cleanup_golem_worktrees(golem_dir, project_root)
-                raise RuntimeError(
-                    f"Tech Lead failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
-                ) from None
+            ),
+            role="tech_lead",
+            label=ticket_id,
+            golem_dir=golem_dir,
+            event_bus=event_bus,
+        )
+    except RecoveryExhausted as exc:
+        _cleanup_golem_worktrees(golem_dir, project_root)
+        raise RuntimeError(str(exc)) from exc
 
     if session_result is None:
         raise RuntimeError("Tech Lead session produced no result")

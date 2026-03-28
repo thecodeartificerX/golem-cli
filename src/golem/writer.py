@@ -175,15 +175,15 @@ async def spawn_junior_dev(
     def on_tool(name: str) -> None:
         print(f"[JUNIOR DEV] tool: {name}", file=sys.stderr)
 
-    last_error: Exception | None = None
     session_result: SupervisedResult | None = None
 
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            prompt = original_prompt if attempt == 0 else build_writer_prompt(ticket, rework_count=rework_count, rework_notes=rework_notes)
+    from golem.recovery import RecoveryCoordinator, RecoveryExhausted
 
-            session_result = await supervised_session(
-                prompt=prompt,
+    coordinator = RecoveryCoordinator(config)
+    try:
+        session_result = await coordinator.run_with_recovery(
+            session_fn=lambda: supervised_session(
+                prompt=original_prompt,
                 options=options,
                 role="junior_dev",
                 config=config,
@@ -192,24 +192,14 @@ async def spawn_junior_dev(
                 on_tool=on_tool,
                 golem_dir=golem_dir,
                 event_bus=event_bus,
-            )
-            break  # Success (or stall handled internally by supervised_session)
-        except CLINotFoundError:
-            raise RuntimeError(
-                f"Junior Dev failed (ticket {ticket.id}): 'claude' CLI not found on PATH. Run 'claude login'."
-            ) from None
-        except (CLIConnectionError, ClaudeSDKError) as e:
-            last_error = e
-            if attempt < _MAX_RETRIES:
-                print(
-                    f"[JUNIOR DEV] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
-                    file=sys.stderr,
-                )
-                await asyncio.sleep(config.retry_delay)
-            else:
-                raise RuntimeError(
-                    f"Junior Dev failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
-                ) from None
+            ),
+            role="junior_dev",
+            label=ticket.id,
+            golem_dir=golem_dir,
+            event_bus=event_bus,
+        )
+    except RecoveryExhausted as exc:
+        raise RuntimeError(str(exc)) from exc
 
     if session_result is None:
         raise RuntimeError(f"Junior Dev failed (ticket {ticket.id}): no session result")

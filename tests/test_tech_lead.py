@@ -190,7 +190,7 @@ async def test_tech_lead_double_stall_fatal() -> None:
         with patch("golem.tech_lead.supervised_session", AsyncMock(return_value=stalled)), \
              patch("golem.tech_lead._cleanup_golem_worktrees"), \
              patch("golem.tech_lead._ensure_merged_to_main"):
-            with pytest.raises(RuntimeError, match="stalled after retry"):
+            with pytest.raises(RuntimeError, match="stall"):
                 await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
 
 

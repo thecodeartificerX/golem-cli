@@ -151,29 +151,24 @@ async def run_planner(
     original_prompt = original_prompt.replace("{infrastructure_checks}", infra_checks_str)
 
     progress = ProgressLogger(golem_dir)
-    last_error: Exception | None = None
     session_result: SupervisedResult | None = None
 
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            session_result = await _run_planner_session(original_prompt, golem_dir, config, cwd, event_bus=event_bus, server_url=server_url)
-            break  # Success
-        except CLINotFoundError:
-            raise RuntimeError(
-                "Planner failed: 'claude' CLI not found on PATH. Run 'claude login' to install and authenticate."
-            ) from None
-        except (CLIConnectionError, ClaudeSDKError) as e:
-            last_error = e
-            if attempt < _MAX_RETRIES:
-                print(
-                    f"[LEAD ARCHITECT] Attempt {attempt + 1} failed ({type(e).__name__}), retrying in {config.retry_delay}s...",
-                    file=sys.stderr,
-                )
-                await asyncio.sleep(config.retry_delay)
-            else:
-                raise RuntimeError(
-                    f"Planner failed after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
-                ) from None
+    from golem.recovery import RecoveryCoordinator, RecoveryExhausted
+
+    coordinator = RecoveryCoordinator(config)
+    try:
+        session_result = await coordinator.run_with_recovery(
+            session_fn=lambda: _run_planner_session(
+                original_prompt, golem_dir, config, cwd,
+                event_bus=event_bus, server_url=server_url,
+            ),
+            role="planner",
+            label="planner",
+            golem_dir=golem_dir,
+            event_bus=event_bus,
+        )
+    except RecoveryExhausted as exc:
+        raise RuntimeError(str(exc)) from exc
 
     if session_result is None:
         raise RuntimeError("Planner session produced no result")

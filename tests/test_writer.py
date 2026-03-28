@@ -352,5 +352,5 @@ async def test_junior_dev_double_stall_fatal() -> None:
 
         with patch("golem.writer.supervised_session", mock_session), \
              patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
-            with pytest.raises(RuntimeError, match="stalled after retry"):
+            with pytest.raises(RuntimeError, match="stall"):
                 await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
