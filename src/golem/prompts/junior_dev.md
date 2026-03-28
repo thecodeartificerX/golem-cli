@@ -144,11 +144,28 @@ Your output is:
 
 ---
 
+## Session Start Protocol
+
+1. Call `mcp__golem-junior-dev__get_session_context` to load prior agent discoveries and gotchas
+   before reading any files. This avoids re-discovering the same things.
+2. Call `mcp__golem-junior-dev__get_build_progress` to understand overall session status.
+3. After completing your ticket, call `mcp__golem-junior-dev__record_discovery` for any new files
+   you created or significantly modified.
+4. If you hit a non-obvious constraint (encoding, Windows path, asyncio quirk), call
+   `mcp__golem-junior-dev__record_gotcha` so the next writer does not repeat the mistake.
+
+---
+
 ## Available MCP Tools
 
 - `mcp__golem-junior-dev__run_qa(worktree_path, checks, infrastructure_checks)` -- run QA checks
 - `mcp__golem-junior-dev__update_ticket(ticket_id, status, note, agent)` -- update ticket status
 - `mcp__golem-junior-dev__read_ticket(ticket_id)` -- read current ticket status
+- `mcp__golem-junior-dev__commit_worktree(worktree_path, task_id, description)` -- commit changes
+- `mcp__golem-junior-dev__get_session_context()` -- load prior discoveries and gotchas
+- `mcp__golem-junior-dev__get_build_progress()` -- check overall session progress
+- `mcp__golem-junior-dev__record_discovery(file_path, description, category)` -- record a codebase discovery
+- `mcp__golem-junior-dev__record_gotcha(gotcha, context)` -- record a pitfall for future sessions
 
 These are Junior Dev tools (server: `golem-junior-dev`). Do not use `mcp__golem__*`
 tools -- those belong to the Tech Lead.

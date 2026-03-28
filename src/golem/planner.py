@@ -20,7 +20,7 @@ from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
 from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
 from golem.tickets import TicketStore
-from golem.tools import create_golem_mcp_server
+from golem.tools import create_golem_planner_mcp_server
 
 if TYPE_CHECKING:
     from golem.events import EventBus
@@ -68,7 +68,7 @@ async def _run_planner_session(
     #     from golem.tools import create_golem_mcp_sse_config
     #     mcp_server = create_golem_mcp_sse_config(config.session_id, server_url)
     # else:
-    mcp_server = create_golem_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
+    mcp_server = create_golem_planner_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "planner", mcp_server)
 
     options = ClaudeAgentOptions(

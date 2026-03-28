@@ -150,7 +150,14 @@ async def spawn_junior_dev(
         await asyncio.sleep(delay)
 
     # SSE MCP disabled — see planner.py comment for rationale
-    mcp_server = create_junior_dev_mcp_server(golem_dir, event_bus=event_bus) if golem_dir else create_junior_dev_mcp_server(Path(worktree_path), event_bus=event_bus)
+    _golem_dir = golem_dir or Path(worktree_path)
+    mcp_server = create_junior_dev_mcp_server(
+        _golem_dir,
+        event_bus=event_bus,
+        worktree_path=Path(worktree_path),
+        config=config,
+        project_root=_golem_dir.parent if _golem_dir == golem_dir else Path(worktree_path),
+    )
     sources, mcps = resolve_agent_options(
         config, "writer", mcp_server, golem_mcp_name="golem-junior-dev",
     )

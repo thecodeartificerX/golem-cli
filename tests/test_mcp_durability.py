@@ -78,7 +78,7 @@ async def test_mcp_server_survives_full_lifecycle(tmp_path: Path) -> None:
     tools = await _list_mcp_tools(server)
     assert "create_ticket" in tools
     assert "update_ticket" in tools
-    assert len(tools) == 8
+    assert len(tools) == 12  # updated: 8 original + 4 new memory/progress tools
 
     # Phase 2: create a ticket
     result = await _call_mcp_tool(server, "create_ticket", {
@@ -323,7 +323,20 @@ async def test_junior_dev_mcp_lifecycle(tmp_path: Path) -> None:
     jd_server = jd_server_config["instance"]
 
     jd_tools = await _list_mcp_tools(jd_server)
-    assert set(jd_tools) == {"run_qa", "update_ticket", "read_ticket"}
+    # Writer now gets: run_qa, update_ticket, read_ticket, commit_worktree,
+    # record_discovery, record_gotcha, get_session_context, get_build_progress
+    assert "run_qa" in jd_tools
+    assert "update_ticket" in jd_tools
+    assert "read_ticket" in jd_tools
+    assert "get_session_context" in jd_tools
+    assert "record_discovery" in jd_tools
+    assert "record_gotcha" in jd_tools
+    assert "get_build_progress" in jd_tools
+    assert "commit_worktree" in jd_tools
+    # Writer must NOT have create_ticket / create_worktree / merge_branches / list_tickets
+    assert "create_ticket" not in jd_tools
+    assert "create_worktree" not in jd_tools
+    assert "merge_branches" not in jd_tools
 
     # Read the ticket
     result = await _call_mcp_tool(jd_server, "read_ticket", {"ticket_id": ticket_id})

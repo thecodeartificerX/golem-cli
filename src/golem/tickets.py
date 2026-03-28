@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:  # type: ignore[type-arg]
+    """Write JSON to path atomically via tmp+rename.
+
+    Uses a sibling .tmp file in the same directory so rename stays on
+    the same filesystem/volume (required for atomic rename on Windows).
+    os.replace() is atomic on POSIX; best-effort on Windows NTFS within
+    the same volume.
+    """
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 @dataclass
@@ -104,7 +118,7 @@ class TicketStore:
                 )
             ]
             path = self._dir / f"{ticket_id}.json"
-            path.write_text(json.dumps(_ticket_to_dict(ticket), indent=2), encoding="utf-8")
+            _write_json_atomic(path, _ticket_to_dict(ticket))
             return ticket_id
 
     async def read(self, ticket_id: str) -> Ticket:
@@ -143,7 +157,7 @@ class TicketStore:
                     attachments=attachments or [],
                 )
             )
-            path.write_text(json.dumps(_ticket_to_dict(ticket), indent=2), encoding="utf-8")
+            _write_json_atomic(path, _ticket_to_dict(ticket))
 
     async def list_tickets(
         self,
