@@ -269,3 +269,103 @@ async def test_mcp_cleaned_up_after_session_delete(client: AsyncClient, tmp_path
         "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
     }))
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_full_mcp_sse_lifecycle(client: AsyncClient, tmp_path: Path) -> None:
+    """Full lifecycle: create session, MCP handshake, tool calls over HTTP, delete, verify cleanup."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    # Create session (registers MCP tools)
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+    assert resp.json()["status"] == "created"
+
+    # Initialize (MCP handshake)
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {},
+    }))
+    assert resp.status_code == 200
+    assert "serverInfo" in resp.json()["result"]
+    assert resp.json()["result"]["serverInfo"]["name"] == "golem"
+
+    # List tools
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+    }))
+    tool_names = [t["name"] for t in resp.json()["result"]["tools"]]
+    assert len(tool_names) == 8
+
+    # Create ticket
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "create_ticket", "arguments": {
+            "type": "task", "title": "Full lifecycle test", "assigned_to": "writer",
+        }},
+    }))
+    assert resp.status_code == 200
+    ticket_id = json.loads(resp.json()["result"]["content"][0]["text"])["ticket_id"]
+    assert ticket_id.startswith("TICKET-")
+
+    # Update ticket
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+        "params": {"name": "update_ticket", "arguments": {
+            "ticket_id": ticket_id, "status": "in_progress", "note": "Working on it",
+        }},
+    }))
+    assert json.loads(resp.json()["result"]["content"][0]["text"])["ok"] is True
+
+    # List tickets
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+        "params": {"name": "list_tickets", "arguments": {}},
+    }))
+    tickets = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert len(tickets) == 1
+    assert tickets[0]["status"] == "in_progress"
+
+    # Read ticket back
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+        "params": {"name": "read_ticket", "arguments": {"ticket_id": ticket_id}},
+    }))
+    ticket_data = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert ticket_data["title"] == "Full lifecycle test"
+    assert ticket_data["status"] == "in_progress"
+
+    # Junior Dev can also read the same ticket
+    resp = await client.post(f"/mcp/{session_id}-jd/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+        "params": {"name": "read_ticket", "arguments": {"ticket_id": ticket_id}},
+    }))
+    jd_ticket = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert jd_ticket["status"] == "in_progress"
+
+    # Junior Dev CANNOT create tickets (restricted tools)
+    resp = await client.post(f"/mcp/{session_id}-jd/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 8, "method": "tools/call",
+        "params": {"name": "create_ticket", "arguments": {
+            "type": "task", "title": "Should fail", "assigned_to": "writer",
+        }},
+    }))
+    assert "error" in resp.json()
+
+    # Delete session — both MCP registrations cleaned up
+    await client.delete(f"/api/sessions/{session_id}")
+
+    # Tech Lead MCP gone
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 9, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 404
+
+    # Junior Dev MCP gone too
+    resp = await client.post(f"/mcp/{session_id}-jd/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 10, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 404
