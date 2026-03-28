@@ -341,17 +341,20 @@ def create_app() -> FastAPI:
         return {"session_id": session_id, "status": "running"}
 
     @app.get("/api/sessions")
-    async def list_sessions() -> list[dict[str, str]]:
+    async def list_sessions() -> list[dict[str, object]]:
         sessions = session_mgr.list_sessions()
-        return [
-            {
+        result: list[dict[str, object]] = []
+        for s in sessions:
+            entry: dict[str, object] = {
                 "id": s.id,
                 "status": s.status,
                 "spec_path": str(s.spec_path),
                 "created_at": s.created_at,
+                "complexity": s.config.get("complexity", "") if s.config else "",
+                "cost_usd": s.config.get("cost_usd", None) if s.config else None,
             }
-            for s in sessions
-        ]
+            result.append(entry)
+        return result
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str) -> dict[str, object]:
@@ -531,12 +534,25 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
         log_path = sessions_dir / session_id / "progress.log"
         total = 0.0
+        roles: list[dict[str, object]] = []
         if log_path.exists():
             for line in log_path.read_text(encoding="utf-8").splitlines():
-                m = re.search(r"AGENT_COST.*cost=\$([0-9.]+)", line)
+                m = re.search(r"AGENT_COST\s+role=(\S+).*cost=\$([0-9.]+).*tokens_in=([0-9]+).*tokens_out=([0-9]+)", line)
                 if m:
-                    total += float(m.group(1))
-        return {"session_id": session_id, "total_cost_usd": round(total, 6)}
+                    cost_val = float(m.group(2))
+                    total += cost_val
+                    roles.append({
+                        "role": m.group(1),
+                        "cost": round(cost_val, 6),
+                        "tokens_in": int(m.group(3)),
+                        "tokens_out": int(m.group(4)),
+                    })
+                else:
+                    m2 = re.search(r"AGENT_COST.*cost=\$([0-9.]+)", line)
+                    if m2:
+                        cost_val = float(m2.group(1))
+                        total += cost_val
+        return {"session_id": session_id, "roles": roles, "total": round(total, 6)}
 
     @app.get("/api/sessions/{session_id}/plan")
     async def session_plan(session_id: str) -> dict[str, str]:
@@ -547,8 +563,8 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
         plan_path = sessions_dir / session_id / "plans" / "overview.md"
         if not plan_path.exists():
-            return {"session_id": session_id, "plan": ""}
-        return {"session_id": session_id, "plan": plan_path.read_text(encoding="utf-8")}
+            return {"session_id": session_id, "content": ""}
+        return {"session_id": session_id, "content": plan_path.read_text(encoding="utf-8")}
 
     # ------------------------------------------------------------------
     # Preserved endpoints (ported from ui.py)

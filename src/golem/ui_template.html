@@ -50,7 +50,6 @@
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 1.6;
-      /* subtle scanline overlay */
       background-image:
         repeating-linear-gradient(
           0deg,
@@ -72,12 +71,12 @@
     }
 
     /* -----------------------------------------------------------------------
-       Control Bar
+       Top Bar (aggregate stats + branding)
     ----------------------------------------------------------------------- */
-    #control-bar {
+    #top-bar {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
       padding: 8px 16px;
       background: var(--panel);
       border-bottom: 1px solid var(--border);
@@ -86,8 +85,7 @@
       z-index: 50;
     }
 
-    /* faint gradient sweep on the right */
-    #control-bar::after {
+    #top-bar::after {
       content: '';
       position: absolute;
       right: 0;
@@ -107,145 +105,47 @@
       user-select: none;
       white-space: nowrap;
       flex-shrink: 0;
-      /* subtle text glow */
       text-shadow: 0 0 20px rgba(200, 162, 255, 0.35);
     }
 
-    .brand-sep {
+    .bar-sep {
       width: 1px;
-      height: 24px;
+      height: 20px;
       background: var(--border-bright);
       flex-shrink: 0;
     }
 
-    #input-group {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .input-row {
+    #stats-bar {
       display: flex;
       align-items: center;
-      gap: 8px;
-    }
-
-    .field-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      color: var(--label);
-      text-transform: uppercase;
-      flex-shrink: 0;
-      min-width: 36px;
-      text-align: right;
-      user-select: none;
-    }
-
-    .path-input {
+      gap: 12px;
       flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--body-text);
-      font-family: var(--font-mono);
+    }
+
+    .stat-item {
       font-size: 11px;
-      padding: 6px 10px;
-      outline: none;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      min-width: 0;
-    }
-
-    .path-input::placeholder {
-      color: var(--dim-text);
-    }
-
-    .path-input:focus {
-      border-color: var(--accent-end);
-      box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
-    }
-
-    .path-input:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .ctrl-btn {
-      background: transparent;
-      border: 1px solid var(--border-bright);
-      border-radius: 4px;
       color: var(--muted-light);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0.05em;
-      padding: 6px 14px;
-      cursor: pointer;
       white-space: nowrap;
-      flex-shrink: 0;
-      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
     }
 
-    .ctrl-btn:hover:not(:disabled) {
-      border-color: var(--muted);
+    .stat-item .stat-val {
       color: var(--body-text);
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    .ctrl-btn:disabled {
-      opacity: 0.35;
-      cursor: not-allowed;
-    }
-
-    #run-btn {
-      background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
-      border: none;
-      border-radius: 4px;
-      color: #fff;
-      font-family: var(--font-mono);
-      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 7px 22px;
-      cursor: pointer;
+    }
+
+    .stat-item .stat-running { color: var(--success); }
+    .stat-item .stat-queued  { color: var(--warning); }
+    .stat-item .stat-done    { color: var(--muted-light); }
+
+    #total-cost {
+      font-size: 11px;
+      color: var(--muted-light);
       white-space: nowrap;
-      flex-shrink: 0;
-      transition: opacity 0.15s ease, box-shadow 0.15s ease;
-      position: relative;
-      overflow: hidden;
     }
 
-    #run-btn::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, rgba(255,255,255,0.08), transparent);
-      pointer-events: none;
-    }
-
-    #run-btn:hover:not(:disabled) {
-      box-shadow: 0 0 16px rgba(168, 85, 247, 0.45);
-    }
-
-    #run-btn:active:not(:disabled) {
-      opacity: 0.85;
-    }
-
-    #run-btn:disabled {
-      opacity: 0.38;
-      cursor: not-allowed;
-      box-shadow: none;
-    }
-
-    #run-btn.running {
-      animation: pulse-btn 1.8s ease-in-out infinite;
-    }
-
-    @keyframes pulse-btn {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.65; }
+    #total-cost .cost-val {
+      color: var(--label);
+      font-weight: 700;
     }
 
     /* connection indicator */
@@ -284,6 +184,780 @@
     }
 
     /* -----------------------------------------------------------------------
+       Main body: sidebar + content
+    ----------------------------------------------------------------------- */
+    #body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* -----------------------------------------------------------------------
+       Sidebar (session list)
+    ----------------------------------------------------------------------- */
+    #sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #new-session-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    #new-session-btn:hover {
+      box-shadow: 0 0 14px rgba(168, 85, 247, 0.4);
+    }
+
+    #session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    #session-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    #session-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #session-list::-webkit-scrollbar-thumb {
+      background: var(--border-bright);
+      border-radius: 2px;
+    }
+
+    .session-group-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--dim-text);
+      text-transform: uppercase;
+      padding: 10px 12px 4px;
+      user-select: none;
+    }
+
+    .session-entry {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background 0.1s ease, border-color 0.1s ease;
+      position: relative;
+    }
+
+    .session-entry:hover {
+      background: var(--panel-hover);
+    }
+
+    .session-entry.active {
+      background: rgba(124, 58, 237, 0.1);
+      border-left-color: var(--accent-end);
+    }
+
+    .session-entry-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .session-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .session-status-dot.running      { background: var(--success); box-shadow: 0 0 4px rgba(34, 197, 94, 0.5); }
+    .session-status-dot.pending      { background: var(--warning); }
+    .session-status-dot.awaiting_merge { background: var(--info); }
+    .session-status-dot.paused       { background: var(--warning); opacity: 0.6; }
+    .session-status-dot.completed    { background: var(--muted); }
+    .session-status-dot.merged       { background: var(--muted); }
+    .session-status-dot.failed       { background: var(--error); }
+    .session-status-dot.archived     { background: var(--dim-text); }
+
+    .session-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--body-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .session-phase {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-meta {
+      display: flex;
+      gap: 8px;
+      font-size: 10px;
+      color: var(--dim-text);
+    }
+
+    .session-meta span {
+      white-space: nowrap;
+    }
+
+    /* -----------------------------------------------------------------------
+       Main content area
+    ----------------------------------------------------------------------- */
+    #main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Empty state */
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--dim-text);
+      gap: 8px;
+    }
+
+    #empty-state .empty-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    #empty-state .empty-hint {
+      font-size: 11px;
+    }
+
+    /* Session detail */
+    #session-detail {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Session header */
+    #session-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #session-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--label);
+    }
+
+    .badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+
+    .badge-running      { color: var(--success); border-color: rgba(34, 197, 94, 0.4);  background: rgba(34, 197, 94, 0.08); }
+    .badge-pending      { color: var(--warning); border-color: rgba(234, 179, 8, 0.4);  background: rgba(234, 179, 8, 0.08); }
+    .badge-awaiting_merge { color: var(--info);  border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.08); }
+    .badge-paused       { color: var(--warning); border-color: rgba(234, 179, 8, 0.3);  background: rgba(234, 179, 8, 0.05); }
+    .badge-failed       { color: var(--error);   border-color: rgba(239, 68, 68, 0.4);  background: rgba(239, 68, 68, 0.08); }
+    .badge-completed    { color: var(--muted);   border-color: var(--border);            background: transparent; }
+    .badge-merged       { color: var(--muted);   border-color: var(--border);            background: transparent; }
+    .badge-archived     { color: var(--dim-text); border-color: var(--dim-text);          background: transparent; }
+
+    .badge-complexity-trivial   { color: #6b7280; border-color: #374151; background: transparent; }
+    .badge-complexity-simple    { color: var(--info); border-color: rgba(59, 130, 246, 0.3); background: transparent; }
+    .badge-complexity-standard  { color: var(--label); border-color: rgba(200, 162, 255, 0.3); background: transparent; }
+    .badge-complexity-critical  { color: var(--error); border-color: rgba(239, 68, 68, 0.3); background: transparent; }
+
+    #session-actions {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .action-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      padding: 4px 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+
+    .action-btn:hover:not(:disabled) {
+      border-color: var(--muted);
+      color: var(--body-text);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .action-btn.danger:hover:not(:disabled) {
+      border-color: var(--error);
+      color: var(--error);
+      background: rgba(239, 68, 68, 0.06);
+    }
+
+    /* Tab bar */
+    #tab-bar {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0 16px;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      padding: 8px 14px 6px;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: var(--body-text);
+    }
+
+    .tab-btn.active {
+      color: var(--label);
+      border-bottom-color: var(--accent-end);
+    }
+
+    /* Tab panes */
+    #tab-content {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .tab-pane {
+      display: none;
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    .tab-pane::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .tab-pane::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .tab-pane::-webkit-scrollbar-thumb {
+      background: var(--border-bright);
+      border-radius: 3px;
+    }
+
+    /* Tickets tab */
+    #pane-tickets {
+      padding: 0;
+    }
+
+    .ticket-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .ticket-table th {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 2;
+    }
+
+    .ticket-row {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ticket-row:hover {
+      background: var(--panel-hover);
+    }
+
+    .ticket-row td {
+      padding: 7px 12px;
+      font-size: 11px;
+      vertical-align: middle;
+    }
+
+    .ticket-id {
+      color: var(--dim-text);
+      white-space: nowrap;
+      font-size: 10px;
+    }
+
+    .ticket-title {
+      color: var(--body-text);
+    }
+
+    .ticket-status {
+      white-space: nowrap;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .ticket-status.done       { color: var(--success); }
+    .ticket-status.wip        { color: var(--warning); }
+    .ticket-status.pending    { color: var(--muted); }
+    .ticket-status.failed     { color: var(--error); }
+    .ticket-status.reviewing  { color: var(--info); }
+
+    .ticket-cost {
+      color: var(--dim-text);
+      white-space: nowrap;
+      text-align: right;
+      font-size: 10px;
+    }
+
+    /* Conflict alert */
+    .conflict-alert {
+      margin: 8px 12px;
+      padding: 8px 12px;
+      background: rgba(234, 179, 8, 0.08);
+      border: 1px solid rgba(234, 179, 8, 0.25);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--warning);
+    }
+
+    .conflict-alert .conflict-title {
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .conflict-alert .conflict-detail {
+      color: var(--muted-light);
+      font-size: 10px;
+    }
+
+    /* Logs tab */
+    #pane-logs {
+      padding: 0;
+      overflow: hidden;
+      display: none;
+    }
+
+    #pane-logs.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #log-console {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+
+    #log-console::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    #log-console::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #log-console::-webkit-scrollbar-thumb {
+      background: var(--border-bright);
+      border-radius: 3px;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 10px;
+    }
+
+    .log-ts {
+      color: var(--dim-text);
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .log-verb {
+      flex-shrink: 0;
+      font-weight: 700;
+      min-width: 60px;
+    }
+
+    .log-verb.COMPLETE { color: var(--success); }
+    .log-verb.START    { color: var(--info); }
+    .log-verb.DONE     { color: var(--success); }
+    .log-verb.FAIL     { color: var(--error); }
+    .log-verb.ERROR    { color: var(--error); }
+    .log-verb.WARN     { color: var(--warning); }
+    .log-verb.INFO     { color: var(--muted-light); }
+    .log-verb.PLAN     { color: var(--label); }
+    .log-verb.TICKET   { color: var(--label); }
+    .log-verb.AGENT    { color: var(--info); }
+    .log-verb.MERGE    { color: var(--success); }
+    .log-verb.PR       { color: var(--success); }
+
+    .log-msg {
+      color: var(--body-text);
+      word-break: break-word;
+    }
+
+    /* Guidance bar inside logs */
+    #guidance-bar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #guidance-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--body-text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    #guidance-input:focus {
+      border-color: var(--accent-end);
+      box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+    }
+
+    #guidance-input::placeholder {
+      color: var(--dim-text);
+    }
+
+    #guidance-send-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    #guidance-send-btn:hover {
+      border-color: var(--label);
+      color: var(--label);
+    }
+
+    /* Plan tab */
+    #plan-content {
+      white-space: pre-wrap;
+      font-size: 11px;
+      color: var(--body-text);
+      line-height: 1.8;
+    }
+
+    /* Diff tab */
+    #diff-content {
+      white-space: pre;
+      font-size: 11px;
+      color: var(--body-text);
+      line-height: 1.7;
+      overflow-x: auto;
+    }
+
+    .diff-add  { color: var(--success); }
+    .diff-del  { color: var(--error); }
+    .diff-meta { color: var(--info); }
+
+    /* Cost tab */
+    .cost-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+
+    .cost-table th {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cost-table td {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--body-text);
+    }
+
+    .cost-total-row td {
+      font-weight: 700;
+      color: var(--label);
+      border-top: 1px solid var(--border-bright);
+    }
+
+    /* -----------------------------------------------------------------------
+       Merge queue indicator (sidebar group)
+    ----------------------------------------------------------------------- */
+    .session-entry.merge-queue .session-name {
+      color: var(--info);
+    }
+
+    /* -----------------------------------------------------------------------
+       Status bar (bottom)
+    ----------------------------------------------------------------------- */
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 5px 16px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    #status-server {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #status-server-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+    }
+
+    #status-sessions {
+      color: var(--muted);
+    }
+
+    /* -----------------------------------------------------------------------
+       Modal overlay: New Session dialog
+    ----------------------------------------------------------------------- */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #modal-overlay.visible {
+      display: flex;
+    }
+
+    #modal-dialog {
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      width: 520px;
+      max-width: 90vw;
+      padding: 20px 24px;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    #modal-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--label);
+      margin-bottom: 16px;
+    }
+
+    .modal-field {
+      margin-bottom: 12px;
+    }
+
+    .modal-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim-text);
+      margin-bottom: 5px;
+    }
+
+    .modal-input-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .modal-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--body-text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .modal-input:focus {
+      border-color: var(--accent-end);
+      box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+    }
+
+    .modal-input::placeholder {
+      color: var(--dim-text);
+    }
+
+    .modal-browse-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 7px 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .modal-browse-btn:hover {
+      border-color: var(--muted);
+      color: var(--body-text);
+    }
+
+    #modal-error {
+      display: none;
+      font-size: 11px;
+      color: var(--error);
+      margin-bottom: 10px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    #modal-cancel-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      color: var(--muted-light);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 7px 18px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    #modal-cancel-btn:hover {
+      border-color: var(--muted);
+      color: var(--body-text);
+    }
+
+    #modal-launch-btn {
+      background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 7px 22px;
+      cursor: pointer;
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    #modal-launch-btn:hover:not(:disabled) {
+      box-shadow: 0 0 14px rgba(168, 85, 247, 0.4);
+    }
+
+    #modal-launch-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
+    /* -----------------------------------------------------------------------
        Error banner
     ----------------------------------------------------------------------- */
     #error-banner {
@@ -297,1190 +971,945 @@
       letter-spacing: 0.03em;
     }
 
-    #error-banner.visible {
-      display: block;
-    }
-
-    /* -----------------------------------------------------------------------
-       Guidance Panel (shown during running state)
-    ----------------------------------------------------------------------- */
-    #guidance-panel {
-      display: none;
-      padding: 6px 16px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    #guidance-panel.visible {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    #guidance-input {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--body-text);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      padding: 5px 10px;
-      outline: none;
-      min-width: 0;
-      transition: border-color 0.15s ease;
-    }
-
-    #guidance-input::placeholder {
-      color: var(--dim-text);
-    }
-
-    #guidance-input:focus {
-      border-color: var(--accent-end);
-    }
-
-    #guidance-send {
-      background: transparent;
-      border: 1px solid var(--border-bright);
-      border-radius: 4px;
-      color: var(--muted-light);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0.05em;
-      padding: 5px 14px;
-      cursor: pointer;
-      white-space: nowrap;
-      flex-shrink: 0;
-      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-    }
-
-    #guidance-send:hover {
-      border-color: var(--muted);
-      color: var(--body-text);
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    /* -----------------------------------------------------------------------
-       Main content: two-panel split
-    ----------------------------------------------------------------------- */
-    #main-content {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      flex: 1;
-      min-height: 0;
-      gap: 0;
-    }
-
-    /* -----------------------------------------------------------------------
-       Panel shared styles
-    ----------------------------------------------------------------------- */
-    .panel {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 14px;
-      height: 36px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    .panel-header-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--dim-text);
-    }
-
-    .panel-header-count {
-      font-size: 10px;
-      color: var(--muted);
-      margin-left: auto;
-    }
-
-    .panel-body {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-      min-height: 0;
-    }
-
-    /* custom scrollbars */
-    .panel-body::-webkit-scrollbar {
-      width: 5px;
-    }
-    .panel-body::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .panel-body::-webkit-scrollbar-thumb {
-      background: var(--border-bright);
-      border-radius: 3px;
-    }
-    .panel-body::-webkit-scrollbar-thumb:hover {
-      background: var(--muted);
-    }
-
-    /* -----------------------------------------------------------------------
-       Timeline panel
-    ----------------------------------------------------------------------- */
-    #timeline-panel {
-      border-right: 1px solid var(--border);
-    }
-
-    #timeline-body {
-      padding: 16px 0;
-      position: relative;
-    }
-
-    /* vertical connecting line */
-    #timeline-body::before {
-      content: '';
-      position: absolute;
-      left: 27px;
-      top: 0;
-      bottom: 0;
-      width: 2px;
-      background: var(--border-bright);
-    }
-
-    .timeline-empty {
-      padding: 40px 20px;
-      text-align: center;
-      color: var(--dim-text);
-      font-size: 11px;
-      letter-spacing: 0.05em;
-      line-height: 1.8;
-    }
-
-    .timeline-empty .empty-icon {
-      display: block;
-      font-size: 22px;
-      margin-bottom: 10px;
-      color: var(--border-bright);
-      letter-spacing: 0;
-    }
-
-    /* task item */
-    .task-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 8px 14px 8px 16px;
-      position: relative;
-      transition: background 0.15s ease;
-    }
-
-    .task-item:hover {
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    /* status dot */
-    .task-dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      border: 2px solid;
-      flex-shrink: 0;
-      margin-top: 3px;
-      position: relative;
-      z-index: 1;
-      transition: box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
-    }
-
-    .task-dot.pending {
-      background: var(--bg);
-      border-color: var(--muted);
-    }
-
-    .task-dot.in_progress {
-      background: var(--warning);
-      border-color: var(--warning);
-      box-shadow: 0 0 8px rgba(234, 179, 8, 0.7), 0 0 16px rgba(234, 179, 8, 0.3);
-      animation: dot-pulse 1.6s ease-in-out infinite;
-    }
-
-    @keyframes dot-pulse {
-      0%, 100% { box-shadow: 0 0 8px rgba(234, 179, 8, 0.7), 0 0 16px rgba(234, 179, 8, 0.3); }
-      50%       { box-shadow: 0 0 14px rgba(234, 179, 8, 0.9), 0 0 28px rgba(234, 179, 8, 0.5); }
-    }
-
-    .task-dot.completed {
-      background: var(--success);
-      border-color: var(--success);
-    }
-
-    .task-dot.failed {
-      background: var(--error);
-      border-color: var(--error);
-    }
-
-    .task-dot.blocked {
-      background: transparent;
-      border-color: var(--error);
-    }
-
-    /* task info */
-    .task-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .task-name {
-      font-size: 11px;
-      font-weight: 600;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      transition: color 0.3s ease;
-    }
-
-    .task-name.pending    { color: var(--muted-light); }
-    .task-name.in_progress { color: var(--warning); }
-    .task-name.completed  { color: var(--success); }
-    .task-name.failed     { color: var(--error); }
-    .task-name.blocked    { color: var(--error); opacity: 0.75; }
-
-    .task-subtitle {
-      font-size: 10px;
-      color: var(--dim-text);
-      margin-top: 1px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      letter-spacing: 0.03em;
-    }
-
-    .task-group-tag {
-      display: inline-block;
-      background: rgba(124, 58, 237, 0.18);
-      border: 1px solid rgba(124, 58, 237, 0.3);
-      border-radius: 3px;
-      color: var(--label);
-      font-size: 9px;
-      letter-spacing: 0.08em;
-      padding: 1px 5px;
-      margin-top: 3px;
-      opacity: 0.85;
-    }
-
-    /* -----------------------------------------------------------------------
-       Console panel
-    ----------------------------------------------------------------------- */
-    #console-panel {
-      background: var(--bg);
-    }
-
-    #console-body {
-      padding: 12px 0;
-      background: var(--panel);
-    }
-
-    .console-empty {
-      padding: 40px 20px;
-      text-align: center;
-      color: var(--dim-text);
-      font-size: 11px;
-      letter-spacing: 0.05em;
-    }
-
-    /* log line */
-    .log-line {
-      display: flex;
-      gap: 0;
-      padding: 1px 14px;
-      font-size: 11px;
-      line-height: 1.7;
-      transition: background 0.1s ease;
-    }
-
-    .log-line:hover {
-      background: rgba(255, 255, 255, 0.018);
-    }
-
-    .log-ts {
-      color: var(--dim-text);
-      flex-shrink: 0;
-      margin-right: 10px;
-      user-select: none;
-      min-width: 60px;
-    }
-
-    .log-msg {
-      flex: 1;
-      word-break: break-all;
-      white-space: pre-wrap;
-    }
-
-    /* verb color classes */
-    .log-line.verb-complete .log-msg  { color: var(--success); }
-    .log-line.verb-start .log-msg     { color: var(--warning); }
-    .log-line.verb-info .log-msg      { color: var(--info); }
-    .log-line.verb-error .log-msg     { color: var(--error); }
-    .log-line.verb-gray .log-msg      { color: var(--muted); }
-
-    /* animate new lines sliding in */
-    .log-line {
-      animation: line-in 0.12s ease-out;
-    }
-
-    @keyframes line-in {
-      from { opacity: 0; transform: translateX(-4px); }
-      to   { opacity: 1; transform: translateX(0); }
-    }
-
-    /* -----------------------------------------------------------------------
-       Progress bar
-    ----------------------------------------------------------------------- */
-    #progress-bar-container {
-      display: none;
-      align-items: center;
-      gap: 14px;
-      padding: 0 16px;
-      height: 40px;
-      background: var(--panel);
-      border-top: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    #progress-bar-container.visible {
-      display: flex;
-    }
-
-    #progress-counter {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      color: var(--label);
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-width: 80px;
-    }
-
-    #progress-track {
-      flex: 1;
-      height: 4px;
-      background: var(--border-bright);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-
-    #progress-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--accent-start), var(--accent-end));
-      border-radius: 2px;
-      transition: width 0.5s ease;
-    }
-
-    #progress-pct {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      color: var(--body-text);
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-width: 36px;
-      text-align: right;
-    }
-
-    /* -----------------------------------------------------------------------
-       Status bar (very bottom, thin)
-    ----------------------------------------------------------------------- */
-    #status-bar {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 0 16px;
-      height: 24px;
-      background: var(--bg);
-      border-top: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    #status-text {
-      font-size: 10px;
-      color: var(--dim-text);
-      letter-spacing: 0.05em;
-      flex: 1;
-    }
-
-    .status-sep {
-      width: 1px;
-      height: 12px;
-      background: var(--border);
-    }
-
-    #run-state-badge {
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      font-weight: 700;
-      color: var(--dim-text);
-      transition: color 0.3s ease;
-    }
-
-    #run-state-badge.idle     { color: var(--dim-text); }
-    #run-state-badge.ready    { color: var(--muted-light); }
-    #run-state-badge.running  { color: var(--warning); animation: pulse-btn 1.8s ease-in-out infinite; }
-    #run-state-badge.done     { color: var(--success); }
-    #run-state-badge.error    { color: var(--error); }
+    /* Utility */
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
 <div id="app">
 
-  <!-- =====================================================================
-       CONTROL BAR
-  ====================================================================== -->
-  <div id="control-bar">
-    <span id="brand">GOLEM</span>
-    <div class="brand-sep"></div>
-
-    <div id="input-group">
-      <div class="input-row">
-        <label class="field-label">SPEC</label>
-        <input
-          type="text"
-          id="spec-path-input"
-          class="path-input"
-          placeholder="Path to spec .md file"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button class="ctrl-btn" id="browse-spec-btn">BROWSE</button>
+  <!-- ====================================================================
+       Top bar: brand + aggregate stats + connection indicator
+  ===================================================================== -->
+  <div id="top-bar">
+    <div id="brand">GOLEM</div>
+    <div class="bar-sep"></div>
+    <div id="stats-bar">
+      <div class="stat-item">
+        <span class="stat-val stat-running" id="stat-running">0</span> running
       </div>
-      <div class="input-row">
-        <label class="field-label">ROOT</label>
-        <input
-          type="text"
-          id="root-path-input"
-          class="path-input"
-          placeholder="Project root directory (auto-filled from spec)"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button class="ctrl-btn" id="browse-root-btn">BROWSE</button>
+      <span style="color:var(--dim-text)">|</span>
+      <div class="stat-item">
+        <span class="stat-val stat-queued" id="stat-queued">0</span> queued
+      </div>
+      <span style="color:var(--dim-text)">|</span>
+      <div class="stat-item">
+        <span class="stat-val stat-done" id="stat-done">0</span> done
       </div>
     </div>
-
-    <button class="ctrl-btn" id="init-btn">INITIALIZE</button>
-    <button id="run-btn" disabled>CONSTRUCT</button>
-
-    <div class="brand-sep"></div>
+    <div id="total-cost">total: <span class="cost-val" id="stat-total-cost">$0.00</span></div>
+    <div class="bar-sep"></div>
     <div id="conn-indicator">
       <div id="conn-dot"></div>
-      <span id="conn-label">CONNECTING</span>
+      <span id="conn-label">connecting</span>
     </div>
   </div>
 
-  <!-- =====================================================================
-       ERROR BANNER
-  ====================================================================== -->
+  <!-- Error banner -->
   <div id="error-banner"></div>
 
-  <!-- =====================================================================
-       GUIDANCE PANEL (shown during running state)
-  ====================================================================== -->
-  <div id="guidance-panel">
-    <input type="text" id="guidance-input" placeholder="Send guidance to Tech Lead..." autocomplete="off">
-    <button id="guidance-send" onclick="sendGuidance()">SEND</button>
-  </div>
+  <!-- ====================================================================
+       Body: sidebar + main
+  ===================================================================== -->
+  <div id="body">
 
-  <!-- =====================================================================
-       MAIN CONTENT
-  ====================================================================== -->
-  <div id="main-content">
-
-    <!-- Task Timeline -------------------------------------------------- -->
-    <div class="panel" id="timeline-panel">
-      <div class="panel-header">
-        <span class="panel-header-label">Task Timeline</span>
-        <span class="panel-header-count" id="task-count-label"></span>
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <button id="new-session-btn">+ New Session</button>
       </div>
-      <div class="panel-body" id="timeline-body">
-        <div class="timeline-empty" id="timeline-empty">
-          <span class="empty-icon">---</span>
-          Select a spec to begin
+      <div id="session-list">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div id="main-content">
+
+      <!-- Empty state when no session selected -->
+      <div id="empty-state">
+        <div class="empty-title">No session selected</div>
+        <div class="empty-hint">Select a session from the sidebar or start a new one.</div>
+      </div>
+
+      <!-- Session detail view (hidden until session selected) -->
+      <div id="session-detail">
+        <div id="session-header">
+          <div id="session-title">-</div>
+          <div id="session-status-badge" class="badge"></div>
+          <div id="session-complexity-badge" class="badge hidden"></div>
+          <div id="session-actions">
+            <button class="action-btn" id="btn-guidance">Guidance</button>
+            <button class="action-btn" id="btn-pause">Pause</button>
+            <button class="action-btn danger" id="btn-kill">Kill</button>
+          </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Console -------------------------------------------------------- -->
-    <div class="panel" id="console-panel">
-      <div class="panel-header">
-        <span class="panel-header-label">Console</span>
-        <span class="panel-header-count" id="log-count-label"></span>
-      </div>
-      <div class="panel-body" id="console-body">
-        <div class="console-empty" id="console-empty">
-          No output yet
+        <div id="tab-bar">
+          <button class="tab-btn active" data-tab="tickets">Tickets</button>
+          <button class="tab-btn" data-tab="logs">Logs</button>
+          <button class="tab-btn" data-tab="plan">Plan</button>
+          <button class="tab-btn" data-tab="diff">Diff</button>
+          <button class="tab-btn" data-tab="cost">Cost</button>
         </div>
-      </div>
-    </div>
 
-  </div><!-- #main-content -->
+        <div id="tab-content">
 
-  <!-- =====================================================================
-       PROGRESS BAR
-  ====================================================================== -->
-  <div id="progress-bar-container">
-    <span id="progress-counter">0 / 0 TASKS</span>
-    <div id="progress-track">
-      <div id="progress-fill"></div>
-    </div>
-    <span id="progress-pct">0%</span>
-  </div>
+          <!-- Tickets pane -->
+          <div class="tab-pane active" id="pane-tickets">
+            <table class="ticket-table" id="tickets-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Worktree</th>
+                  <th style="text-align:right">Cost</th>
+                </tr>
+              </thead>
+              <tbody id="tickets-tbody">
+                <tr><td colspan="5" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>
+              </tbody>
+            </table>
+            <div id="conflicts-section"></div>
+          </div>
 
-  <!-- =====================================================================
-       STATUS BAR
-  ====================================================================== -->
+          <!-- Logs pane -->
+          <div class="tab-pane" id="pane-logs">
+            <div id="log-console"></div>
+            <div id="guidance-bar">
+              <input id="guidance-input" class="modal-input" type="text" placeholder="Send guidance to tech lead..." />
+              <button id="guidance-send-btn">SEND</button>
+            </div>
+          </div>
+
+          <!-- Plan pane -->
+          <div class="tab-pane" id="pane-plan">
+            <pre id="plan-content">Loading...</pre>
+          </div>
+
+          <!-- Diff pane -->
+          <div class="tab-pane" id="pane-diff">
+            <pre id="diff-content">Loading...</pre>
+          </div>
+
+          <!-- Cost pane -->
+          <div class="tab-pane" id="pane-cost">
+            <table class="cost-table" id="cost-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th style="text-align:right">Cost</th>
+                  <th style="text-align:right">Tokens In</th>
+                  <th style="text-align:right">Tokens Out</th>
+                </tr>
+              </thead>
+              <tbody id="cost-tbody">
+                <tr><td colspan="4" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div><!-- #tab-content -->
+      </div><!-- #session-detail -->
+    </div><!-- #main-content -->
+  </div><!-- #body -->
+
+  <!-- ====================================================================
+       Status bar (bottom)
+  ===================================================================== -->
   <div id="status-bar">
-    <span id="status-text">Ready</span>
-    <div class="status-sep"></div>
-    <span id="run-state-badge" class="idle">IDLE</span>
+    <div id="status-server">
+      <div id="status-server-dot"></div>
+      <span>Server running</span>
+    </div>
+    <span>|</span>
+    <div id="status-sessions">0 Claude sessions active</div>
   </div>
 
 </div><!-- #app -->
 
+<!-- ====================================================================
+     New Session modal dialog
+===================================================================== -->
+<div id="modal-overlay">
+  <div id="modal-dialog">
+    <div id="modal-title">New Session</div>
 
+    <div class="modal-field">
+      <div class="modal-label">Spec File</div>
+      <div class="modal-input-row">
+        <input id="modal-spec-input" class="modal-input" type="text" placeholder="/path/to/spec.md" />
+        <button class="modal-browse-btn" id="modal-browse-spec-btn">BROWSE</button>
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <div class="modal-label">Project Root</div>
+      <div class="modal-input-row">
+        <input id="modal-root-input" class="modal-input" type="text" placeholder="(auto-fills from spec parent)" />
+        <button class="modal-browse-btn" id="modal-browse-root-btn">BROWSE</button>
+      </div>
+    </div>
+
+    <div id="modal-error"></div>
+
+    <div class="modal-actions">
+      <button id="modal-cancel-btn">Cancel</button>
+      <button id="modal-launch-btn">LAUNCH</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================
+     Inline JavaScript
+===================================================================== -->
 <script>
 (function () {
   'use strict';
 
-  // -------------------------------------------------------------------------
-  // DOM refs
-  // -------------------------------------------------------------------------
-  const specInput      = document.getElementById('spec-path-input');
-  const rootInput      = document.getElementById('root-path-input');
-  const browseSpecBtn  = document.getElementById('browse-spec-btn');
-  const browseRootBtn  = document.getElementById('browse-root-btn');
-  const initBtn        = document.getElementById('init-btn');
-  const runBtn         = document.getElementById('run-btn');
-  const connDot        = document.getElementById('conn-dot');
-  const connLabel      = document.getElementById('conn-label');
-  const errorBanner    = document.getElementById('error-banner');
-  const timelineBody   = document.getElementById('timeline-body');
-  const timelineEmpty  = document.getElementById('timeline-empty');
-  const taskCountLabel = document.getElementById('task-count-label');
-  const consoleBody    = document.getElementById('console-body');
-  const consoleEmpty   = document.getElementById('console-empty');
-  const logCountLabel  = document.getElementById('log-count-label');
-  const progressCont   = document.getElementById('progress-bar-container');
-  const progressFill   = document.getElementById('progress-fill');
-  const progressCtr    = document.getElementById('progress-counter');
-  const progressPct    = document.getElementById('progress-pct');
-  const statusText     = document.getElementById('status-text');
-  const runStateBadge  = document.getElementById('run-state-badge');
-
-  // -------------------------------------------------------------------------
+  // -----------------------------------------------------------------------
   // State
-  // -------------------------------------------------------------------------
-  let currentState = 'idle';   // idle | ready | running | done | error
-  let logLineCount = 0;
-  let taskMap = {};             // id -> { element, lastStatus }
-  let evtSource = null;
+  // -----------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
-  // Utility: is console scrolled near bottom?
-  // -------------------------------------------------------------------------
-  function isAtBottom(el) {
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  /** @type {string|null} */
+  var selectedSessionId = null;
+
+  /** @type {EventSource|null} */
+  var sessionEventSource = null;
+
+  /** @type {number|null} */
+  var pollTimerId = null;
+
+  /** @type {Object.<string, Object>} */
+  var sessionsCache = {};
+
+  // -----------------------------------------------------------------------
+  // DOM refs
+  // -----------------------------------------------------------------------
+
+  var connDot      = document.getElementById('conn-dot');
+  var connLabel    = document.getElementById('conn-label');
+  var sessionList  = document.getElementById('session-list');
+  var errorBanner  = document.getElementById('error-banner');
+  var emptyState   = document.getElementById('empty-state');
+  var sessionDetail = document.getElementById('session-detail');
+  var sessionTitle = document.getElementById('session-title');
+  var statusBadge  = document.getElementById('session-status-badge');
+  var complexityBadge = document.getElementById('session-complexity-badge');
+  var logConsole   = document.getElementById('log-console');
+  var guidanceInput = document.getElementById('guidance-input');
+  var guidanceSendBtn = document.getElementById('guidance-send-btn');
+  var planContent  = document.getElementById('plan-content');
+  var diffContent  = document.getElementById('diff-content');
+  var ticketsTbody = document.getElementById('tickets-tbody');
+  var conflictsSection = document.getElementById('conflicts-section');
+  var costTbody    = document.getElementById('cost-tbody');
+  var statRunning  = document.getElementById('stat-running');
+  var statQueued   = document.getElementById('stat-queued');
+  var statDone     = document.getElementById('stat-done');
+  var statTotalCost = document.getElementById('stat-total-cost');
+  var statusSessions = document.getElementById('status-sessions');
+
+  var btnGuidance  = document.getElementById('btn-guidance');
+  var btnPause     = document.getElementById('btn-pause');
+  var btnKill      = document.getElementById('btn-kill');
+
+  var newSessionBtn = document.getElementById('new-session-btn');
+  var modalOverlay = document.getElementById('modal-overlay');
+  var modalSpecInput = document.getElementById('modal-spec-input');
+  var modalRootInput = document.getElementById('modal-root-input');
+  var modalBrowseSpecBtn = document.getElementById('modal-browse-spec-btn');
+  var modalBrowseRootBtn = document.getElementById('modal-browse-root-btn');
+  var modalCancelBtn = document.getElementById('modal-cancel-btn');
+  var modalLaunchBtn = document.getElementById('modal-launch-btn');
+  var modalError   = document.getElementById('modal-error');
+
+  // -----------------------------------------------------------------------
+  // Connection indicator helpers
+  // -----------------------------------------------------------------------
+
+  function setConnected() {
+    connDot.className = 'connected';
+    connLabel.textContent = 'connected';
   }
 
-  // -------------------------------------------------------------------------
+  function setDisconnected() {
+    connDot.className = '';
+    connLabel.textContent = 'disconnected';
+  }
+
+  function setReconnecting() {
+    connDot.className = 'reconnecting';
+    connLabel.textContent = 'reconnecting';
+  }
+
+  // -----------------------------------------------------------------------
   // Error banner
-  // -------------------------------------------------------------------------
+  // -----------------------------------------------------------------------
+
   function showError(msg) {
-    errorBanner.textContent = '  [!]  ' + msg;
-    errorBanner.classList.add('visible');
-    setTimeout(() => errorBanner.classList.remove('visible'), 6000);
+    errorBanner.textContent = msg;
+    errorBanner.style.display = 'block';
+    setTimeout(function () { errorBanner.style.display = 'none'; }, 6000);
   }
 
-  function clearError() {
-    errorBanner.classList.remove('visible');
-  }
+  // -----------------------------------------------------------------------
+  // Tab switching
+  // -----------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
-  // State machine transitions
-  // -------------------------------------------------------------------------
-  function setState(state, detail) {
-    updateGuidancePanel(state);
-    currentState = state;
-    runStateBadge.className = state;
-    runStateBadge.textContent = state.toUpperCase();
-
-    switch (state) {
-      case 'idle':
-        specInput.disabled     = false;
-        rootInput.disabled     = false;
-        browseSpecBtn.disabled = false;
-        browseRootBtn.disabled = false;
-        runBtn.disabled        = true;
-        runBtn.textContent     = 'CONSTRUCT';
-        runBtn.classList.remove('running');
-        statusText.textContent = 'Ready';
-        break;
-
-      case 'ready':
-        specInput.disabled     = false;
-        rootInput.disabled     = false;
-        browseSpecBtn.disabled = false;
-        browseRootBtn.disabled = false;
-        runBtn.disabled        = false;
-        runBtn.textContent     = 'CONSTRUCT';
-        runBtn.classList.remove('running');
-        statusText.textContent = 'Spec loaded — ready to run';
-        break;
-
-      case 'running':
-        specInput.disabled     = true;
-        rootInput.disabled     = true;
-        browseSpecBtn.disabled = true;
-        browseRootBtn.disabled = true;
-        runBtn.disabled        = true;
-        runBtn.textContent     = 'RUNNING...';
-        runBtn.classList.add('running');
-        progressCont.classList.add('visible');
-        statusText.textContent = detail
-          ? ('Running: ' + (detail.spec || detail.cwd || ''))
-          : 'Run in progress';
-        break;
-
-      case 'done':
-        specInput.disabled     = false;
-        rootInput.disabled     = false;
-        browseSpecBtn.disabled = false;
-        browseRootBtn.disabled = false;
-        runBtn.disabled        = (specInput.value.trim() === '');
-        runBtn.textContent     = 'CONSTRUCT';
-        runBtn.classList.remove('running');
-        statusText.textContent = 'Run complete';
-        break;
-
-      case 'error':
-        specInput.disabled     = false;
-        rootInput.disabled     = false;
-        browseSpecBtn.disabled = false;
-        browseRootBtn.disabled = false;
-        runBtn.disabled        = (specInput.value.trim() === '');
-        runBtn.textContent     = 'CONSTRUCT';
-        runBtn.classList.remove('running');
-        statusText.textContent = detail
-          ? ('Error: ' + (detail.message || 'process exited with code ' + detail.exit_code))
-          : 'Run failed';
-        break;
+  document.getElementById('tab-bar').addEventListener('click', function (e) {
+    var btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    var tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-pane').forEach(function (p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    var pane = document.getElementById('pane-' + tab);
+    if (pane) pane.classList.add('active');
+    // Lazy-load tab data
+    if (selectedSessionId) {
+      if (tab === 'plan') fetchPlan(selectedSessionId);
+      if (tab === 'diff') fetchDiff(selectedSessionId);
+      if (tab === 'cost') fetchCost(selectedSessionId);
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // Session sidebar rendering
+  // -----------------------------------------------------------------------
+
+  /**
+   * Classify session into sidebar group.
+   * @param {Object} s
+   * @returns {string}
+   */
+  function groupOf(s) {
+    if (s.status === 'running' || s.status === 'paused') return 'running';
+    if (s.status === 'awaiting_merge' || s.status === 'pending') return 'merge-queue';
+    return 'completed';
   }
 
-  // -------------------------------------------------------------------------
-  // SSE: handleStatus
-  // -------------------------------------------------------------------------
-  function handleStatus(e) {
-    let data;
-    try { data = JSON.parse(e.data); } catch { return; }
-
-    switch (data.state) {
-      case 'idle':
-        setState('idle');
-        break;
-      case 'running':
-        setState('running', data);
-        break;
-      case 'done':
-        setState('done', data);
-        break;
-      case 'error':
-        setState('error', data);
-        break;
+  /**
+   * Build a short display name from spec_path or id.
+   * @param {Object} s
+   * @returns {string}
+   */
+  function sessionDisplayName(s) {
+    if (s.spec_path) {
+      var parts = s.spec_path.replace(/\\/g, '/').split('/');
+      var last = parts[parts.length - 1] || '';
+      return last.replace(/\.md$/i, '') + '-' + s.id.slice(-4);
     }
+    return s.id;
   }
 
-  // -------------------------------------------------------------------------
-  // SSE: handleLog
-  // -------------------------------------------------------------------------
-  const GREEN_VERBS  = new Set(['COMPLETE', 'GROUP_COMPLETE']);
-  const YELLOW_VERBS = new Set(['START', 'WORKING']);
-  const RED_VERBS    = new Set(['BLOCKED', 'RETRY', 'FAILED', 'STDERR']);
-  const GRAY_VERBS   = new Set(['STDOUT']);
-
-  function getLogClass(verb, message) {
-    if (!verb) return 'verb-info';
-    const v = verb.toUpperCase();
-    if (GREEN_VERBS.has(v)) return 'verb-complete';
-    if (v === 'FINAL_VALIDATION') {
-      const m = (message || '').toUpperCase();
-      return m.includes('PASS') ? 'verb-complete' : 'verb-error';
-    }
-    if (YELLOW_VERBS.has(v)) return 'verb-start';
-    if (RED_VERBS.has(v))    return 'verb-error';
-    if (GRAY_VERBS.has(v))  return 'verb-gray';
-    return 'verb-info';
+  /**
+   * Format a duration in seconds as "Xm Ys" or "Xs".
+   * @param {number} secs
+   * @returns {string}
+   */
+  function fmtDuration(secs) {
+    if (secs < 60) return Math.round(secs) + 's';
+    return Math.floor(secs / 60) + 'm ' + (Math.round(secs) % 60) + 's';
   }
 
-  function handleLog(e) {
-    let data;
-    try { data = JSON.parse(e.data); } catch { return; }
+  /**
+   * Render the session sidebar from the sessions cache.
+   */
+  function renderSidebar() {
+    var groups = { 'running': [], 'merge-queue': [], 'completed': [] };
+    Object.values(sessionsCache).forEach(function (s) {
+      var g = groupOf(s);
+      groups[g].push(s);
+    });
 
-    const wasAtBottom = isAtBottom(consoleBody);
+    var html = '';
 
-    // Remove empty placeholder
-    if (consoleEmpty.parentNode) {
-      consoleEmpty.remove();
+    // Running
+    if (groups['running'].length) {
+      html += '<div class="session-group-header">-- Running --</div>';
+      groups['running'].forEach(function (s) { html += renderSessionEntry(s, ''); });
     }
 
-    const cls   = getLogClass(data.verb, data.message);
-    const ts    = data.timestamp || '';
-    const msg   = data.message   || data.raw || '';
+    // Merge queue (awaiting merge / queued)
+    if (groups['merge-queue'].length) {
+      html += '<div class="session-group-header">-- Merge Queue --</div>';
+      groups['merge-queue'].forEach(function (s) { html += renderSessionEntry(s, 'merge-queue'); });
+    }
 
-    const line  = document.createElement('div');
-    line.className = 'log-line ' + cls;
+    // Completed
+    if (groups['completed'].length) {
+      html += '<div class="session-group-header">-- Completed --</div>';
+      groups['completed'].forEach(function (s) { html += renderSessionEntry(s, ''); });
+    }
 
-    const tsEl  = document.createElement('span');
-    tsEl.className = 'log-ts';
-    tsEl.textContent = ts ? ('[' + ts + ']') : '';
+    if (!html) {
+      html = '<div style="padding:16px 12px;color:var(--dim-text);font-size:11px">No sessions yet.</div>';
+    }
 
-    const msgEl = document.createElement('span');
-    msgEl.className = 'log-msg';
-    msgEl.textContent = msg;
+    sessionList.innerHTML = html;
 
-    line.appendChild(tsEl);
-    line.appendChild(msgEl);
-    consoleBody.appendChild(line);
+    // Re-attach click handlers
+    sessionList.querySelectorAll('.session-entry').forEach(function (el) {
+      el.addEventListener('click', function () {
+        selectSession(el.dataset.id);
+      });
+    });
 
-    logLineCount++;
-    logCountLabel.textContent = logLineCount + ' lines';
-
-    if (wasAtBottom) {
-      consoleBody.scrollTop = consoleBody.scrollHeight;
+    // Mark active
+    if (selectedSessionId) {
+      var active = sessionList.querySelector('[data-id="' + selectedSessionId + '"]');
+      if (active) active.classList.add('active');
     }
   }
 
-  // -------------------------------------------------------------------------
-  // SSE: handleTasks
-  // -------------------------------------------------------------------------
-  function getTaskSubtitle(task) {
-    const status = task.status;
-    if (status === 'completed') {
-      return 'completed';
-    }
-    if (status === 'in_progress') {
-      return (task.group ? task.group + ' \u00b7 ' : '') + 'running...';
-    }
-    if (status === 'blocked') {
-      const deps = (task.depends_on || []).join(', ');
-      return deps ? 'blocked by ' + deps : 'blocked';
-    }
-    if (status === 'failed') {
-      return 'failed';
-    }
-    return 'pending';
+  /**
+   * Render one session entry HTML string.
+   * @param {Object} s
+   * @param {string} extraClass
+   * @returns {string}
+   */
+  function renderSessionEntry(s, extraClass) {
+    var name = sessionDisplayName(s);
+    var dotClass = s.status || 'pending';
+    var phase = s.phase || s.status || 'pending';
+    var tickets = s.ticket_progress || '-';
+    var cost = s.cost_usd != null ? ('$' + Number(s.cost_usd).toFixed(2)) : '--';
+    var duration = s.duration_s != null ? fmtDuration(s.duration_s) : '--';
+    return (
+      '<div class="session-entry ' + (extraClass || '') + '" data-id="' + esc(s.id) + '">' +
+        '<div class="session-entry-top">' +
+          '<div class="session-status-dot ' + dotClass + '"></div>' +
+          '<div class="session-name">' + esc(name) + '</div>' +
+        '</div>' +
+        '<div class="session-phase">' + esc(phase) + '</div>' +
+        '<div class="session-meta">' +
+          '<span>' + esc(tickets) + '</span>' +
+          '<span>' + esc(cost) + '</span>' +
+          '<span>' + esc(duration) + '</span>' +
+        '</div>' +
+      '</div>'
+    );
   }
 
-  function createTaskElement(task) {
-    const item = document.createElement('div');
-    item.className = 'task-item';
-    item.dataset.taskId = task.id;
-
-    const dot = document.createElement('div');
-    dot.className = 'task-dot ' + (task.status || 'pending');
-
-    const info = document.createElement('div');
-    info.className = 'task-info';
-
-    const name = document.createElement('div');
-    name.className = 'task-name ' + (task.status || 'pending');
-    name.textContent = task.description || task.id;
-
-    const subtitle = document.createElement('div');
-    subtitle.className = 'task-subtitle';
-    subtitle.textContent = getTaskSubtitle(task);
-
-    info.appendChild(name);
-    info.appendChild(subtitle);
-
-    if (task.group) {
-      const tag = document.createElement('span');
-      tag.className = 'task-group-tag';
-      tag.textContent = task.group;
-      info.appendChild(tag);
-    }
-
-    item.appendChild(dot);
-    item.appendChild(info);
-    return item;
+  /** HTML-escape a string. */
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
-  function updateTaskElement(el, task) {
-    const status = task.status || 'pending';
-    const dot    = el.querySelector('.task-dot');
-    const name   = el.querySelector('.task-name');
-    const sub    = el.querySelector('.task-subtitle');
+  // -----------------------------------------------------------------------
+  // Aggregate stats update
+  // -----------------------------------------------------------------------
 
-    dot.className     = 'task-dot ' + status;
-    name.className    = 'task-name ' + status;
-    name.textContent  = task.description || task.id;
-    sub.textContent   = getTaskSubtitle(task);
-
-    let tag = el.querySelector('.task-group-tag');
-    if (task.group) {
-      if (!tag) {
-        tag = document.createElement('span');
-        tag.className = 'task-group-tag';
-        el.querySelector('.task-info').appendChild(tag);
-      }
-      tag.textContent = task.group;
-    } else if (tag) {
-      tag.remove();
-    }
+  function updateStats() {
+    var running = 0, queued = 0, done = 0, totalCost = 0;
+    Object.values(sessionsCache).forEach(function (s) {
+      var g = groupOf(s);
+      if (g === 'running') running++;
+      else if (g === 'merge-queue') queued++;
+      else done++;
+      if (s.cost_usd) totalCost += Number(s.cost_usd);
+    });
+    statRunning.textContent = running;
+    statQueued.textContent  = queued;
+    statDone.textContent    = done;
+    statTotalCost.textContent = '$' + totalCost.toFixed(2);
+    // Status bar
+    statusSessions.textContent = running + ' Claude session' + (running === 1 ? '' : 's') + ' active';
   }
 
-  function handleTasks(e) {
-    let data;
-    try { data = JSON.parse(e.data); } catch { return; }
+  // -----------------------------------------------------------------------
+  // Session polling
+  // -----------------------------------------------------------------------
 
-    const tasks     = data.tasks     || [];
-    const completed = data.completed || 0;
-    const total     = data.total     || 0;
+  function pollSessions() {
+    fetch('/api/sessions')
+      .then(function (r) { return r.json(); })
+      .then(function (sessions) {
+        setConnected();
+        sessionsCache = {};
+        sessions.forEach(function (s) { sessionsCache[s.id] = s; });
+        renderSidebar();
+        updateStats();
 
-    // Remove empty placeholder
-    if (timelineEmpty.parentNode) {
-      timelineEmpty.remove();
-    }
-
-    // Track which task IDs exist in this update
-    const seen = new Set();
-
-    tasks.forEach(function (task, idx) {
-      seen.add(task.id);
-      if (taskMap[task.id]) {
-        // Update existing element in-place
-        updateTaskElement(taskMap[task.id].el, task);
-      } else {
-        // Create new element
-        const el = createTaskElement(task);
-        // Insert in order: find correct position
-        const siblings = timelineBody.querySelectorAll('.task-item');
-        if (idx < siblings.length) {
-          timelineBody.insertBefore(el, siblings[idx]);
-        } else {
-          timelineBody.appendChild(el);
+        // If selected session no longer exists, deselect
+        if (selectedSessionId && !sessionsCache[selectedSessionId]) {
+          selectedSessionId = null;
+          showEmptyState();
         }
-        taskMap[task.id] = { el: el };
-      }
-    });
-
-    // Remove task elements no longer in the list
-    Object.keys(taskMap).forEach(function (id) {
-      if (!seen.has(id)) {
-        taskMap[id].el.remove();
-        delete taskMap[id];
-      }
-    });
-
-    // Update count label
-    taskCountLabel.textContent = total > 0 ? (completed + ' / ' + total) : '';
-
-    // Update progress bar
-    progressCont.classList.add('visible');
-    progressCtr.textContent  = completed + ' / ' + total + ' TASKS';
-    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-    progressFill.style.width = pct + '%';
-    progressPct.textContent  = pct + '%';
-  }
-
-  // -------------------------------------------------------------------------
-  // SSE connection management
-  // -------------------------------------------------------------------------
-  function setConnState(state) {
-    connDot.className = state;
-    if (state === 'connected') {
-      connLabel.textContent = 'LIVE';
-    } else if (state === 'reconnecting') {
-      connLabel.textContent = 'RECONNECTING';
-    } else {
-      connLabel.textContent = 'CONNECTING';
-    }
-  }
-
-  function connectSSE() {
-    if (evtSource) {
-      evtSource.close();
-      evtSource = null;
-    }
-
-    setConnState('');
-    evtSource = new EventSource('/api/events');
-
-    evtSource.addEventListener('open', function () {
-      setConnState('connected');
-    });
-
-    evtSource.addEventListener('status', handleStatus);
-    evtSource.addEventListener('log',    handleLog);
-    evtSource.addEventListener('tasks',  handleTasks);
-
-    evtSource.addEventListener('error', function () {
-      setConnState('reconnecting');
-      // Browser will auto-reconnect; we just reflect the state
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Path input change -> ready/idle
-  // -------------------------------------------------------------------------
-  specInput.addEventListener('input', function () {
-    const val = specInput.value.trim();
-    if (currentState === 'running') return;  // ignore changes while running
-    if (val) {
-      setState('ready');
-    } else {
-      setState('idle');
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // Native file/folder browse dialogs
-  // -------------------------------------------------------------------------
-
-  browseSpecBtn.addEventListener('click', async function () {
-    if (currentState === 'running') return;
-
-    // Open native file dialog; pass current spec's parent as initial dir
-    var currentSpec = specInput.value.trim();
-    var initDir = currentSpec ? currentSpec.replace(/\/[^/]+$/, '') : '';
-    var qs = initDir ? '?initial_dir=' + encodeURIComponent(initDir) : '';
-
-    var resp;
-    try {
-      resp = await fetch('/api/browse/file' + qs);
-    } catch (err) {
-      showError('Could not reach server: ' + err.message);
-      return;
-    }
-    if (!resp.ok) {
-      showError('File dialog failed (' + resp.status + ')');
-      return;
-    }
-    var data = await resp.json();
-    if (data.path) {
-      specInput.value = data.path;
-      specInput.dispatchEvent(new Event('input'));
-      // Auto-fill ROOT with spec's parent directory (only if root is empty)
-      var parentDir = data.path.replace(/\/[^/]+$/, '');
-      if (rootInput.value.trim() === '') {
-        rootInput.value = parentDir;
-      }
-    }
-  });
-
-  browseRootBtn.addEventListener('click', async function () {
-    if (currentState === 'running') return;
-
-    // Open native folder dialog; pass current root as initial dir
-    var currentRoot = rootInput.value.trim();
-    var qs = currentRoot ? '?initial_dir=' + encodeURIComponent(currentRoot) : '';
-
-    var resp;
-    try {
-      resp = await fetch('/api/browse/folder' + qs);
-    } catch (err) {
-      showError('Could not reach server: ' + err.message);
-      return;
-    }
-    if (!resp.ok) {
-      showError('Folder dialog failed (' + resp.status + ')');
-      return;
-    }
-    var data = await resp.json();
-    if (data.path) {
-      rootInput.value = data.path;
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // INITIALIZE (preflight) button
-  // -------------------------------------------------------------------------
-  initBtn.addEventListener('click', async function () {
-    const specPath = specInput.value.trim();
-    if (!specPath) { showError('Enter a spec path first'); return; }
-    initBtn.disabled = true;
-    initBtn.textContent = 'CHECKING...';
-    clearError();
-    try {
-      const body = { spec_path: specPath, project_root: rootInput.value.trim() };
-      const resp = await fetch('/api/preflight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      })
+      .catch(function () {
+        setDisconnected();
       });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-        showError('Preflight failed: ' + (err.detail || resp.statusText));
-        return;
+  }
+
+  // -----------------------------------------------------------------------
+  // Session selection
+  // -----------------------------------------------------------------------
+
+  function showEmptyState() {
+    emptyState.style.display = '';
+    sessionDetail.style.display = 'none';
+  }
+
+  function showSessionDetail() {
+    emptyState.style.display = 'none';
+    sessionDetail.style.display = 'flex';
+  }
+
+  function selectSession(id) {
+    if (selectedSessionId === id) return;
+
+    // Disconnect previous SSE
+    if (sessionEventSource) {
+      sessionEventSource.close();
+      sessionEventSource = null;
+    }
+
+    selectedSessionId = id;
+    logConsole.innerHTML = '';
+
+    // Update sidebar active state
+    renderSidebar();
+
+    var s = sessionsCache[id];
+    if (!s) { showEmptyState(); return; }
+
+    showSessionDetail();
+    updateSessionHeader(s);
+
+    // Load tickets tab (active by default)
+    activateTab('tickets');
+    fetchTickets(id);
+
+    // Connect SSE for logs
+    connectSessionSSE(id);
+  }
+
+  function activateTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-pane').forEach(function (p) { p.classList.remove('active'); });
+    var btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    var pane = document.getElementById('pane-' + tabName);
+    if (btn) btn.classList.add('active');
+    if (pane) pane.classList.add('active');
+  }
+
+  function updateSessionHeader(s) {
+    sessionTitle.textContent = sessionDisplayName(s);
+    statusBadge.textContent = s.status || '';
+    statusBadge.className = 'badge badge-' + (s.status || 'pending');
+    if (s.complexity) {
+      complexityBadge.textContent = s.complexity;
+      complexityBadge.className = 'badge badge-complexity-' + s.complexity.toLowerCase();
+      complexityBadge.classList.remove('hidden');
+    } else {
+      complexityBadge.classList.add('hidden');
+    }
+    // Toggle action button states
+    var isRunning = s.status === 'running';
+    var isPaused  = s.status === 'paused';
+    btnPause.textContent  = isPaused ? 'Resume' : 'Pause';
+    btnPause.disabled     = !(isRunning || isPaused);
+    btnKill.disabled      = !(isRunning || isPaused);
+    btnGuidance.disabled  = !(isRunning || isPaused);
+  }
+
+  // -----------------------------------------------------------------------
+  // SSE connection per session
+  // -----------------------------------------------------------------------
+
+  function connectSessionSSE(sessionId) {
+    setReconnecting();
+
+    var es = new EventSource('/api/sessions/' + encodeURIComponent(sessionId) + '/events');
+    sessionEventSource = es;
+
+    es.onopen = function () {
+      setConnected();
+    };
+
+    es.addEventListener('log', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        appendLogLine(data);
+      } catch (ex) {
+        appendRawLog(e.data);
       }
-      const data = await resp.json();
-      // Show results in console
-      const lines = ['[PREFLIGHT] Tool ecosystem resolved:'];
-      for (const [role, info] of Object.entries(data.roles || {})) {
-        lines.push(`  ${role}: sources=${JSON.stringify(info.setting_sources)}`
-          + ` tools=${info.golem_tools.length}`
-          + ` extra_mcps=${Object.keys(info.extra_mcps || {}).length}`);
-      }
-      const pitfalls = data.pitfalls || {};
-      (pitfalls.errors || []).forEach(e => lines.push('  [ERROR] ' + e));
-      (pitfalls.warnings || []).forEach(w => lines.push('  [WARN] ' + w));
-      (pitfalls.infos || []).forEach(i => lines.push('  [INFO] ' + i));
-      lines.push(data.ready ? '  Result: ready to run' : '  Result: BLOCKED');
-      lines.forEach(msg => {
-        if (consoleEmpty.parentNode) consoleEmpty.remove();
-        const el = document.createElement('div');
-        el.className = 'log-line verb-info';
-        const msgEl = document.createElement('span');
-        msgEl.className = 'log-msg';
-        msgEl.textContent = msg;
-        el.appendChild(msgEl);
-        consoleBody.appendChild(el);
-        logLineCount++;
+    });
+
+    es.addEventListener('status', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.state && sessionsCache[sessionId]) {
+          sessionsCache[sessionId].status = data.state;
+          renderSidebar();
+          updateStats();
+          updateSessionHeader(sessionsCache[sessionId]);
+        }
+      } catch (ex) { /* ignore */ }
+    });
+
+    es.onerror = function () {
+      setReconnecting();
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Log rendering
+  // -----------------------------------------------------------------------
+
+  function appendLogLine(data) {
+    var div = document.createElement('div');
+    div.className = 'log-line';
+
+    var ts   = document.createElement('span');
+    ts.className = 'log-ts';
+    ts.textContent = data.timestamp || '';
+
+    var verb = document.createElement('span');
+    verb.className = 'log-verb ' + (data.verb || '');
+    verb.textContent = data.verb || '';
+
+    var msg  = document.createElement('span');
+    msg.className = 'log-msg';
+    msg.textContent = data.message || '';
+
+    div.appendChild(ts);
+    div.appendChild(verb);
+    div.appendChild(msg);
+    logConsole.appendChild(div);
+    logConsole.scrollTop = logConsole.scrollHeight;
+  }
+
+  function appendRawLog(text) {
+    var div = document.createElement('div');
+    div.className = 'log-line';
+    var msg = document.createElement('span');
+    msg.className = 'log-msg';
+    msg.textContent = text;
+    div.appendChild(msg);
+    logConsole.appendChild(div);
+    logConsole.scrollTop = logConsole.scrollHeight;
+  }
+
+  // -----------------------------------------------------------------------
+  // Fetch tickets
+  // -----------------------------------------------------------------------
+
+  function fetchTickets(sessionId) {
+    ticketsTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>';
+    conflictsSection.innerHTML = '';
+
+    fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/tickets')
+      .then(function (r) { return r.json(); })
+      .then(function (tickets) {
+        renderTickets(tickets);
+      })
+      .catch(function () {
+        ticketsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--error);padding:12px">Failed to load tickets.</td></tr>';
       });
-      logCountLabel.textContent = logLineCount + ' lines';
-      consoleBody.scrollTop = consoleBody.scrollHeight;
-      if (data.ready) {
-        runBtn.disabled = false;
+  }
+
+  function renderTickets(tickets) {
+    if (!tickets || tickets.length === 0) {
+      ticketsTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--dim-text);padding:20px">No tickets yet.</td></tr>';
+      conflictsSection.innerHTML = '';
+      return;
+    }
+
+    var html = '';
+    var conflicts = [];
+
+    tickets.forEach(function (t) {
+      var statusClass = (t.status || '').toLowerCase().replace(/[^a-z]/g, '');
+      var cost = t.cost_usd != null ? ('$' + Number(t.cost_usd).toFixed(2)) : '--';
+      html += (
+        '<tr class="ticket-row">' +
+          '<td class="ticket-id">' + esc(t.id || '') + '</td>' +
+          '<td class="ticket-title">' + esc(t.title || '') + '</td>' +
+          '<td><span class="ticket-status ' + statusClass + '">' + esc(t.status || '') + '</span></td>' +
+          '<td class="ticket-id">' + esc(t.worktree || '') + '</td>' +
+          '<td class="ticket-cost">' + esc(cost) + '</td>' +
+        '</tr>'
+      );
+      // Detect conflicts
+      if (t.conflict) conflicts.push(t);
+    });
+
+    ticketsTbody.innerHTML = html;
+
+    // Render conflict alerts
+    var conflictHtml = '';
+    conflicts.forEach(function (t) {
+      conflictHtml += (
+        '<div class="conflict-alert">' +
+          '<div class="conflict-title">[!] Overlap: ' + esc(t.id) + ' ' + esc(t.title || '') + '</div>' +
+          '<div class="conflict-detail">' + esc(t.conflict || '') + '</div>' +
+        '</div>'
+      );
+    });
+    conflictsSection.innerHTML = conflictHtml;
+  }
+
+  // -----------------------------------------------------------------------
+  // Fetch plan
+  // -----------------------------------------------------------------------
+
+  function fetchPlan(sessionId) {
+    planContent.textContent = 'Loading...';
+    fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/plan')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        planContent.textContent = data.content || '(no plan available)';
+      })
+      .catch(function () {
+        planContent.textContent = 'Failed to load plan.';
+      });
+  }
+
+  // -----------------------------------------------------------------------
+  // Fetch diff
+  // -----------------------------------------------------------------------
+
+  function fetchDiff(sessionId) {
+    diffContent.innerHTML = 'Loading...';
+    fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/diff')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        renderDiff(data.diff || '');
+      })
+      .catch(function () {
+        diffContent.textContent = 'Failed to load diff.';
+      });
+  }
+
+  function renderDiff(diffText) {
+    if (!diffText) {
+      diffContent.textContent = '(no diff available)';
+      return;
+    }
+    var lines = diffText.split('\n');
+    var html = '';
+    lines.forEach(function (line) {
+      var cls = '';
+      if (line.startsWith('+') && !line.startsWith('+++')) cls = 'diff-add';
+      else if (line.startsWith('-') && !line.startsWith('---')) cls = 'diff-del';
+      else if (line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ')) cls = 'diff-meta';
+      if (cls) {
+        html += '<span class="' + cls + '">' + esc(line) + '\n</span>';
       } else {
-        showError('Preflight detected errors — fix them or use CLI --force');
+        html += esc(line) + '\n';
       }
-    } catch (err) {
-      showError('Preflight error: ' + err.message);
-    } finally {
-      initBtn.disabled = false;
-      initBtn.textContent = 'INITIALIZE';
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // CONSTRUCT button
-  // -------------------------------------------------------------------------
-  runBtn.addEventListener('click', async function () {
-    const path = specInput.value.trim();
-    if (!path) return;
-
-    clearError();
-
-    // Optimistically enter running state
-    setState('running', { spec: path });
-
-    // Clear previous run data
-    logLineCount = 0;
-    logCountLabel.textContent = '';
-    consoleBody.innerHTML = '';
-    consoleBody.appendChild(consoleEmpty);
-    consoleEmpty.style.display = '';
-
-    timelineBody.innerHTML = '';
-    timelineBody.appendChild(timelineEmpty);
-    timelineEmpty.style.display = '';
-    taskMap = {};
-
-    progressFill.style.width = '0%';
-    progressPct.textContent  = '0%';
-    progressCtr.textContent  = '0 / 0 TASKS';
-
-    let resp;
-    try {
-      resp = await fetch('/api/run', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ spec_path: path, project_root: rootInput.value.trim() }),
-      });
-    } catch (err) {
-      setState('error', { message: 'Network error: ' + err.message });
-      showError('Could not reach server: ' + err.message);
-      return;
-    }
-
-    if (resp.ok) {
-      // Server accepted the run; SSE status event will confirm
-      return;
-    }
-
-    let errMsg = 'Request failed (' + resp.status + ')';
-    try {
-      const body = await resp.json();
-      if (body && body.detail) errMsg = body.detail;
-    } catch { /* ignore */ }
-
-    if (resp.status === 409) {
-      setState('running', { spec: path });
-      showError('A run is already in progress.');
-    } else {
-      setState('error', { message: errMsg });
-      showError(errMsg);
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // Operator Guidance
-  // -------------------------------------------------------------------------
-  function updateGuidancePanel(state) {
-    const panel = document.getElementById('guidance-panel');
-    if (!panel) return;
-    if (state === 'running') {
-      panel.classList.add('visible');
-    } else {
-      panel.classList.remove('visible');
-      const input = document.getElementById('guidance-input');
-      if (input) input.value = '';
-    }
+    });
+    diffContent.innerHTML = html;
   }
+
+  // -----------------------------------------------------------------------
+  // Fetch cost
+  // -----------------------------------------------------------------------
+
+  function fetchCost(sessionId) {
+    costTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>';
+    fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/cost')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        renderCost(data);
+      })
+      .catch(function () {
+        costTbody.innerHTML = '<tr><td colspan="4" style="color:var(--error);padding:12px">Failed to load cost data.</td></tr>';
+      });
+  }
+
+  function renderCost(data) {
+    var roles = data.roles || [];
+    var total = data.total != null ? data.total : (data.total_cost_usd || 0);
+
+    if (!roles.length) {
+      costTbody.innerHTML = (
+        '<tr><td colspan="4" style="text-align:center;color:var(--dim-text);padding:20px">No cost data yet.</td></tr>' +
+        '<tr class="cost-total-row"><td>Total</td><td colspan="2"></td><td style="text-align:right">$' + Number(total).toFixed(4) + '</td></tr>'
+      );
+      return;
+    }
+
+    var html = '';
+    roles.forEach(function (r) {
+      html += (
+        '<tr>' +
+          '<td>' + esc(r.role || '') + '</td>' +
+          '<td style="text-align:right">$' + Number(r.cost || 0).toFixed(4) + '</td>' +
+          '<td style="text-align:right">' + (r.tokens_in || 0) + '</td>' +
+          '<td style="text-align:right">' + (r.tokens_out || 0) + '</td>' +
+        '</tr>'
+      );
+    });
+    html += (
+      '<tr class="cost-total-row">' +
+        '<td>Total</td>' +
+        '<td style="text-align:right">$' + Number(total).toFixed(4) + '</td>' +
+        '<td colspan="2"></td>' +
+      '</tr>'
+    );
+    costTbody.innerHTML = html;
+  }
+
+  // -----------------------------------------------------------------------
+  // Action buttons
+  // -----------------------------------------------------------------------
+
+  btnPause.addEventListener('click', function () {
+    if (!selectedSessionId) return;
+    var s = sessionsCache[selectedSessionId];
+    var isPaused = s && s.status === 'paused';
+    var endpoint = isPaused ? 'resume' : 'pause';
+    fetch('/api/sessions/' + encodeURIComponent(selectedSessionId) + '/' + endpoint, { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (sessionsCache[selectedSessionId]) {
+          sessionsCache[selectedSessionId].status = data.status;
+          renderSidebar();
+          updateStats();
+          updateSessionHeader(sessionsCache[selectedSessionId]);
+        }
+      })
+      .catch(function () { showError('Failed to ' + endpoint + ' session.'); });
+  });
+
+  btnKill.addEventListener('click', function () {
+    if (!selectedSessionId) return;
+    if (!confirm('Kill session ' + selectedSessionId + '?')) return;
+    fetch('/api/sessions/' + encodeURIComponent(selectedSessionId), { method: 'DELETE' })
+      .then(function () { pollSessions(); })
+      .catch(function () { showError('Failed to kill session.'); });
+  });
+
+  btnGuidance.addEventListener('click', function () {
+    activateTab('logs');
+    guidanceInput.focus();
+  });
+
+  // -----------------------------------------------------------------------
+  // Send guidance
+  // -----------------------------------------------------------------------
+
+  guidanceSendBtn.addEventListener('click', sendGuidance);
+  guidanceInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') sendGuidance();
+  });
 
   function sendGuidance() {
-    const input = document.getElementById('guidance-input');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
-
-    fetch('/api/guidance', {
+    var text = guidanceInput.value.trim();
+    if (!text || !selectedSessionId) return;
+    fetch('/api/sessions/' + encodeURIComponent(selectedSessionId) + '/guidance', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text}),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text }),
     })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        input.value = '';
-        addLog({type: 'log', data: {content: '[OPERATOR] Guidance sent: ' + text, level: 'info'}});
-      } else {
-        addLog({type: 'log', data: {content: '[ERROR] Guidance rejected: ' + (data.error || 'unknown'), level: 'error'}});
-      }
-    })
-    .catch(err => addLog({type: 'log', data: {content: '[ERROR] Failed to send guidance: ' + err, level: 'error'}}));
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        guidanceInput.value = '';
+        appendRawLog('[guidance sent] ' + text);
+      })
+      .catch(function () { showError('Failed to send guidance.'); });
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
-    const guidanceInput = document.getElementById('guidance-input');
-    if (guidanceInput) {
-      guidanceInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') sendGuidance();
-      });
-    }
+  // -----------------------------------------------------------------------
+  // New Session modal
+  // -----------------------------------------------------------------------
+
+  newSessionBtn.addEventListener('click', function () {
+    modalOverlay.classList.add('visible');
+    modalSpecInput.value = '';
+    modalRootInput.value = '';
+    modalError.style.display = 'none';
+    modalError.textContent = '';
+    modalLaunchBtn.disabled = false;
   });
 
-  // -------------------------------------------------------------------------
-  // Boot
-  // -------------------------------------------------------------------------
-  setState('idle');
-  connectSSE();
+  modalCancelBtn.addEventListener('click', function () {
+    modalOverlay.classList.remove('visible');
+  });
 
-})();
+  modalOverlay.addEventListener('click', function (e) {
+    if (e.target === modalOverlay) modalOverlay.classList.remove('visible');
+  });
+
+  modalBrowseSpecBtn.addEventListener('click', function () {
+    fetch('/api/browse/file')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.path) {
+          modalSpecInput.value = data.path;
+          // Auto-fill root from spec parent
+          if (!modalRootInput.value) {
+            var parts = data.path.replace(/\\/g, '/').split('/');
+            parts.pop();
+            modalRootInput.value = parts.join('/') || '/';
+          }
+        }
+      })
+      .catch(function () { showError('File browser not available.'); });
+  });
+
+  modalBrowseRootBtn.addEventListener('click', function () {
+    fetch('/api/browse/folder')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.path) modalRootInput.value = data.path;
+      })
+      .catch(function () { showError('Folder browser not available.'); });
+  });
+
+  modalLaunchBtn.addEventListener('click', function () {
+    var specPath = modalSpecInput.value.trim();
+    if (!specPath) {
+      modalError.textContent = 'Spec file path is required.';
+      modalError.style.display = 'block';
+      return;
+    }
+    modalLaunchBtn.disabled = true;
+    modalError.style.display = 'none';
+
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        spec_path: specPath,
+        project_root: modalRootInput.value.trim(),
+      }),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'HTTP ' + r.status); });
+        return r.json();
+      })
+      .then(function (data) {
+        modalOverlay.classList.remove('visible');
+        pollSessions();
+        if (data.session_id) {
+          setTimeout(function () { selectSession(data.session_id); }, 300);
+        }
+      })
+      .catch(function (err) {
+        modalLaunchBtn.disabled = false;
+        modalError.textContent = err.message || 'Failed to launch session.';
+        modalError.style.display = 'block';
+      });
+  });
+
+  // -----------------------------------------------------------------------
+  // Startup: begin polling
+  // -----------------------------------------------------------------------
+
+  pollSessions();
+  pollTimerId = setInterval(pollSessions, 3000);
+
+}());
 </script>
 </body>
 </html>

@@ -943,3 +943,39 @@ def test_guidance_endpoint_appends_to_existing(tmp_path: Path, monkeypatch: pyte
     assert len(guidance_tickets) == 1
     # History: created + first update + second update = at least 3 events
     assert len(guidance_tickets[0].history) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Template content tests (multi-session dashboard)
+# ---------------------------------------------------------------------------
+
+
+def _read_template_html() -> str:
+    """Read the ui_template.html file used by the server."""
+    from pathlib import Path as _Path
+    template_path = _Path(__file__).parent.parent / "src" / "golem" / "ui_template.html"
+    return template_path.read_text(encoding="utf-8")
+
+
+def test_template_has_sidebar() -> None:
+    """The dashboard template must contain a sidebar element for the session list."""
+    html = _read_template_html()
+    assert "sidebar" in html or "session-list" in html
+
+
+def test_template_has_api_sessions() -> None:
+    """The dashboard template must reference the /api/sessions endpoint."""
+    html = _read_template_html()
+    assert "api/sessions" in html
+
+
+def test_template_has_eventsource() -> None:
+    """The dashboard template must use EventSource for SSE streaming."""
+    html = _read_template_html()
+    assert "EventSource" in html or "text/event-stream" in html
+
+
+def test_template_has_new_session() -> None:
+    """The dashboard template must contain a New Session button or element."""
+    html = _read_template_html()
+    assert "New Session" in html or "new-session" in html or "newSession" in html
