@@ -15,6 +15,8 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from golem.config import GolemConfig
+from golem.events import EventBus, QueueBackend
 from golem.merge import MergeCoordinator
 from golem.ui import format_sse
 
@@ -52,8 +54,10 @@ class SessionState:
     status: str = "pending"
     created_at: str = ""
     process: asyncio.subprocess.Process | None = None  # type: ignore[name-defined]
+    task: asyncio.Task[None] | None = None
     config: dict[str, object] = field(default_factory=dict)
     event_queue: asyncio.Queue[str] = field(default_factory=asyncio.Queue)
+    observe_queue: asyncio.Queue[object] = field(default_factory=asyncio.Queue)
     log_buffer: deque[dict[str, str | None]] = field(default_factory=lambda: deque(maxlen=200))
     background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
@@ -113,11 +117,13 @@ class SessionManager:
             return False
 
     def kill_session(self, session_id: str) -> bool:
-        """Kill a session's subprocess."""
+        """Kill a session's subprocess or cancel its task."""
         session = self._sessions.get(session_id)
         if not session:
             return False
-        if session.process and session.process.returncode is None:
+        if session.task and not session.task.done():
+            session.task.cancel()
+        elif session.process and session.process.returncode is None:
             try:
                 session.process.terminate()
             except (ProcessLookupError, OSError):
@@ -223,6 +229,99 @@ async def tail_progress_log(state: SessionState, sessions_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# In-process session runner
+# ---------------------------------------------------------------------------
+
+
+async def run_session(
+    spec_path: Path,
+    project_root: Path,
+    config: GolemConfig,
+    event_bus: EventBus,
+    golem_dir: Path,
+) -> None:
+    """Run the full Golem pipeline in-process (replaces subprocess spawning)."""
+    import time
+
+    from golem.conductor import classify_spec
+    from golem.events import SessionComplete, SessionStart
+    from golem.planner import run_planner
+    from golem.progress import ProgressLogger
+    from golem.tech_lead import run_tech_lead
+    from golem.writer import spawn_junior_dev
+
+    start = time.monotonic()
+    try:
+        spec_content = spec_path.read_text(encoding="utf-8")
+
+        await event_bus.emit(SessionStart(
+            spec_path=str(spec_path),
+            complexity="",
+            config_snapshot=dataclasses.asdict(config),
+        ))
+
+        # Run conductor classification
+        if config.conductor_enabled:
+            result = classify_spec(spec_content)
+            config.apply_complexity_profile(result.complexity)
+            await event_bus.emit(SessionStart(
+                spec_path=str(spec_path),
+                complexity=result.complexity,
+                config_snapshot={},
+            ))
+
+        # Create directories
+        golem_dir.mkdir(parents=True, exist_ok=True)
+        (golem_dir / "tickets").mkdir(exist_ok=True)
+        (golem_dir / "plans").mkdir(exist_ok=True)
+        (golem_dir / "research").mkdir(exist_ok=True)
+        (golem_dir / "references").mkdir(exist_ok=True)
+
+        progress = ProgressLogger(golem_dir)
+        progress.log_planner_start()
+
+        planner_result = await run_planner(spec_path, golem_dir, config, project_root, event_bus=event_bus)
+        ticket_id = planner_result.ticket_id
+        progress.log_planner_complete(ticket_id)
+
+        if not config.skip_tech_lead:
+            progress.log_tech_lead_start(ticket_id)
+            await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus)
+            elapsed = time.monotonic() - start
+            progress.log_tech_lead_complete(elapsed_s=elapsed)
+        else:
+            from golem.tickets import TicketStore
+            store = TicketStore(golem_dir / "tickets")
+            ticket = await store.read(ticket_id)
+            await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus)
+
+        total_cost = progress.sum_agent_costs()
+        duration = time.monotonic() - start
+        progress.log_run_cost_summary(total_cost)
+
+        await event_bus.emit(SessionComplete(
+            status="awaiting_merge", cost_usd=total_cost, duration_s=duration, error="",
+        ))
+
+    except Exception as e:
+        duration = time.monotonic() - start
+        await event_bus.emit(SessionComplete(
+            status="failed", cost_usd=0.0, duration_s=duration, error=str(e),
+        ))
+        raise
+
+
+def _on_session_done(task: asyncio.Task[None], state: SessionState, mgr: SessionManager) -> None:
+    """Callback when an in-process session task finishes."""
+    if task.cancelled():
+        state.status = "failed"
+    elif task.exception():
+        state.status = "failed"
+    else:
+        state.status = "awaiting_merge"
+
+
+# ---------------------------------------------------------------------------
 # Cached template HTML
 # ---------------------------------------------------------------------------
 
@@ -319,7 +418,9 @@ def create_app() -> FastAPI:
             remove_server_json(golem_dir)
             # Terminate any running sessions
             for s in session_mgr.list_sessions():
-                if s.process and s.process.returncode is None:  # Still running
+                if s.task and not s.task.done():
+                    s.task.cancel()
+                elif s.process and s.process.returncode is None:  # Still running
                     try:
                         s.process.terminate()
                     except (ProcessLookupError, OSError):
@@ -362,6 +463,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/sessions")
     async def create_session(req: CreateSessionRequest) -> dict[str, str]:
+        from golem.config import load_config
         from golem.session import create_session_dir, generate_session_id
 
         spec = Path(req.spec_path)
@@ -376,24 +478,26 @@ def create_app() -> FastAPI:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         session_dir = create_session_dir(sessions_dir, session_id, spec)
 
-        # Spawn the golem run subprocess
-        process = await asyncio.create_subprocess_exec(
-            "uv", "run", "golem", "run", str(spec.resolve()),
-            "--force", "--no-server",
-            "--session-id", session_id,
-            "--golem-dir", str(session_dir),
-            cwd=str(project_root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
         state = session_mgr.create_session(session_id, spec)
-        state.process = process
         state.status = "running"
 
-        # Start background tasks for this session
+        # Create EventBus for this session with QueueBackend for observe endpoint
+        event_bus = EventBus(QueueBackend(state.observe_queue), session_id=session_id)
+
+        # Load config for this session
+        config = load_config(session_dir) if (session_dir / "config.json").exists() else GolemConfig()
+        config.session_id = session_id
+
+        # Run session in-process as async task
+        task = asyncio.create_task(
+            run_session(spec, project_root, config, event_bus, session_dir)
+        )
+        state.task = task
+        task.add_done_callback(lambda t: _on_session_done(t, state, session_mgr))
+        state.background_tasks.append(task)
+
+        # Still tail progress.log for legacy SSE events endpoint
         state.background_tasks.append(asyncio.create_task(tail_progress_log(state, sessions_dir)))
-        state.background_tasks.append(asyncio.create_task(monitor_process(state, sessions_dir, merge_coordinator)))
 
         return {"session_id": session_id, "status": "running"}
 
@@ -546,6 +650,55 @@ def create_app() -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
+
+    # ------------------------------------------------------------------
+    # Typed event streams (observe)
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sessions/{session_id}/observe")
+    async def session_observe(session_id: str) -> StreamingResponse:
+        """SSE stream of typed GolemEvents for a session."""
+        from fastapi import HTTPException
+        from golem.events import GolemEvent
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        async def _stream() -> AsyncGenerator[str, None]:
+            while True:
+                try:
+                    event = await asyncio.wait_for(state.observe_queue.get(), timeout=15.0)
+                    if isinstance(event, GolemEvent):
+                        yield format_sse("agent_event", event.to_dict())
+                    else:
+                        yield format_sse("agent_event", {"raw": str(event)})
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                except asyncio.CancelledError:
+                    return
+
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    @app.get("/api/sessions/{session_id}/agents")
+    async def session_agents(session_id: str) -> dict[str, object]:
+        """Return current agent tree state for a session."""
+        from fastapi import HTTPException
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        return {
+            "session_id": session_id,
+            "status": state.status,
+            "has_task": state.task is not None,
+            "task_done": state.task.done() if state.task else None,
+        }
 
     # ------------------------------------------------------------------
     # Per-session data endpoints
