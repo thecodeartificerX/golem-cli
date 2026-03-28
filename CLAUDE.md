@@ -31,6 +31,16 @@ uv run golem ui                  # Launch web dashboard (port 9664)
 uv run golem server start        # Start multi-session server (port 9664)
 uv run golem server stop         # Stop running server
 uv run golem server status       # Check server status
+uv run golem pause SESSION       # Pause a running session
+uv run golem resume SESSION      # Resume a paused session
+uv run golem kill SESSION        # Kill a running session
+uv run golem guidance SESSION    # Send guidance to a session
+uv run golem tickets SESSION     # Show tickets for a session
+uv run golem cost SESSION        # Show run cost for a session
+uv run golem merge SESSION       # Enqueue session for merge
+uv run golem approve SESSION     # Approve and merge session's PR
+uv run golem merge-queue         # Show current merge queue
+uv run golem conflicts           # Show cross-session file conflicts
 .\Golem.ps1                      # PowerShell ops dashboard (setup + server + TUI)
 uv run pytest                    # Run tests
 ```
@@ -48,6 +58,7 @@ Created by `golem run` in the project root (gitignored):
 - `research/` — sub-agent findings (explorer, researcher)
 - `references/` — curated external docs for writers
 - `progress.log` — timestamped execution events
+- `events.jsonl` — structured GolemEvent stream (JSONL, one event per line)
 - `worktrees/` — git worktrees per parallel group
 - `sessions/` — per-session state directories (config, tickets, plans, logs)
 
@@ -88,10 +99,13 @@ src/
   golem/
     __init__.py
     cli.py              ← CLI entry point (typer + rich)
-    conductor.py        ← Spec complexity classifier (TRIVIAL/SIMPLE/STANDARD/CRITICAL)
+    client.py           ← HTTP client (GolemClient, find_server) for server communication
+    conductor.py        ← Spec complexity + preflight (classify, topology, conflicts)
     config.py           ← Settings, defaults, model configuration
     dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
+    merge.py            ← Merge coordinator (FIFO queue, PR lifecycle, rebase cascade)
     planner.py          ← Spec → research + tickets (sub-agent architecture)
+    events.py           ← Typed EventBus for agent observability (21 GolemEvent types)
     progress.py         ← Human-readable progress.log writer
     qa.py               ← Deterministic QA tool (subprocess checks)
     server.py           ← Multi-session FastAPI server (concurrent spec execution)
@@ -117,9 +131,14 @@ tests/
   conftest.py           ← Shared fixtures (ticket factory, git repo, golem dir)
   __init__.py
   test_cli.py           ← Spec validation, infra check detection
+  test_client.py        ← GolemClient and find_server tests
   test_conductor.py     ← Complexity classification tests
+  test_conflicts.py     ← Cross-session conflict detection tests
   test_config.py        ← GolemConfig, setting_sources, validation
+  test_events.py        ← EventBus, backends, roundtrip, subscribe filters
   test_hooks.py         ← PreToolUse hook script tests
+  test_merge.py         ← Merge coordinator queue, PR, rebase tests
+  test_preflight.py     ← Topology derivation, conflict prediction, env checks, cost
   test_planner.py       ← Planner directory creation and ticket output
   test_progress.py      ← Progress event logging (v2 milestones)
   test_qa.py            ← QA checks, autofix, infra detection
@@ -145,7 +164,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (406 tests)
+- **Run:** `uv run pytest` (494 tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
@@ -155,6 +174,8 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Use `monkeypatch.setattr` for UI module globals** — never assign `ui_module.current_process` or `ui_module.current_cwd` directly in tests; monkeypatch ensures cleanup even on failure
 - **Rich table wrapping breaks string assertions** — assert on short strings or individual words; Rich wraps/truncates cell content in narrow terminals
 - **Mock `run_planner`/`run_tech_lead` in CLI tests** — any test that proceeds past stale-state check will hang trying to start the Claude SDK
+- **Mock `run_session` in server tests** — session creation uses in-process `run_session()`, not subprocesses; `patch("golem.server.run_session", side_effect=async_noop)` where `async_noop` does `await asyncio.sleep(999)`
+- **Pause/resume returns 400 for in-process sessions** — SIGSTOP/SIGCONT don't apply to coroutines; only subprocess-based sessions support pause
 - **`conftest.py` has shared fixtures** — `make_ticket`, `git_repo`, `golem_dir`, `write_ticket_json` — use these instead of redefining per-file
 
 ### Claude Agent SDK Gotchas
@@ -177,6 +198,8 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Verbose SDK streaming** — `planner.py`, `tech_lead.py`, `writer.py` print `[PLANNER]`/`[TECH LEAD]`/`[WRITER]` prefixed messages to stderr showing text blocks, tool calls, and results in real-time
 - **`uv run` in worktrees fails if parent `VIRTUAL_ENV` set** — delete `.venv` and `unset VIRTUAL_ENV` before `uv sync` in worktrees
 - **`typer.Exit` raises `click.exceptions.Exit`** — tests must catch `ClickExit` from click, not `SystemExit`
+- **EventBus is threaded through all agents** — `run_planner()`, `run_tech_lead()`, `spawn_junior_dev()`, `supervised_session()` all accept `event_bus: EventBus | None = None` as last parameter; pass it through to `supervised_session()` and MCP server factories
+- **Use TYPE_CHECKING for EventBus imports** — `from typing import TYPE_CHECKING; if TYPE_CHECKING: from golem.events import EventBus` avoids circular imports at runtime; import event classes inside `if event_bus:` guards
 
 ### FastAPI / UI Gotchas
 - **Pydantic models must be module-level** — defining `BaseModel` subclasses inside `create_app()` breaks FastAPI's annotation resolution; requests get 422 instead of binding to the body
@@ -186,6 +209,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **UI control bar has two inputs** — SPEC (file path) + ROOT (project directory); SPEC browse auto-fills ROOT with parent dir; `/api/run` accepts `project_root` field (backward-compatible, empty = spec's parent)
 - **Golem.ps1 uses polling loop, not `WaitForExit()`** — .NET `WaitForExit()` swallows Ctrl+C; poll `$proc.HasExited` with `Start-Sleep -Milliseconds 300` instead; `try/finally` kills child process on exit
 - **`server.py` vs `ui.py`** — `server.py` is the multi-session server (concurrent spec execution, session lifecycle); `ui.py` is the legacy single-session dashboard. New features go in `server.py`
+- **Sessions run in-process** — `server.py` uses `asyncio.create_task(run_session(...))` not subprocesses; tests must mock `golem.server.run_session` (not `create_subprocess_exec`)
 
 ## Key Design Decisions
 - **Ticket-driven agent hierarchy (v2)** — Planner → Tech Lead → Writer pairs. Communication via structured JSON tickets in `.golem/tickets/`.
@@ -196,10 +220,14 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **PreToolUse safety hooks** — `.claude/hooks/` contains Python scripts that block dangerous agent operations (golem CLI, destructive git, AskUserQuestion) in headless SDK sessions, gated by `GOLEM_SDK_SESSION=1` env var.
 - **Session-scoped state** — each spec execution is a "session" with `.golem/sessions/<id>/` directory. Tickets, plans, and worktree branches are namespaced under `golem/{session_id}/` to enable concurrent execution.
 - **Self-healing fallbacks** — planner creates fallback tickets, tech lead merges to main, worktrees cleaned on error.
+- **Merge coordinator** — FIFO merge queue with JSON persistence. Auto-enqueues sessions on completion, creates PRs via `gh`, rebase cascades queued sessions after each merge, detects cross-session file conflicts.
+- **CLI-as-client architecture** — CLI is a thin HTTP client (`client.py`) that delegates to the server. `find_server()` reads `.golem/server.json` with cross-platform PID liveness check. `--no-server` flag preserves direct execution for CI.
+- **Cross-session intelligence** — conflict resolution strategies, session analytics, cost aggregation across concurrent sessions.
 - **MCP tools for orchestration** — ticket CRUD, QA, worktree ops injected via in-process MCP servers.
 
 ## Version History
-- **v0.3.0** (2026-03-28) — Spec 1 (Foundation + Server Core): session-scoped state namespacing (`session.py`), multi-session FastAPI server (`server.py`), branch prefix isolation, session lifecycle progress events. 406 tests. New config: `session_id`, `branch_prefix`, `merge_auto_rebase`, `archive_delay_minutes`.
+- **v0.3.1** (2026-03-28) — Observability: typed EventBus (`events.py`) with 21 event types, deep agent instrumentation (`supervised_session` + MCP tools), in-process session runner, preflight system (topology, conflicts, env, cost), Observe + Preflight dashboard tabs. 494 tests.
+- **v0.3.0** (2026-03-28) — Multi-spec orchestration (Specs 1-5): session-scoped state (`session.py`), multi-session FastAPI server (`server.py`), CLI-as-client (`client.py`), merge coordinator (`merge.py`) with FIFO queue/PR lifecycle/rebase cascade, multi-session dashboard UI rewrite, cross-session conflict detection and resolution. 453 tests. New config: `session_id`, `branch_prefix`, `merge_auto_rebase`, `archive_delay_minutes`.
 - **v0.2.2** (2026-03-27) — ZeroShot-inspired features: safety hooks, two-stage QA, run economics, complexity conductor, live operator guidance, dispatch hardening. 314 tests. New config: `dispatch_jitter_max`, `conductor_enabled`, `skip_tech_lead`, `planner_max_turns`, `complexity_profiles`.
 - **v0.2.1** (2026-03-27) — Auto-dev session: 99 tasks, 239 tests, 12 new CLI commands, dead code cleanup, prompt improvements. Config added: `max_tech_lead_turns`, `sdk_timeout`, `retry_delay`. Removed: `auto_pr`, `max_validator_turns`.
 - **v0.2.0** (2026-03-27) — v2 ticket-driven architecture, 185 tests, 112 overnight improvements. See `docs/overnight-log.md` for details.
