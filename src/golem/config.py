@@ -59,6 +59,10 @@ class GolemConfig:
     conductor_enabled: bool = True
     skip_tech_lead: bool = False
     planner_max_turns: int = 50  # FIX: was hardcoded in planner.py
+    # Per-session security allowlist (commands that bypass security validators)
+    security_allowlist: list[str] = field(default_factory=list)
+    # Whether to scan file writes for secrets (default: True)
+    secret_scan_enabled: bool = True
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
         "TRIVIAL": {"planner_model": "claude-haiku-4-5-20251001", "planner_max_turns": 10,
@@ -170,7 +174,7 @@ def load_config(golem_dir: Path) -> GolemConfig:
     return config
 
 
-def sdk_env() -> dict[str, str]:
+def sdk_env(session_id: str = "", golem_dir: str = "") -> dict[str, str]:
     """Environment overrides for Claude Agent SDK subprocess.
 
     Returns a *partial* dict (not a full env copy). The SDK merges these
@@ -179,8 +183,17 @@ def sdk_env() -> dict[str, str]:
 
     Clears ANTHROPIC_API_KEY so the spawned claude CLI uses its own
     OAuth auth instead of treating the env var as an external API key.
+
+    Args:
+        session_id: Optional session ID passed to hooks for allowlist loading.
+        golem_dir: Optional path to .golem/ directory for allowlist file lookup.
     """
-    return {"ANTHROPIC_API_KEY": "", "CLAUDECODE": "", "GOLEM_SDK_SESSION": "1"}
+    env: dict[str, str] = {"ANTHROPIC_API_KEY": "", "CLAUDECODE": "", "GOLEM_SDK_SESSION": "1"}
+    if session_id:
+        env["GOLEM_SESSION_ID"] = session_id
+    if golem_dir:
+        env["GOLEM_DIR"] = golem_dir
+    return env
 
 
 def resolve_agent_options(
