@@ -13,10 +13,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
 
 from golem.config import GolemConfig
+
+if TYPE_CHECKING:
+    from golem.events import EventBus
 
 # MCP action tool names — calls to these reset the stall counter.
 # "Read tools" (Read, Grep, Glob, Bash) are not listed here.
@@ -195,6 +199,7 @@ async def supervised_session(
     on_text: Callable[[str], None] | None = None,
     on_tool: Callable[[str], None] | None = None,
     golem_dir: Path | None = None,
+    event_bus: EventBus | None = None,
 ) -> SupervisedResult:
     """Run a supervised SDK session with stall detection and circuit breakers.
 
@@ -219,6 +224,16 @@ async def supervised_session(
     stall_turn: int | None = None
     current_prompt = prompt
 
+    if event_bus:
+        from golem.events import AgentSpawned
+        await event_bus.emit(AgentSpawned(
+            role=role,
+            model=options.model or "",
+            max_turns=options.max_turns or 0,
+            mcp_tools=[],
+            stall_config={"warn": stall_config.warning_turn(), "kill": stall_config.kill_turn()},
+        ))
+
     for _iteration in range(2):  # at most 2 passes: initial + 1 warning restart
         stall_hit = False
         kill_hit = False
@@ -230,10 +245,42 @@ async def supervised_session(
                     if isinstance(block, TextBlock):
                         if on_text:
                             on_text(block.text)
+                        if event_bus:
+                            from golem.events import AgentText
+                            await event_bus.emit(AgentText(role=role, text=block.text, turn=current_turn))
                     elif isinstance(block, ToolUseBlock):
                         registry.record(block.name, current_turn)
                         if on_tool:
                             on_tool(block.name)
+                        if event_bus:
+                            from golem.events import (
+                                AgentToolCall, SubAgentSpawned, SkillInvoked,
+                                PlanModeEntered, TaskProgress,
+                            )
+                            await event_bus.emit(AgentToolCall(
+                                role=role, tool_name=block.name,
+                                arguments=block.input if isinstance(block.input, dict) else {},
+                                turn=current_turn,
+                            ))
+                            if block.name == "Agent":
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(SubAgentSpawned(
+                                    parent_role=role,
+                                    subagent_type=str(inp.get("subagent_type", "")),
+                                    description=str(inp.get("description", "")),
+                                    prompt_preview=str(inp.get("prompt", ""))[:200],
+                                ))
+                            elif block.name == "Skill":
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(SkillInvoked(role=role, skill_name=str(inp.get("skill", ""))))
+                            elif block.name == "EnterPlanMode":
+                                await event_bus.emit(PlanModeEntered(role=role))
+                            elif block.name in ("TaskCreate", "TaskUpdate"):
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(TaskProgress(
+                                    role=role, task_subject=str(inp.get("subject", "")),
+                                    status=str(inp.get("status", "")),
+                                ))
 
                 turns_since = registry.turns_since_last_action(current_turn)
 
@@ -245,6 +292,13 @@ async def supervised_session(
                         ProgressLogger(golem_dir).log_stall_warning(
                             role, current_turn, stall_config.max_turns, registry.action_call_count()
                         )
+                    if event_bus:
+                        from golem.events import AgentStallWarning
+                        await event_bus.emit(AgentStallWarning(
+                            role=role, turn=current_turn,
+                            turns_since_action=registry.turns_since_last_action(current_turn),
+                            action_tools_available=[],
+                        ))
                     break
 
                 # Kill threshold: terminate and return stalled result
@@ -255,6 +309,9 @@ async def supervised_session(
                         ProgressLogger(golem_dir).log_stall_detected(
                             role, current_turn, stall_config.max_turns, registry.action_call_count()
                         )
+                    if event_bus:
+                        from golem.events import AgentStallKill
+                        await event_bus.emit(AgentStallKill(role=role, turn=current_turn))
                     break
 
             elif isinstance(message, ResultMessage):
@@ -266,15 +323,33 @@ async def supervised_session(
                     result_text = message.result
                     if on_text:
                         on_text(message.result)
+                if event_bus:
+                    from golem.events import AgentToolResult
+                    for block in getattr(message, "content", []) or []:
+                        await event_bus.emit(AgentToolResult(
+                            role=role, tool_name="",
+                            result_preview=str(block.content)[:500] if hasattr(block, "content") else "",
+                            duration_ms=0, turn=current_turn,
+                        ))
 
         if kill_hit:
+            elapsed = time.monotonic() - start
+            if event_bus:
+                from golem.events import AgentComplete
+                await event_bus.emit(AgentComplete(
+                    role=role,
+                    total_cost=cost_usd,
+                    total_turns=current_turn,
+                    duration_s=elapsed,
+                    result_preview=result_text[:500] if result_text else "",
+                ))
             return SupervisedResult(
                 result_text=result_text,
                 cost_usd=cost_usd,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 turns=current_turn,
-                duration_s=time.monotonic() - start,
+                duration_s=elapsed,
                 stalled=True,
                 stall_turn=stall_turn,
                 registry=registry,
@@ -290,13 +365,23 @@ async def supervised_session(
         )
         current_prompt = warning_msg + "\n\n" + prompt
 
+    elapsed = time.monotonic() - start
+    if event_bus:
+        from golem.events import AgentComplete
+        await event_bus.emit(AgentComplete(
+            role=role,
+            total_cost=cost_usd,
+            total_turns=current_turn,
+            duration_s=elapsed,
+            result_preview=result_text[:500] if result_text else "",
+        ))
     return SupervisedResult(
         result_text=result_text,
         cost_usd=cost_usd,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         turns=current_turn,
-        duration_s=time.monotonic() - start,
+        duration_s=elapsed,
         stalled=False,
         stall_turn=None,
         registry=registry,

@@ -426,3 +426,96 @@ def test_progress_stall_retry_format() -> None:
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
         assert "STALL_RETRY" in content
         assert "role=tech_lead" in content
+
+
+# ---------------------------------------------------------------------------
+# EventBus instrumentation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_supervised_session_emits_agent_spawned() -> None:
+    """supervised_session emits AgentSpawned when event_bus provided."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    from golem.events import AgentSpawned, EventBus, QueueBackend
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+    config = GolemConfig()
+    stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+
+    async def fake_query(*args, **kwargs):
+        yield ResultMessage(
+            subtype="result",
+            duration_ms=100,
+            duration_api_ms=50,
+            is_error=False,
+            num_turns=1,
+            session_id="sdk-123",
+            result="done",
+            total_cost_usd=0.5,
+            usage={"input_tokens": 100, "output_tokens": 50},
+        )
+
+    options = ClaudeAgentOptions(
+        model="claude-opus-4-6",
+        cwd=".",
+        tools={"type": "preset", "preset": "claude_code"},
+        max_turns=50,
+        permission_mode="bypassPermissions",
+        env={},
+    )
+
+    with patch("golem.supervisor.query", side_effect=fake_query):
+        result = await supervised_session(
+            "test prompt", options, "planner", config, stall_cfg, event_bus=bus,
+        )
+
+    events = []
+    while not queue.empty():
+        events.append(queue.get_nowait())
+    spawned = [e for e in events if isinstance(e, AgentSpawned)]
+    assert len(spawned) == 1
+    assert spawned[0].role == "planner"
+    assert spawned[0].model == "claude-opus-4-6"
+
+
+@pytest.mark.asyncio
+async def test_supervised_session_no_events_without_bus() -> None:
+    """supervised_session works without event_bus (backward compat)."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    config = GolemConfig()
+    stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+
+    async def fake_query(*args, **kwargs):
+        yield ResultMessage(
+            subtype="result",
+            duration_ms=100,
+            duration_api_ms=50,
+            is_error=False,
+            num_turns=1,
+            session_id="sdk-456",
+            result="done",
+            total_cost_usd=0.1,
+            usage={"input_tokens": 10, "output_tokens": 5},
+        )
+
+    options = ClaudeAgentOptions(
+        model="claude-opus-4-5",
+        cwd=".",
+        tools={"type": "preset", "preset": "claude_code"},
+        max_turns=50,
+        permission_mode="bypassPermissions",
+        env={},
+    )
+
+    with patch("golem.supervisor.query", side_effect=fake_query):
+        result = await supervised_session(
+            "test prompt", options, "planner", config, stall_cfg,
+        )
+    assert result.result_text == "done"
