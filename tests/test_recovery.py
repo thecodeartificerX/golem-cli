@@ -166,6 +166,62 @@ class TestClassifyFailure:
     def test_classify_none_exc_with_result_text(self) -> None:
         assert classify_failure(None, "context window is full") == FailureType.context_exhausted
 
+    def test_classify_billing_insufficient_credits(self) -> None:
+        exc = ClaudeSDKError("insufficient_credits: your account has no credits remaining")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_out_of_credits(self) -> None:
+        exc = ClaudeSDKError("out of credits — please top up your account")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_http_402(self) -> None:
+        exc = ClaudeSDKError("HTTP 402 Payment Required")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_payment_required(self) -> None:
+        exc = ClaudeSDKError("payment_required: upgrade your plan to continue")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_subscription_inactive(self) -> None:
+        exc = ClaudeSDKError("subscription_inactive: your subscription has lapsed")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_account_suspended(self) -> None:
+        exc = ClaudeSDKError("account_suspended due to overdue payment")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_quota_exceeded(self) -> None:
+        exc = ClaudeSDKError("quota_exceeded for this billing period")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_trial_expired(self) -> None:
+        exc = ClaudeSDKError("trial_expired — please add a payment method")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_payment_declined(self) -> None:
+        exc = ClaudeSDKError("payment_declined: card ending 4242 was declined")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_spending_limit(self) -> None:
+        exc = ClaudeSDKError("spending_limit reached for this period")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_status_402(self) -> None:
+        exc = ClaudeSDKError("status: 402 payment required")
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_json_type_field(self) -> None:
+        exc = ClaudeSDKError('{"type": "billing_error", "message": "no credits"}')
+        assert classify_failure(exc) == FailureType.billing_failure
+
+    def test_classify_billing_from_result_text(self) -> None:
+        assert classify_failure(None, "HTTP 402 — insufficient_credits on this account") == FailureType.billing_failure
+
+    def test_classify_billing_takes_priority_over_auth(self) -> None:
+        # HTTP 402 should be billing, not auth — billing is checked first
+        exc = ClaudeSDKError("HTTP 402 payment_required; please authenticate your payment")
+        assert classify_failure(exc) == FailureType.billing_failure
+
     def test_classify_auth_takes_priority_over_rate_limit(self) -> None:
         # Text contains both patterns — auth wins
         exc = ClaudeSDKError("Limit reached · resets Dec 17 at 6am; oauth token has expired")
@@ -318,6 +374,10 @@ class TestRecoveryDelay:
         config = _default_config()
         assert recovery_delay(FailureType.auth_failure, 0, config) == 0.0
 
+    def test_delay_billing_failure_zero(self) -> None:
+        config = _default_config()
+        assert recovery_delay(FailureType.billing_failure, 0, config) == 0.0
+
     def test_delay_infrastructure_zero(self) -> None:
         config = _default_config()
         assert recovery_delay(FailureType.infrastructure, 0, config) == 0.0
@@ -430,6 +490,31 @@ class TestRecoveryCoordinator:
             )
 
         assert exc_info.value.failure_type == FailureType.auth_failure
+        assert call_count == 1  # no retry
+        sleep_mock.assert_not_called()
+
+    async def test_billing_failure_raises_immediately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sleep_mock = AsyncMock(return_value=None)
+        monkeypatch.setattr("golem.recovery.asyncio.sleep", sleep_mock)
+
+        config = _default_config()
+        coord = RecoveryCoordinator(config)
+
+        call_count = 0
+
+        async def billing_fail() -> SupervisedResult:
+            nonlocal call_count
+            call_count += 1
+            raise ClaudeSDKError("HTTP 402 payment_required: insufficient_credits")
+
+        with pytest.raises(RecoveryExhausted) as exc_info:
+            await coord.run_with_recovery(
+                session_fn=billing_fail,
+                role="writer",
+                label="TICKET-001",
+            )
+
+        assert exc_info.value.failure_type == FailureType.billing_failure
         assert call_count == 1  # no retry
         sleep_mock.assert_not_called()
 

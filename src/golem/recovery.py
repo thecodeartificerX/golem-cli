@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 class FailureType(str, Enum):
     rate_limit = "rate_limit"
     auth_failure = "auth_failure"
+    billing_failure = "billing_failure"
     context_exhausted = "context_exhausted"
     sdk_error = "sdk_error"
     infrastructure = "infrastructure"
@@ -81,6 +82,32 @@ _AUTH_FAILURE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"·\s*Please\s+run\s+/login", re.IGNORECASE),
 ]
 
+# Billing failure patterns — checked BEFORE auth patterns because some billing responses
+# (e.g. HTTP 402 Payment Required) overlap with auth error message formats.
+# These indicate an account/payment problem requiring human intervention — no retry.
+_BILLING_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"insufficient[_\s]credits?", re.IGNORECASE),
+    re.compile(r"out\s+of\s+credits?", re.IGNORECASE),
+    re.compile(r"credit\s+balance\s+(?:is\s+)?too\s+low", re.IGNORECASE),
+    re.compile(r"extra[_\s]usage", re.IGNORECASE),
+    re.compile(r"HTTP\s*402", re.IGNORECASE),
+    re.compile(r"payment[_\s]required", re.IGNORECASE),
+    re.compile(r"billing[_\s]error", re.IGNORECASE),
+    re.compile(r"subscription[_\s]inactive", re.IGNORECASE),
+    re.compile(r"account[_\s]suspended", re.IGNORECASE),
+    re.compile(r"plan[_\s]limit[_\s]exceeded", re.IGNORECASE),
+    re.compile(r"usage[_\s]limit\s+(?:reached|exceeded)", re.IGNORECASE),
+    re.compile(r"spending[_\s]limit", re.IGNORECASE),
+    re.compile(r"quota[_\s]exceeded", re.IGNORECASE),
+    re.compile(r"free[_\s]tier[_\s]limit", re.IGNORECASE),
+    re.compile(r"trial[_\s]expired", re.IGNORECASE),
+    re.compile(r"overdue[_\s]payment", re.IGNORECASE),
+    re.compile(r"payment[_\s]declined", re.IGNORECASE),
+    re.compile(r"billing[_\s]disabled", re.IGNORECASE),
+    re.compile(r"status[:\s]+402", re.IGNORECASE),
+    re.compile(r"""["']?type["']?\s*:\s*["']?billing_error["']?""", re.IGNORECASE),
+]
+
 # Context exhaustion patterns
 _CONTEXT_EXHAUSTED_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"context\s*(?:window\s*)?(?:is\s*)?(?:full|exhausted|overflow)", re.IGNORECASE),
@@ -123,6 +150,12 @@ def classify_failure(exc: BaseException | None, result_text: str = "") -> Failur
     if result_text:
         parts.append(result_text[:2000])  # cap to 2 KB — no need to scan full output
     text = "\n".join(parts)
+
+    # Billing: fail fast — human intervention required (checked before auth;
+    # some billing messages embed auth-like language, e.g. 402 responses)
+    for pat in _BILLING_PATTERNS:
+        if pat.search(text):
+            return FailureType.billing_failure
 
     # Auth: fail fast — human intervention required
     for pat in _AUTH_FAILURE_PATTERNS:
@@ -245,7 +278,7 @@ def recovery_delay(
     if failure_type == FailureType.rate_limit:
         return float(config.rate_limit_cooldown_s)
 
-    if failure_type in (FailureType.auth_failure, FailureType.infrastructure):
+    if failure_type in (FailureType.auth_failure, FailureType.billing_failure, FailureType.infrastructure):
         return 0.0  # should never be called — callers raise immediately
 
     # sdk_error, context_exhausted, timeout, unknown: exponential backoff
@@ -309,6 +342,7 @@ class RecoveryCoordinator:
           timeout           -> 1 immediate retry, then exponential up to max_retries
           context_exhausted -> 1 retry only (caller must modify the prompt externally)
           auth_failure      -> 0 retries (raise RecoveryExhausted immediately)
+          billing_failure   -> 0 retries (raise RecoveryExhausted immediately)
           infrastructure    -> 0 retries (raise RecoveryExhausted immediately)
           circular_fix      -> 0 retries (raise RecoveryExhausted)
 
@@ -346,6 +380,13 @@ class RecoveryCoordinator:
                 if failure_type == FailureType.auth_failure:
                     raise RecoveryExhausted(
                         f"[{role}/{label}] auth failure — re-run 'claude login': {exc}",
+                        failure_type,
+                        attempt,
+                    ) from exc
+
+                if failure_type == FailureType.billing_failure:
+                    raise RecoveryExhausted(
+                        f"[{role}/{label}] billing failure — check account credits/subscription: {exc}",
                         failure_type,
                         attempt,
                     ) from exc
