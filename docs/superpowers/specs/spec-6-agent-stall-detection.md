@@ -247,6 +247,8 @@ IMPORT: PASS
 
 #### Completion Gate
 
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
+
 ```bash
 cd F:/Tools/Projects/golem-cli
 
@@ -311,6 +313,8 @@ FUNCTIONS: PASS
   ```
 
 #### Completion Gate
+
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
 
 ```bash
 cd F:/Tools/Projects/golem-cli
@@ -380,6 +384,8 @@ TECH_LEAD_WIRED: PASS
   ```
 
 #### Completion Gate
+
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
 
 ```bash
 cd F:/Tools/Projects/golem-cli
@@ -470,6 +476,8 @@ PLANNER_WIRED: PASS
 
 #### Completion Gate
 
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
+
 ```bash
 cd F:/Tools/Projects/golem-cli
 
@@ -541,6 +549,8 @@ NO_WRITER_REF: PASS
 
 #### Completion Gate
 
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
+
 ```bash
 cd F:/Tools/Projects/golem-cli
 
@@ -593,23 +603,40 @@ JUNIOR_DEV_WIRED: PASS
 
 #### Completion Gate
 
+All checks must pass. If any fail, fix and re-run all checks before proceeding.
+
 ```bash
 cd F:/Tools/Projects/golem-cli
 
-# 1. Tests pass
+# 1. MCP servers accept registry parameter
+uv run python -c "
+import inspect
+from golem.tools import create_golem_mcp_server, create_junior_dev_mcp_server
+for fn_name, fn in [('create_golem_mcp_server', create_golem_mcp_server), ('create_junior_dev_mcp_server', create_junior_dev_mcp_server)]:
+    sig = inspect.signature(fn)
+    assert 'registry' in sig.parameters or 'tool_registry' in sig.parameters, f'FAIL: {fn_name} missing registry param'
+print('MCP_REGISTRY: PASS')
+"
+
+# 2. Tests pass
 uv run pytest tests/test_tools.py -v --tb=short 2>&1 | tail -1
 
-# 2. Full suite
+# 3. Full suite still passes
 uv run pytest --tb=short -q 2>&1 | tail -1
 ```
 
-Expected: `[N] passed` + `[N] passed`
+Expected:
+```
+MCP_REGISTRY: PASS
+[N] passed
+[N] passed
+```
 
 ---
 
 ## Phase 6 Completion Gate
 
-**Phase 6 is NOT complete until every check below passes.** If any check fails, return to the responsible task, fix the issue, and re-run this entire gate.
+**Phase 6 is NOT complete until every check below passes.** If any check fails, return to the responsible task (see verdict table), fix the issue, and re-run this ENTIRE phase gate — not just the failing check.
 
 ### Gate 1: Supervisor Module
 
@@ -635,9 +662,16 @@ print('SUPERVISOR: PASS')
 
 ```bash
 cd F:/Tools/Projects/golem-cli
+FAIL=0
 for f in src/golem/tech_lead.py src/golem/planner.py src/golem/writer.py; do
-  grep -q "supervised_session" "$f" && echo "$f: PASS" || echo "$f: FAIL"
+  if grep -q "supervised_session" "$f"; then
+    echo "$f: PASS"
+  else
+    echo "$f: FAIL"
+    FAIL=$((FAIL+1))
+  fi
 done
+test $FAIL -eq 0 && echo "ALL_WIRED: PASS" || echo "ALL_WIRED: FAIL ($FAIL files missing)"
 ```
 
 ### Gate 3: Junior Dev Rename
@@ -661,21 +695,36 @@ print('PROGRESS: PASS')
 "
 ```
 
-### Gate 5: Full Test Suite
+### Gate 5: Tool Instrumentation
+
+```bash
+cd F:/Tools/Projects/golem-cli
+uv run python -c "
+import inspect
+from golem.tools import create_golem_mcp_server, create_junior_dev_mcp_server
+for fn_name, fn in [('golem', create_golem_mcp_server), ('junior_dev', create_junior_dev_mcp_server)]:
+    sig = inspect.signature(fn)
+    assert 'registry' in sig.parameters or 'tool_registry' in sig.parameters, f'FAIL: {fn_name}'
+print('INSTRUMENTATION: PASS')
+"
+```
+
+### Gate 6: Full Test Suite
 
 ```bash
 cd F:/Tools/Projects/golem-cli
 uv run pytest -v --tb=short 2>&1 | tail -5
 ```
 
-Expected: `[N] passed, 0 failed`
+Expected: `[N] passed, 0 failed` (must be >= 314 existing + new tests)
 
 ### Phase 6 Verdict
 
 | Gate | Validates Tasks |
 |------|----------------|
-| Gate 1 | Task 1-2 (supervisor module) |
+| Gate 1 | Tasks 1-2 (supervisor module) |
 | Gate 2 | Tasks 3, 4, 6 (all agents wired) |
 | Gate 3 | Task 5 (junior dev rename) |
 | Gate 4 | Task 2 (progress events) |
-| Gate 5 | All tasks (regression) |
+| Gate 5 | Task 7 (tool instrumentation) |
+| Gate 6 | All tasks (regression) |
