@@ -2076,3 +2076,102 @@ def commit_msg(
             console.print(f"[red]git commit failed: {commit_result.stderr.strip()}[/red]")
             raise typer.Exit(1)
         console.print("[green]Committed.[/green]")
+
+
+@app.command()
+def ideate(
+    category: str = typer.Option(
+        "code_improvements",
+        "--type",
+        "-t",
+        help=(
+            "Analysis category: code_improvements, ui_ux_improvements, documentation_gaps, "
+            "security_hardening, performance_optimizations, code_quality"
+        ),
+    ),
+    all_categories: bool = typer.Option(False, "--all", help="Run all 6 analysis categories"),
+    max_ideas: int = typer.Option(10, "--max-ideas", "-n", help="Maximum ideas per category"),
+) -> None:
+    """Run AI-powered codebase ideation to surface improvement suggestions.
+
+    Analyzes the codebase with a category-specific prompt and returns
+    structured, prioritized improvement ideas.
+
+    Example: golem ideate
+    Example: golem ideate --type security_hardening
+    Example: golem ideate --all --max-ideas 5
+    """
+    from golem.ideation import ALL_CATEGORIES, IdeaCategory, run_all_ideation, run_ideation
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+
+    valid_categories: set[str] = set(ALL_CATEGORIES)
+
+    _priority_styles: dict[str, str] = {
+        "high": "[red]high[/red]",
+        "medium": "[yellow]medium[/yellow]",
+        "low": "[dim]low[/dim]",
+    }
+
+    if not all_categories:
+        if category not in valid_categories:
+            console.print(
+                f"[red]Unknown category: {category!r}. "
+                f"Valid: {', '.join(sorted(valid_categories))}[/red]"
+            )
+            raise typer.Exit(1)
+
+    async def _run() -> None:
+        if all_categories:
+            console.print(f"[bold cyan]Golem Ideate[/bold cyan] -- all 6 categories (max {max_ideas} ideas each)")
+            results = await run_all_ideation(project_root, config, max_ideas=max_ideas)
+        else:
+            typed_category: IdeaCategory = category  # type: ignore[assignment]
+            console.print(
+                f"[bold cyan]Golem Ideate[/bold cyan] -- {typed_category} "
+                f"(max {max_ideas} ideas)"
+            )
+            results = [await run_ideation(typed_category, project_root, config, max_ideas=max_ideas)]
+
+        total_ideas = 0
+        for result in results:
+            if not result.ideas:
+                console.print(f"\n[dim]{result.category}: no ideas generated.[/dim]")
+                continue
+
+            table = Table(
+                title=f"{result.category.replace('_', ' ').title()} ({len(result.ideas)} ideas, {result.duration_s:.1f}s)",
+                show_header=True,
+            )
+            table.add_column("Priority", width=8)
+            table.add_column("Effort", width=7)
+            table.add_column("File", width=28, no_wrap=True)
+            table.add_column("Title")
+
+            for idea in result.ideas:
+                styled_priority = _priority_styles.get(idea.priority, idea.priority)
+                file_display = idea.file
+                if len(file_display) > 26:
+                    file_display = "..." + file_display[-23:]
+                table.add_row(styled_priority, idea.effort, file_display, idea.title[:80])
+
+            console.print(table)
+            if result.summary:
+                console.print(f"  [dim]{result.summary}[/dim]")
+            total_ideas += len(result.ideas)
+
+        # Summary stats
+        console.print(f"\n[bold]Total ideas:[/bold] {total_ideas}")
+        if all_categories:
+            total_duration = sum(r.duration_s for r in results)
+            console.print(f"[dim]Analysis completed in {total_duration:.1f}s[/dim]")
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Ideation interrupted.[/yellow]")
+    except Exception as exc:
+        console.print(f"[red]Ideation failed: {exc}[/red]")
+        raise typer.Exit(1)
