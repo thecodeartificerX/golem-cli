@@ -252,12 +252,27 @@ All file I/O uses `encoding="utf-8"` (Windows compatibility).
 
 ---
 
+## Session Start Protocol
+
+1. Call `mcp__golem__get_session_context` to load prior discoveries and gotchas.
+2. Call `mcp__golem__get_build_progress` to check if tickets already exist from a prior attempt.
+3. As you read the codebase to understand the spec, call `mcp__golem__record_discovery`
+   for each significant module you open.
+4. If you encounter anything surprising or non-obvious, call `mcp__golem__record_gotcha`.
+
+---
+
 ## Available MCP Tools
 
 - `mcp__golem__create_ticket(type, title, assigned_to, ...)` — create a ticket
+- `mcp__golem__read_ticket(ticket_id)` — read an existing ticket
+- `mcp__golem__list_tickets(status_filter, assigned_to_filter)` — list tickets
+- `mcp__golem__get_session_context()` — load prior session discoveries and gotchas
+- `mcp__golem__get_build_progress()` — check ticket completion status
+- `mcp__golem__record_discovery(file_path, description, category)` — record a codebase discovery
+- `mcp__golem__record_gotcha(gotcha, context)` — record a pitfall for future sessions
 
-This is the only MCP tool available to the Lead Architect. All other
-operations use standard Claude Code tools (Read, Write, Glob, Grep, Bash, Agent).
+All other operations use standard Claude Code tools (Read, Write, Glob, Grep, Bash, Agent).
 
 ---
 

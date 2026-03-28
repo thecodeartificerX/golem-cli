@@ -1,15 +1,23 @@
 """MCP tool definitions and handlers for Golem orchestration.
 
 Provides SdkMcpTool instances for ticket CRUD, QA, worktree operations,
-and branch merging. Tools are injected into SDK sessions via in-process
-MCP servers (golem, golem-qa, golem-junior-dev).
+branch merging, and session memory. Tools are injected into SDK sessions via
+in-process MCP servers (golem, golem-qa, golem-junior-dev).
+
+The public API is built on ToolRegistry: call build_tool_registry() to get a
+registry, then registry.get_tools_for_agent(agent_type, context) to get the
+filtered SdkMcpTool list for a specific agent. Convenience wrappers
+(create_golem_mcp_server, create_golem_planner_mcp_server,
+create_junior_dev_mcp_server) delegate to this registry for backward compat.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import asdict
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,6 +32,7 @@ from golem.worktree import commit_task, create_worktree, merge_group_branches
 if TYPE_CHECKING:
     from golem.events import EventBus
     from golem.supervisor import ToolCallRegistry
+    from golem.tool_registry import ToolContext, ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Input schemas (JSON Schema format used by SdkMcpTool.input_schema)
@@ -131,6 +140,100 @@ _COMMIT_WORKTREE_INPUT_SCHEMA: dict[str, object] = {
     },
     "required": ["worktree_path", "task_id", "description"],
 }
+
+_GET_BUILD_PROGRESS_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "session_id": {
+            "type": "string",
+            "description": "Session ID to filter tickets. Defaults to current session.",
+        },
+    },
+}
+
+_RECORD_DISCOVERY_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "file_path": {
+            "type": "string",
+            "description": "Path to the file or module being documented (relative or absolute)",
+        },
+        "description": {
+            "type": "string",
+            "description": "What was discovered about this file or module",
+        },
+        "category": {
+            "type": "string",
+            "description": 'Category: "api", "config", "ui", "test", "general"',
+        },
+    },
+    "required": ["file_path", "description"],
+}
+
+_RECORD_GOTCHA_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "gotcha": {
+            "type": "string",
+            "description": "Description of the gotcha or pitfall",
+        },
+        "context": {
+            "type": "string",
+            "description": "When this gotcha applies (optional)",
+        },
+    },
+    "required": ["gotcha"],
+}
+
+_GET_SESSION_CONTEXT_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {},
+}
+
+# ---------------------------------------------------------------------------
+# Constants for get_session_context output limits
+# ---------------------------------------------------------------------------
+
+_MAX_DISCOVERIES = 20
+_MAX_MEMORY_CHARS = 1000  # per memory file
+
+# ---------------------------------------------------------------------------
+# Write-path containment guard
+# ---------------------------------------------------------------------------
+
+
+def _assert_within_worktree(path_arg: str, context: ToolContext) -> None:
+    """Raise ValueError if path_arg is outside context.worktree_path.
+
+    When context.worktree_path is None (tech lead), no restriction is applied.
+    """
+    if context.worktree_path is None:
+        return  # tech lead has no restriction
+    if not path_arg:
+        return
+    resolved = Path(path_arg).resolve()
+    allowed = context.worktree_path.resolve()
+    if not str(resolved).startswith(str(allowed)):
+        raise ValueError(
+            f"Write denied: {path_arg!r} is outside allowed worktree"
+            f" {str(context.worktree_path)!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Atomic JSON write helper (also used by tickets.py)
+# ---------------------------------------------------------------------------
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:  # type: ignore[type-arg]
+    """Write JSON to path atomically via tmp+rename.
+
+    Uses a sibling .tmp file in the same directory so rename stays on the same
+    filesystem/volume (required for atomic rename on Windows NTFS).
+    """
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 # ---------------------------------------------------------------------------
@@ -315,8 +418,403 @@ async def _handle_commit_worktree(args: dict[str, object]) -> dict[str, object]:
     return {"content": [{"type": "text", "text": json.dumps({"committed": committed})}]}
 
 
+async def _handle_get_build_progress(
+    store: TicketStore,
+    session_id: str,
+    args: dict[str, object],
+) -> dict[str, object]:
+    sid = str(args.get("session_id") or session_id)
+    tickets = await store.list_tickets()
+    if sid:
+        tickets = [t for t in tickets if not t.session_id or t.session_id == sid]
+
+    status_counts: dict[str, int] = {}
+    for t in tickets:
+        status_counts[t.status] = status_counts.get(t.status, 0) + 1
+
+    total = len(tickets)
+    done = status_counts.get("done", 0) + status_counts.get("approved", 0)
+    pct = int(done / total * 100) if total else 0
+
+    # Find next pending ticket
+    next_ticket = next(
+        (t for t in tickets if t.status == "pending"), None
+    )
+
+    lines = [
+        f"Build Progress: {done}/{total} tickets ({pct}%)",
+        "",
+        "Status breakdown:",
+    ]
+    for status in ("done", "approved", "in_progress", "qa_passed",
+                   "needs_work", "pending", "ready_for_review"):
+        count = status_counts.get(status, 0)
+        if count:
+            lines.append(f"  {status}: {count}")
+
+    if next_ticket:
+        lines += [
+            "",
+            "Next pending ticket:",
+            f"  ID: {next_ticket.id}",
+            f"  Title: {next_ticket.title}",
+            f"  Assigned to: {next_ticket.assigned_to}",
+        ]
+    elif total > 0:
+        lines.append("")
+        lines.append("All tickets complete.")
+
+    text = "\n".join(lines)
+    return {"content": [{"type": "text", "text": text}]}
+
+
+async def _handle_record_discovery(
+    memory_dir: Path,
+    args: dict[str, object],
+) -> dict[str, object]:
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    map_file = memory_dir / "codebase_map.json"
+
+    # Read existing or create fresh
+    codebase_map: dict[str, object] = {"discovered_files": {}, "last_updated": None}
+    if map_file.exists():
+        try:
+            raw = map_file.read_text(encoding="utf-8")
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                codebase_map = parsed
+        except (json.JSONDecodeError, OSError):
+            pass  # corrupt file: start fresh
+
+    file_path = str(args["file_path"])
+    discovered = codebase_map.setdefault("discovered_files", {})
+    if not isinstance(discovered, dict):
+        discovered = {}
+        codebase_map["discovered_files"] = discovered
+
+    discovered[file_path] = {
+        "description": str(args["description"]),
+        "category": str(args.get("category") or "general"),
+        "discovered_at": datetime.now(tz=UTC).isoformat(),
+    }
+    codebase_map["last_updated"] = datetime.now(tz=UTC).isoformat()
+
+    _write_json_atomic(map_file, codebase_map)
+    return {"content": [{"type": "text", "text": json.dumps({"ok": True, "file": file_path})}]}
+
+
+async def _handle_record_gotcha(
+    memory_dir: Path,
+    args: dict[str, object],
+) -> dict[str, object]:
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    gotchas_file = memory_dir / "gotchas.md"
+
+    now = datetime.now(tz=UTC)
+    timestamp = (
+        f"{now.year}-{now.month:02d}-{now.day:02d}"
+        f" {now.hour:02d}:{now.minute:02d}"
+    )
+    gotcha_text = str(args["gotcha"])
+    context_text = str(args.get("context") or "")
+
+    is_new = not gotchas_file.exists() or gotchas_file.stat().st_size == 0
+    header = "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n" if is_new else ""
+    entry = f"\n## [{timestamp}]\n{gotcha_text}"
+    if context_text:
+        entry += f"\n\n_Context: {context_text}_"
+    entry += "\n"
+
+    with open(gotchas_file, "a" if not is_new else "w", encoding="utf-8") as f:
+        f.write(header + entry)
+
+    return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
+
+
+async def _handle_get_session_context(
+    memory_dir: Path,
+    args: dict[str, object],  # noqa: ARG001
+) -> dict[str, object]:
+    if not memory_dir.exists():
+        return {"content": [{"type": "text", "text": "No session context available yet."}]}
+
+    parts: list[str] = []
+
+    # Codebase map — cap at _MAX_DISCOVERIES entries
+    map_file = memory_dir / "codebase_map.json"
+    if map_file.exists():
+        try:
+            raw = map_file.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            discovered: dict[str, object] = data.get("discovered_files", {})
+            if discovered:
+                parts.append("## Codebase Discoveries")
+                for fp, info in list(discovered.items())[:_MAX_DISCOVERIES]:
+                    if isinstance(info, dict):
+                        desc = info.get("description", "")
+                    else:
+                        desc = ""
+                    parts.append(f"- `{fp}`: {desc}")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Gotchas — last _MAX_MEMORY_CHARS chars
+    gotchas_file = memory_dir / "gotchas.md"
+    if gotchas_file.exists():
+        try:
+            content = gotchas_file.read_text(encoding="utf-8")
+            if content.strip():
+                parts.append("\n## Gotchas")
+                parts.append(content[-_MAX_MEMORY_CHARS:])
+        except OSError:
+            pass
+
+    # Patterns (written by other tooling, read here)
+    patterns_file = memory_dir / "patterns.md"
+    if patterns_file.exists():
+        try:
+            content = patterns_file.read_text(encoding="utf-8")
+            if content.strip():
+                parts.append("\n## Patterns")
+                parts.append(content[-_MAX_MEMORY_CHARS:])
+        except OSError:
+            pass
+
+    if not parts:
+        return {"content": [{"type": "text", "text": "No session context available yet."}]}
+
+    text = "\n".join(parts)
+    return {"content": [{"type": "text", "text": text}]}
+
+
 # ---------------------------------------------------------------------------
-# Tool builder — creates SdkMcpTool instances bound to runtime state
+# ToolRegistry factory — replaces the three create_*_mcp_server factories
+# ---------------------------------------------------------------------------
+
+
+def build_tool_registry(
+    golem_dir: Path,
+    config: GolemConfig,
+    project_root: Path,
+    registry: ToolCallRegistry | None = None,
+    event_bus: EventBus | None = None,
+) -> ToolRegistry:
+    """Build a ToolRegistry with all Golem tools registered.
+
+    Call registry.get_tools_for_agent(agent_type, context) on the result to get
+    the filtered SdkMcpTool list for a specific agent type.
+
+    If registry is provided, each tool call records itself via registry.record().
+    If event_bus is provided, key tool calls emit structured GolemEvents.
+    """
+    from golem.tool_registry import (
+        PLANNER_TOOLS,
+        TECH_LEAD_TOOLS,
+        WRITER_TOOLS,
+        AgentType,
+        RegisteredTool,
+        ToolContext,
+        ToolRegistry,
+    )
+
+    store = TicketStore(golem_dir / "tickets")
+    session_id = config.session_id
+    memory_dir = golem_dir / "sessions" / session_id / "memory" if session_id else golem_dir / "memory"
+
+    def _allowed(name: str) -> frozenset[AgentType]:
+        result: set[AgentType] = set()
+        if name in PLANNER_TOOLS:
+            result.add("planner")
+        if name in WRITER_TOOLS:
+            result.add("writer")
+        if name in TECH_LEAD_TOOLS:
+            result.add("tech_lead")
+        return frozenset(result)
+
+    def _wrap_handler(name: str, handler: object) -> object:
+        """Optionally instrument with registry.record()."""
+        if registry is None:
+            return handler
+
+        async def _instrumented(args: dict[str, object]) -> dict[str, object]:
+            registry.record(name, 0)
+            return await handler(args)  # type: ignore[misc]
+
+        return _instrumented
+
+    # --- existing tool factories ---
+
+    def _make_create_ticket(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="create_ticket",
+            description="Create a new ticket in the ticket store.",
+            input_schema=_CREATE_TICKET_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "create_ticket",
+                partial(_handle_create_ticket, store, event_bus=event_bus),
+            ),
+        )
+
+    def _make_update_ticket(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="update_ticket",
+            description="Update ticket status and append a history event.",
+            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "update_ticket",
+                partial(_handle_update_ticket, store, event_bus=event_bus),
+            ),
+        )
+
+    def _make_read_ticket(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="read_ticket",
+            description="Read a ticket by ID.",
+            input_schema=_READ_TICKET_INPUT_SCHEMA,
+            handler=_wrap_handler("read_ticket", partial(_handle_read_ticket, store)),
+        )
+
+    def _make_list_tickets(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="list_tickets",
+            description="List tickets, optionally filtered by status or assignee.",
+            input_schema=_LIST_TICKETS_INPUT_SCHEMA,
+            handler=_wrap_handler("list_tickets", partial(_handle_list_tickets, store)),
+        )
+
+    def _make_run_qa(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="run_qa",
+            description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
+            input_schema=_RUN_QA_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "run_qa",
+                partial(_handle_run_qa, event_bus=event_bus),
+            ),
+        )
+
+    def _make_create_worktree(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="create_worktree",
+            description="Create a git worktree for a group on a new branch.",
+            input_schema=_CREATE_WORKTREE_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "create_worktree",
+                partial(_handle_create_worktree, event_bus=event_bus),
+            ),
+        )
+
+    def _make_merge_branches(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="merge_branches",
+            description="Merge group branches into a target branch.",
+            input_schema=_MERGE_BRANCHES_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "merge_branches",
+                partial(_handle_merge_branches, event_bus=event_bus),
+            ),
+        )
+
+    def _make_commit_worktree(ctx: ToolContext) -> SdkMcpTool:
+        async def _guarded(args: dict[str, object]) -> dict[str, object]:
+            try:
+                _assert_within_worktree(str(args.get("worktree_path") or ""), ctx)
+            except ValueError as exc:
+                return {"content": [{"type": "text", "text": json.dumps({"error": str(exc)})}]}
+            return await _handle_commit_worktree(args)
+
+        return SdkMcpTool(
+            name="commit_worktree",
+            description="Stage and commit all changes in an assigned worktree.",
+            input_schema=_COMMIT_WORKTREE_INPUT_SCHEMA,
+            handler=_wrap_handler("commit_worktree", _guarded),
+        )
+
+    # --- new tools ---
+
+    def _make_get_build_progress(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="get_build_progress",
+            description=(
+                "Get current build progress: ticket counts by status, percentage done, "
+                "and next pending ticket. Call at session start for orientation."
+            ),
+            input_schema=_GET_BUILD_PROGRESS_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "get_build_progress",
+                partial(_handle_get_build_progress, store, session_id),
+            ),
+        )
+
+    def _make_record_discovery(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="record_discovery",
+            description=(
+                "Record a codebase discovery to session memory. "
+                "Use when you learn something important about the codebase structure."
+            ),
+            input_schema=_RECORD_DISCOVERY_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "record_discovery",
+                partial(_handle_record_discovery, memory_dir),
+            ),
+        )
+
+    def _make_record_gotcha(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="record_gotcha",
+            description=(
+                "Record a gotcha or pitfall. "
+                "Use when you encounter something future sessions should know to avoid repeating mistakes."
+            ),
+            input_schema=_RECORD_GOTCHA_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "record_gotcha",
+                partial(_handle_record_gotcha, memory_dir),
+            ),
+        )
+
+    def _make_get_session_context(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="get_session_context",
+            description=(
+                "Get context from previous sessions: codebase discoveries, gotchas, and patterns. "
+                "Call at session start to pick up where the last session left off."
+            ),
+            input_schema=_GET_SESSION_CONTEXT_INPUT_SCHEMA,
+            handler=_wrap_handler(
+                "get_session_context",
+                partial(_handle_get_session_context, memory_dir),
+            ),
+        )
+
+    # --- register all tools ---
+    tool_reg = ToolRegistry()
+    for name, factory in [
+        ("create_ticket", _make_create_ticket),
+        ("update_ticket", _make_update_ticket),
+        ("read_ticket", _make_read_ticket),
+        ("list_tickets", _make_list_tickets),
+        ("run_qa", _make_run_qa),
+        ("create_worktree", _make_create_worktree),
+        ("merge_branches", _make_merge_branches),
+        ("commit_worktree", _make_commit_worktree),
+        ("get_build_progress", _make_get_build_progress),
+        ("record_discovery", _make_record_discovery),
+        ("record_gotcha", _make_record_gotcha),
+        ("get_session_context", _make_get_session_context),
+    ]:
+        tool_reg.register(RegisteredTool(
+            name=name,
+            allowed_for=_allowed(name),
+            factory=factory,
+        ))
+
+    return tool_reg
+
+
+# ---------------------------------------------------------------------------
+# Legacy tool builder — kept for handle_tool_call() backward compat
 # ---------------------------------------------------------------------------
 
 
@@ -419,12 +917,37 @@ def create_golem_mcp_server(
     registry: ToolCallRegistry | None = None,
     event_bus: EventBus | None = None,
 ) -> McpSdkServerConfig:
-    """Create an in-process MCP server with all Golem orchestration tools.
+    """Create an in-process MCP server with all Golem orchestration tools (Tech Lead).
 
+    Uses build_tool_registry() internally — tech_lead agent type gets all 12 tools.
     If registry is provided, each tool call is recorded via registry.record().
     If event_bus is provided, key tool calls emit structured GolemEvents.
     """
-    tools = _build_tools(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
+    from golem.tool_registry import ToolContext
+
+    reg = build_tool_registry(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
+    ctx = ToolContext(golem_dir=golem_dir, project_root=project_root, agent_type="tech_lead")
+    tools = reg.get_tools_for_agent("tech_lead", ctx)
+    return create_sdk_mcp_server("golem", tools=tools)
+
+
+def create_golem_planner_mcp_server(
+    golem_dir: Path,
+    config: GolemConfig,
+    project_root: Path,
+    event_bus: EventBus | None = None,
+) -> McpSdkServerConfig:
+    """Create an in-process MCP server for Planner — read-only + create_ticket + memory tools.
+
+    Planner gets: read_ticket, list_tickets, create_ticket, get_session_context,
+    record_discovery, record_gotcha, get_build_progress.
+    Explicitly excluded: create_worktree, merge_branches, commit_worktree, run_qa, update_ticket.
+    """
+    from golem.tool_registry import ToolContext
+
+    reg = build_tool_registry(golem_dir, config, project_root, event_bus=event_bus)
+    ctx = ToolContext(golem_dir=golem_dir, project_root=project_root, agent_type="planner")
+    tools = reg.get_tools_for_agent("planner", ctx)
     return create_sdk_mcp_server("golem", tools=tools)
 
 
@@ -456,49 +979,35 @@ def create_junior_dev_mcp_server(
     golem_dir: Path,
     registry: ToolCallRegistry | None = None,
     event_bus: EventBus | None = None,
+    worktree_path: Path | None = None,
+    config: GolemConfig | None = None,
+    project_root: Path | None = None,
 ) -> McpSdkServerConfig:
-    """Create an MCP server for Junior Devs with run_qa + update_ticket + read_ticket tools.
+    """Create an MCP server for Junior Devs (writer agent).
+
+    Writer gets: run_qa, update_ticket, read_ticket, record_discovery,
+    record_gotcha, get_session_context, commit_worktree (path-contained),
+    get_build_progress.
+
+    Pass worktree_path to enable write-path containment for commit_worktree.
+    Pass config and project_root to correctly scope the memory directory.
 
     If registry is provided, each tool call is recorded via registry.record().
     If event_bus is provided, key tool calls emit structured GolemEvents.
     """
-    store = TicketStore(golem_dir / "tickets")
+    from golem.config import GolemConfig as _GC
+    from golem.tool_registry import ToolContext
 
-    async def _instrumented_run_qa(args: dict[str, object]) -> dict[str, object]:
-        if registry is not None:
-            registry.record("run_qa", 0)
-        return await _handle_run_qa(args, event_bus=event_bus)
-
-    async def _instrumented_update_ticket(args: dict[str, object]) -> dict[str, object]:
-        if registry is not None:
-            registry.record("update_ticket", 0)
-        return await _handle_update_ticket(store, args, event_bus=event_bus)
-
-    async def _instrumented_read_ticket(args: dict[str, object]) -> dict[str, object]:
-        if registry is not None:
-            registry.record("read_ticket", 0)
-        return await _handle_read_ticket(store, args)
-
-    tools = [
-        SdkMcpTool(
-            name="run_qa",
-            description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
-            input_schema=_RUN_QA_INPUT_SCHEMA,
-            handler=_instrumented_run_qa,
-        ),
-        SdkMcpTool(
-            name="update_ticket",
-            description="Update a ticket's status and append a history event.",
-            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
-            handler=_instrumented_update_ticket,
-        ),
-        SdkMcpTool(
-            name="read_ticket",
-            description="Read a ticket by ID. Used to poll for Tech Lead review status.",
-            input_schema=_READ_TICKET_INPUT_SCHEMA,
-            handler=_instrumented_read_ticket,
-        ),
-    ]
+    cfg = config or _GC()
+    root = project_root or golem_dir.parent
+    reg = build_tool_registry(golem_dir, cfg, root, registry=registry, event_bus=event_bus)
+    ctx = ToolContext(
+        golem_dir=golem_dir,
+        project_root=root,
+        worktree_path=worktree_path,
+        agent_type="writer",
+    )
+    tools = reg.get_tools_for_agent("writer", ctx)
     return create_sdk_mcp_server("golem-junior-dev", tools=tools)
 
 
