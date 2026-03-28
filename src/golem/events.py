@@ -204,6 +204,30 @@ class MergeComplete(GolemEvent):
     target_branch: str = ""
 
 
+# -- Session continuation events --
+
+
+@dataclass
+class ContextExhausted(GolemEvent):
+    """Emitted when a session hits context window limits and will be continued."""
+
+    role: str = ""
+    turn: int = 0
+    continuation_number: int = 0   # 0 = first exhaustion, 1 = second, etc.
+    session_id_segment: str = ""   # SDK session_id of the exhausted segment
+
+
+@dataclass
+class SessionContinued(GolemEvent):
+    """Emitted when a fresh session starts after context compaction."""
+
+    role: str = ""
+    continuation_number: int = 0   # 1 = first continuation
+    summary_chars: int = 0         # Length of the injected summary
+    cumulative_cost_usd: float = 0.0
+    cumulative_turns: int = 0
+
+
 # -- Session lifecycle events --
 
 
@@ -235,13 +259,14 @@ EVENT_TYPES: dict[str, type[GolemEvent]] = {}
 
 
 def _register_events() -> None:
-    """Populate EVENT_TYPES from all GolemEvent subclasses (23 event types)."""
+    """Populate EVENT_TYPES from all GolemEvent subclasses (25 event types)."""
     for klass in [
         AgentSpawned, AgentText, AgentToolCall, AgentToolResult,
         AgentTurnComplete, AgentComplete, AgentStallWarning, AgentStallKill,
         AgentErrorClassified, AgentRecoveryStarted,
         SubAgentSpawned, SubAgentComplete, SkillInvoked, PlanModeEntered, TaskProgress,
         TicketCreated, TicketUpdated, QAResult, WorktreeCreated, MergeComplete,
+        ContextExhausted, SessionContinued,
         SessionStart, SessionComplete, ConflictDetected,
     ]:
         name = klass.__name__

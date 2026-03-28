@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
-from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
+from golem.supervisor import ContinuationResult, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
@@ -182,14 +182,14 @@ async def run_tech_lead(
         print(f"[TECH LEAD] tool: {name}(...)", file=sys.stderr)
 
     progress = ProgressLogger(golem_dir)
-    session_result: SupervisedResult | None = None
+    session_result: ContinuationResult | None = None
 
     from golem.recovery import RecoveryCoordinator, RecoveryExhausted
 
     coordinator = RecoveryCoordinator(config)
     try:
         session_result = await coordinator.run_with_recovery(
-            session_fn=lambda: supervised_session(
+            session_fn=lambda: continuation_supervised_session(
                 prompt=original_prompt,
                 options=options,
                 role="tech_lead",
@@ -220,7 +220,7 @@ async def run_tech_lead(
             "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
         try:
-            retry_result = await supervised_session(
+            retry_result = await continuation_supervised_session(
                 prompt=escalated,
                 options=options,
                 role="tech_lead",
@@ -253,7 +253,7 @@ async def run_tech_lead(
             "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
         try:
-            retry_result = await supervised_session(
+            retry_result = await continuation_supervised_session(
                 prompt=escalated,
                 options=options,
                 role="tech_lead",

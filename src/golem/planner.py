@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
-from golem.supervisor import SupervisedResult, build_escalated_prompt, stall_config_for_role, supervised_session
+from golem.supervisor import ContinuationResult, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import TicketStore
 from golem.tools import create_golem_planner_mcp_server
 
@@ -59,7 +59,7 @@ async def _run_planner_session(
     is_retry: bool = False,
     event_bus: EventBus | None = None,
     server_url: str = "",
-) -> SupervisedResult:
+) -> ContinuationResult:
     """Run a single planner supervised session."""
     # SSE MCP disabled for now — Claude CLI doesn't reliably connect to
     # SSE servers from --mcp-config inline JSON.  Keeping in-process MCP
@@ -91,7 +91,7 @@ async def _run_planner_session(
     def on_tool(name: str) -> None:
         print(f"[LEAD ARCHITECT] tool: {name}(...)", file=sys.stderr)
 
-    return await supervised_session(
+    return await continuation_supervised_session(
         prompt=prompt,
         options=options,
         role="planner",
@@ -151,7 +151,7 @@ async def run_planner(
     original_prompt = original_prompt.replace("{infrastructure_checks}", infra_checks_str)
 
     progress = ProgressLogger(golem_dir)
-    session_result: SupervisedResult | None = None
+    session_result: ContinuationResult | None = None
 
     from golem.recovery import RecoveryCoordinator, RecoveryExhausted
 

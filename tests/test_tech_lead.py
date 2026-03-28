@@ -120,9 +120,9 @@ def test_cleanup_golem_worktrees_removes_worktree() -> None:
 
 @pytest.mark.asyncio
 async def test_tech_lead_stall_triggers_retry() -> None:
-    """First supervised_session stall triggers retry with escalated prompt."""
+    """First continuation_supervised_session stall triggers retry with escalated prompt."""
     from golem.config import GolemConfig
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
     from golem.tech_lead import run_tech_lead
     from golem.tickets import Ticket, TicketContext, TicketStore
 
@@ -140,18 +140,18 @@ async def test_tech_lead_stall_triggers_retry() -> None:
             )
         )
 
-        stalled = SupervisedResult(
+        stalled = ContinuationResult(
             result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
             turns=10, duration_s=0.1, stalled=True, stall_turn=10,
-            registry=ToolCallRegistry(),
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
         )
-        ok = SupervisedResult(
+        ok = ContinuationResult(
             result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
             turns=5, duration_s=0.1, stalled=False, stall_turn=None,
-            registry=ToolCallRegistry(),
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
         )
 
-        with patch("golem.tech_lead.supervised_session", AsyncMock(side_effect=[stalled, ok])), \
+        with patch("golem.tech_lead.continuation_supervised_session", AsyncMock(side_effect=[stalled, ok])), \
              patch("golem.tech_lead._check_integration_commits", return_value=True), \
              patch("golem.tech_lead._ensure_merged_to_main"):
             result = await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
@@ -163,7 +163,7 @@ async def test_tech_lead_stall_triggers_retry() -> None:
 async def test_tech_lead_double_stall_fatal() -> None:
     """Two consecutive stalls raise RuntimeError."""
     from golem.config import GolemConfig
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
     from golem.tech_lead import run_tech_lead
     from golem.tickets import Ticket, TicketContext, TicketStore
 
@@ -181,13 +181,13 @@ async def test_tech_lead_double_stall_fatal() -> None:
             )
         )
 
-        stalled = SupervisedResult(
+        stalled = ContinuationResult(
             result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
             turns=10, duration_s=0.1, stalled=True, stall_turn=10,
-            registry=ToolCallRegistry(),
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
         )
 
-        with patch("golem.tech_lead.supervised_session", AsyncMock(return_value=stalled)), \
+        with patch("golem.tech_lead.continuation_supervised_session", AsyncMock(return_value=stalled)), \
              patch("golem.tech_lead._cleanup_golem_worktrees"), \
              patch("golem.tech_lead._ensure_merged_to_main"):
             with pytest.raises(RuntimeError, match="stall"):
@@ -198,7 +198,7 @@ async def test_tech_lead_double_stall_fatal() -> None:
 async def test_tech_lead_no_commits_triggers_retry() -> None:
     """No integration commits triggers a retry with escalated prompt."""
     from golem.config import GolemConfig
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
     from golem.tech_lead import run_tech_lead
     from golem.tickets import Ticket, TicketContext, TicketStore
 
@@ -216,14 +216,14 @@ async def test_tech_lead_no_commits_triggers_retry() -> None:
             )
         )
 
-        ok = SupervisedResult(
+        ok = ContinuationResult(
             result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
             turns=5, duration_s=0.1, stalled=False, stall_turn=None,
-            registry=ToolCallRegistry(),
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
         )
         mock_session = AsyncMock(return_value=ok)
 
-        with patch("golem.tech_lead.supervised_session", mock_session), \
+        with patch("golem.tech_lead.continuation_supervised_session", mock_session), \
              patch("golem.tech_lead._check_integration_commits", return_value=False), \
              patch("golem.tech_lead._ensure_merged_to_main"):
             await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))

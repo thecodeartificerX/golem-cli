@@ -55,6 +55,13 @@ class GolemConfig:
     # Always-on deterministic checks (lint, syntax). Populated at runtime by auto-detection,
     # not persisted to config.json. Agents cannot skip these.
     infrastructure_checks: list[str] = field(default_factory=list)
+    # Session continuation (context exhaustion recovery)
+    continuation_enabled: bool = True
+    max_continuations: int = 5
+    continuation_model: str = "claude-haiku-4-5-20251001"   # Cheap summarizer
+    continuation_summary_max_chars: int = 30_000             # Input truncation
+    continuation_summary_target_words: int = 800
+    continuation_raw_truncation_chars: int = 3_000           # Fallback
     # Conductor
     conductor_enabled: bool = True
     skip_tech_lead: bool = False
@@ -115,6 +122,12 @@ class GolemConfig:
             warnings.append(f"circular_fix_threshold should be >= 2, got {self.circular_fix_threshold}")
         if self.max_worker_turns < 1:
             warnings.append(f"max_worker_turns must be >= 1, got {self.max_worker_turns}")
+        if self.max_continuations < 0:
+            warnings.append(f"max_continuations must be >= 0, got {self.max_continuations}")
+        if self.continuation_model and not any(
+            self.continuation_model.startswith(p) for p in _KNOWN_MODEL_PREFIXES
+        ):
+            warnings.append(f"Unknown model for continuation_model: {self.continuation_model!r}")
         valid_sources = {"project", "user"}
         for src in self.setting_sources:
             if src not in valid_sources:

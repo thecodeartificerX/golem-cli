@@ -143,20 +143,20 @@ async def _run_planner_helper(
 
 
 def _make_ok_result() -> object:
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
-    return SupervisedResult(
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
+    return ContinuationResult(
         result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
         turns=5, duration_s=0.1, stalled=False, stall_turn=None,
-        registry=ToolCallRegistry(),
+        registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
     )
 
 
 def _make_stalled_result() -> object:
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
-    return SupervisedResult(
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
+    return ContinuationResult(
         result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
         turns=10, duration_s=0.1, stalled=True, stall_turn=10,
-        registry=ToolCallRegistry(),
+        registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
     )
 
 
@@ -196,7 +196,7 @@ async def test_planner_stall_triggers_retry() -> None:
 
         mock_session = AsyncMock(side_effect=[_make_stalled_result(), _make_ok_result()])
 
-        with patch("golem.planner.supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert mock_session.call_count == 2
@@ -220,7 +220,7 @@ async def test_planner_empty_overview_triggers_retry() -> None:
 
         mock_session = AsyncMock(return_value=_make_ok_result())
 
-        with patch("golem.planner.supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         # Initial session + verification retry = 2 calls
@@ -246,7 +246,7 @@ async def test_planner_no_task_files_triggers_retry() -> None:
 
         mock_session = AsyncMock(return_value=_make_ok_result())
 
-        with patch("golem.planner.supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         # Initial session + verification retry = 2 calls
@@ -266,7 +266,7 @@ async def test_planner_fallback_ticket_logs_warning() -> None:
         _write_good_plans(golem_dir)
         # No ticket in store — planner should create fallback ticket
 
-        with patch("golem.planner.supervised_session", AsyncMock(return_value=_make_ok_result())):
+        with patch("golem.planner.continuation_supervised_session", AsyncMock(return_value=_make_ok_result())):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert result.startswith("TICKET-")

@@ -169,6 +169,54 @@ class SupervisedResult:
     stalled: bool
     stall_turn: int | None
     registry: ToolCallRegistry
+    stop_reason: str | None = None   # from ResultMessage
+    sdk_session_id: str = ""         # from ResultMessage.session_id
+
+
+@dataclass
+class ContinuationResult:
+    """Merged result from one or more supervised session segments."""
+
+    result_text: str
+    cost_usd: float           # Cumulative across all segments
+    input_tokens: int         # Cumulative
+    output_tokens: int        # Cumulative
+    turns: int                # Cumulative
+    duration_s: float         # Cumulative
+    stalled: bool             # True if final segment stalled
+    stall_turn: int | None    # From final segment
+    registry: ToolCallRegistry  # From final segment only
+    continuation_count: int   # 0 = no continuation, N = N continuations used
+    exhausted: bool           # True if hit max_continuations cap
+
+
+# Context exhaustion detection constants
+CONTEXT_EXHAUSTION_REASONS: frozenset[str] = frozenset({
+    "max_tokens",
+    "context_length",
+    "length",
+})
+
+CONTEXT_EXHAUSTION_KEYWORDS: tuple[str, ...] = (
+    "context window",
+    "maximum context",
+    "too long",
+    "token limit",
+    "context length",
+)
+
+
+def _is_context_exhausted(result: SupervisedResult) -> bool:
+    """Return True if the session ended due to context window exhaustion."""
+    # Primary: check stop_reason captured from ResultMessage
+    if result.stop_reason is not None and result.stop_reason in CONTEXT_EXHAUSTION_REASONS:
+        return True
+    # Fallback: check result_text for exhaustion keywords
+    if result.result_text:
+        text_lower = result.result_text.lower()
+        if any(kw in text_lower for kw in CONTEXT_EXHAUSTION_KEYWORDS):
+            return True
+    return False
 
 
 def _build_stall_warning(
@@ -248,6 +296,8 @@ async def supervised_session(
         ))
 
     kill_hit = False
+    stop_reason: str | None = None
+    sdk_session_id: str = ""
 
     # Single-pass query — never break out of the async generator to avoid
     # anyio cancel-scope cross-task RuntimeError on cleanup.  Stall flags
@@ -337,6 +387,8 @@ async def supervised_session(
             usage = message.usage or {}
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            stop_reason = message.stop_reason
+            sdk_session_id = message.session_id or ""
             if message.result:
                 result_text = message.result
                 if on_text:
@@ -363,4 +415,328 @@ async def supervised_session(
         stalled=stalled,
         stall_turn=stall_turn,
         registry=registry,
+        stop_reason=stop_reason,
+        sdk_session_id=sdk_session_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Session transcript compaction helpers
+# ---------------------------------------------------------------------------
+
+
+def _serialize_session_messages(messages: list) -> str:
+    """Serialize SDK SessionMessage list to readable text blocks."""
+    parts: list[str] = []
+    for msg in messages:
+        role = getattr(msg, "type", "unknown").upper()
+        # msg.message is a raw Anthropic API dict: {"role": "...", "content": [...]}
+        raw = getattr(msg, "message", {})
+        if isinstance(raw, dict):
+            content = raw.get("content", "")
+            if isinstance(content, list):
+                # Extract text from content blocks
+                texts: list[str] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            texts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_use":
+                            texts.append(f"[TOOL: {block.get('name', '')}({block.get('input', {})})]")
+                        elif block.get("type") == "tool_result":
+                            texts.append(f"[TOOL RESULT: {str(block.get('content', ''))[:200]}]")
+                content = "\n".join(texts)
+            parts.append(f"[{role}]\n{content}")
+        else:
+            parts.append(f"[{role}]\n{raw}")
+    return "\n\n---\n\n".join(parts)
+
+
+def _raw_truncation(messages: list, max_chars: int) -> str:
+    """Fallback: serialize last 5 messages and truncate from the end."""
+    last_five = messages[-5:] if len(messages) > 5 else messages
+    text = _serialize_session_messages(last_five)
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:] + "\n\n[... truncated ...]"
+
+
+def _build_minimal_fallback(original_prompt: str) -> str:
+    """Return a minimal context string when no transcript is available."""
+    preview = original_prompt[:500].replace("\n", " ")
+    return (
+        f"No transcript available for the previous session segment.\n"
+        f"Original task: {preview}\n\n"
+        f"Please continue working on the original task from the beginning."
+    )
+
+
+async def _run_summarizer(serialized: str, original_prompt: str, config: GolemConfig) -> str:
+    """Call cheap model to summarize the session transcript."""
+    from claude_agent_sdk import AssistantMessage as _AssistantMessage
+    from claude_agent_sdk import ClaudeAgentOptions as _ClaudeAgentOptions
+    from claude_agent_sdk import ResultMessage as _ResultMessage
+    from claude_agent_sdk import TextBlock as _TextBlock
+    from claude_agent_sdk import query as _query
+
+    from golem.config import sdk_env
+
+    system = (
+        "You are a concise technical summarizer. Given a conversation between "
+        "an AI agent and its tools, extract the key information needed to continue "
+        "the work. Focus on: what has been accomplished, what files were modified, "
+        "what remains to be done, and any critical decisions or findings. "
+        "Use bullet points. Be thorough but concise."
+    )
+
+    target_words = config.continuation_summary_target_words
+    user_prompt = (
+        f"Summarize this AI agent conversation in approximately {target_words} words.\n\n"
+        f"The agent was working on this task:\n{original_prompt[:300]}\n\n"
+        f"Focus on:\n"
+        f"- What tasks/subtasks have been completed\n"
+        f"- What files were created, modified, or read\n"
+        f"- Key decisions made and their rationale\n"
+        f"- What work remains to be done\n"
+        f"- Any errors encountered and how they were resolved\n\n"
+        f"## Conversation:\n{serialized}\n\n## Summary:"
+    )
+
+    summarizer_options = _ClaudeAgentOptions(
+        model=config.continuation_model,
+        max_turns=3,
+        permission_mode="bypassPermissions",
+        env=sdk_env(),
+    )
+
+    result_text = ""
+    async for message in _query(prompt=user_prompt, options=summarizer_options):
+        if isinstance(message, _AssistantMessage):
+            for block in message.content:
+                if isinstance(block, _TextBlock):
+                    result_text += block.text
+        elif isinstance(message, _ResultMessage):
+            if message.result:
+                result_text = message.result  # Use structured result if available
+    return result_text
+
+
+async def compact_session_messages(
+    sdk_session_id: str,
+    original_prompt: str,
+    config: GolemConfig,
+) -> str:
+    """Summarize a session's transcript using a cheap model.
+
+    Fetches the transcript via get_session_messages(), serializes it, and
+    calls Haiku to produce a concise summary. Falls back to raw truncation
+    of the last 5 messages if summarization fails or returns empty.
+
+    Args:
+        sdk_session_id: The SDK session_id from ResultMessage.session_id.
+        original_prompt: The original session prompt — prepended to context
+            so the summarizer understands what task was being performed.
+        config: GolemConfig for continuation settings and model choice.
+
+    Returns:
+        Summary string to inject as the continuation opening message.
+    """
+    from claude_agent_sdk import get_session_messages
+
+    # Fetch transcript — returns [] if session_id not found
+    messages: list = []
+    try:
+        messages = get_session_messages(sdk_session_id)
+    except Exception:
+        pass  # Will fall through to raw truncation
+
+    if not messages:
+        # No transcript available — use a minimal fallback
+        return _build_minimal_fallback(original_prompt)
+
+    # Serialize messages to text
+    serialized = _serialize_session_messages(messages)
+
+    # Truncate input to avoid overwhelming the summarizer
+    max_chars = config.continuation_summary_max_chars
+    if len(serialized) > max_chars:
+        serialized = serialized[:max_chars] + "\n\n[... transcript truncated ...]"
+
+    # Attempt summarization with Haiku
+    try:
+        summary = await _run_summarizer(serialized, original_prompt, config)
+        if summary.strip():
+            return summary.strip()
+    except Exception:
+        pass
+
+    # Fallback: last 5 messages raw-truncated
+    return _raw_truncation(messages, config.continuation_raw_truncation_chars)
+
+
+def _build_continuation_prompt(summary: str, continuation_number: int, original_prompt: str) -> str:
+    """Build the opening message for a continuation session."""
+    return (
+        f"## Session Continuation ({continuation_number})\n\n"
+        f"You are continuing a previous session that ran out of context window space.\n"
+        f"Here is a summary of your prior work:\n\n"
+        f"{summary}\n\n"
+        f"## Original Task\n\n"
+        f"{original_prompt[:500]}\n\n"
+        f"Continue where you left off. Do NOT repeat completed work. "
+        f"Focus on what remains to be done."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Continuation wrapper
+# ---------------------------------------------------------------------------
+
+
+async def continuation_supervised_session(
+    prompt: str,
+    options: ClaudeAgentOptions,
+    role: str,
+    config: GolemConfig,
+    stall_config: StallConfig,
+    on_text: Callable[[str], None] | None = None,
+    on_tool: Callable[[str], None] | None = None,
+    golem_dir: Path | None = None,
+    event_bus: EventBus | None = None,
+) -> ContinuationResult:
+    """Run supervised_session() with context exhaustion continuation.
+
+    Wraps supervised_session() in a loop that detects context exhaustion
+    (stop_reason == "max_tokens" etc.), compacts the session transcript via
+    a cheap model, and restarts with the summary injected as the opening
+    message.
+
+    Continuation is disabled when config.continuation_enabled is False,
+    in which case this is a thin pass-through to supervised_session().
+
+    Metrics (cost, tokens, turns, duration) are accumulated across all
+    segments and returned in a single ContinuationResult.
+
+    At most config.max_continuations continuation sessions are spawned
+    after the initial one (i.e., max config.max_continuations + 1 total
+    sessions). If the limit is hit, the result is treated as complete.
+    """
+    if not config.continuation_enabled:
+        # Fast path — no continuation, direct delegation
+        result = await supervised_session(
+            prompt=prompt, options=options, role=role, config=config,
+            stall_config=stall_config, on_text=on_text, on_tool=on_tool,
+            golem_dir=golem_dir, event_bus=event_bus,
+        )
+        return ContinuationResult(
+            result_text=result.result_text,
+            cost_usd=result.cost_usd,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            turns=result.turns,
+            duration_s=result.duration_s,
+            stalled=result.stalled,
+            stall_turn=result.stall_turn,
+            registry=result.registry,
+            continuation_count=0,
+            exhausted=False,
+        )
+
+    max_continuations = config.max_continuations
+    current_prompt = prompt
+    continuation_count = 0
+    total_cost: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_turns: int = 0
+    total_duration_s: float = 0.0
+
+    for i in range(max_continuations + 1):  # +1 for the initial session
+        result = await supervised_session(
+            prompt=current_prompt,
+            options=options,
+            role=role,
+            config=config,
+            stall_config=stall_config,
+            on_text=on_text,
+            on_tool=on_tool,
+            golem_dir=golem_dir,
+            event_bus=event_bus,
+        )
+
+        # Accumulate metrics from this segment
+        total_cost += result.cost_usd
+        total_input_tokens += result.input_tokens
+        total_output_tokens += result.output_tokens
+        total_turns += result.turns
+        total_duration_s += result.duration_s
+
+        # Check if context exhausted
+        exhausted = _is_context_exhausted(result)
+
+        if not exhausted:
+            # Normal completion (or stall) — return merged result
+            return ContinuationResult(
+                result_text=result.result_text,
+                cost_usd=total_cost,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                turns=total_turns,
+                duration_s=total_duration_s,
+                stalled=result.stalled,
+                stall_turn=result.stall_turn,
+                registry=result.registry,
+                continuation_count=continuation_count,
+                exhausted=False,
+            )
+
+        # Emit ContextExhausted event
+        if event_bus:
+            from golem.events import ContextExhausted as _ContextExhausted
+            await event_bus.emit(_ContextExhausted(
+                role=role,
+                turn=total_turns,
+                continuation_number=continuation_count,
+                session_id_segment=result.sdk_session_id,
+            ))
+
+        # Check continuation cap
+        if i >= max_continuations:
+            # Hit the cap — treat as completed, not an error
+            return ContinuationResult(
+                result_text=result.result_text,
+                cost_usd=total_cost,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                turns=total_turns,
+                duration_s=total_duration_s,
+                stalled=result.stalled,
+                stall_turn=result.stall_turn,
+                registry=result.registry,
+                continuation_count=continuation_count,
+                exhausted=True,  # Caller can log this but should not fail
+            )
+
+        # Compact and build the continuation prompt
+        continuation_count += 1
+        summary = await compact_session_messages(
+            sdk_session_id=result.sdk_session_id,
+            original_prompt=prompt,       # Always the ORIGINAL prompt for context
+            config=config,
+        )
+
+        current_prompt = _build_continuation_prompt(summary, continuation_count, prompt)
+
+        # Emit SessionContinued event
+        if event_bus:
+            from golem.events import SessionContinued as _SessionContinued
+            await event_bus.emit(_SessionContinued(
+                role=role,
+                continuation_number=continuation_count,
+                summary_chars=len(summary),
+                cumulative_cost_usd=total_cost,
+                cumulative_turns=total_turns,
+            ))
+
+    # Should not be reached — loop handles all exits
+    raise RuntimeError(f"continuation_supervised_session: loop exited unexpectedly for role={role}")

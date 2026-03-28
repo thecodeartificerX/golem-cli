@@ -281,20 +281,20 @@ def test_spawn_writer_pair_backward_compat_alias() -> None:
 
 
 def _ok_result() -> object:
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
-    return SupervisedResult(
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
+    return ContinuationResult(
         result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
         turns=5, duration_s=0.1, stalled=False, stall_turn=None,
-        registry=ToolCallRegistry(),
+        registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
     )
 
 
 def _stalled_result() -> object:
-    from golem.supervisor import SupervisedResult, ToolCallRegistry
-    return SupervisedResult(
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
+    return ContinuationResult(
         result_text="", cost_usd=0.0, input_tokens=0, output_tokens=0,
         turns=10, duration_s=0.1, stalled=True, stall_turn=10,
-        registry=ToolCallRegistry(),
+        registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
     )
 
 
@@ -309,7 +309,7 @@ async def test_junior_dev_stall_triggers_retry() -> None:
 
         mock_session = AsyncMock(side_effect=[_stalled_result(), _ok_result()])
 
-        with patch("golem.writer.supervised_session", mock_session), \
+        with patch("golem.writer.continuation_supervised_session", mock_session), \
              patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
             await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
@@ -331,7 +331,7 @@ async def test_junior_dev_no_diff_triggers_retry() -> None:
         import subprocess as sp
         fake_diff = sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
-        with patch("golem.writer.supervised_session", mock_session), \
+        with patch("golem.writer.continuation_supervised_session", mock_session), \
              patch("subprocess.run", return_value=fake_diff):
             await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
@@ -350,7 +350,7 @@ async def test_junior_dev_double_stall_fatal() -> None:
 
         mock_session = AsyncMock(return_value=_stalled_result())
 
-        with patch("golem.writer.supervised_session", mock_session), \
+        with patch("golem.writer.continuation_supervised_session", mock_session), \
              patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
             with pytest.raises(RuntimeError, match="stall"):
                 await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
