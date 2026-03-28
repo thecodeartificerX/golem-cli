@@ -32,6 +32,83 @@ app = typer.Typer(
 )
 console = Console()
 
+server_app = typer.Typer(name="server", help="Manage the Golem server.")
+app.add_typer(server_app, name="server")
+
+
+@server_app.command()
+def start(
+    port: int = typer.Option(9664, "--port", help="Server port"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Server host"),
+) -> None:
+    """Start the Golem server as a background process."""
+    import subprocess as sp
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    golem_dir.mkdir(parents=True, exist_ok=True)
+    server_json = golem_dir / "server.json"
+
+    if server_json.exists():
+        info = json.loads(server_json.read_text(encoding="utf-8"))
+        console.print(f"Server already running (PID {info.get('pid')}, port {info.get('port')})")
+        return
+
+    proc = sp.Popen(
+        ["uv", "run", "python", "-m", "uvicorn", "golem.server:create_app",
+         "--factory", "--host", host, "--port", str(port)],
+        cwd=str(project_root),
+    )
+
+    server_json.write_text(json.dumps({
+        "pid": proc.pid,
+        "port": port,
+        "host": host,
+    }, indent=2), encoding="utf-8")
+    console.print(f"Server started (PID {proc.pid}, port {port})")
+
+
+@server_app.command()
+def stop() -> None:
+    """Stop the running Golem server."""
+    import signal
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    server_json = golem_dir / "server.json"
+
+    if not server_json.exists():
+        console.print("No server running.")
+        return
+
+    info = json.loads(server_json.read_text(encoding="utf-8"))
+    pid = info.get("pid")
+
+    import os
+    try:
+        os.kill(pid, signal.SIGTERM)
+        console.print(f"Server stopped (PID {pid})")
+    except (ProcessLookupError, OSError):
+        console.print(f"Server process {pid} not found (already stopped?)")
+
+    server_json.unlink(missing_ok=True)
+
+
+@server_app.command(name="status")
+def server_status() -> None:
+    """Show server status."""
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    server_json = golem_dir / "server.json"
+
+    if not server_json.exists():
+        console.print("No server running.")
+        return
+
+    info = json.loads(server_json.read_text(encoding="utf-8"))
+    console.print(f"Server running: PID={info.get('pid')}, port={info.get('port')}, host={info.get('host')}")
+
+
 _GOLEM_DIR_NAME = ".golem"
 
 
@@ -108,6 +185,9 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run planner only, skip Tech Lead execution"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug output"),
     no_classify: bool = typer.Option(False, "--no-classify", help="Skip complexity classification, run STANDARD pipeline"),
+    session_id: str = typer.Option("", "--session-id", help="Session ID for multi-spec execution"),
+    golem_dir_override: str = typer.Option("", "--golem-dir", help="Override .golem directory path"),
+    no_server: bool = typer.Option(False, "--no-server", help="Run directly without server (current behavior)"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR.
 
@@ -123,7 +203,10 @@ def run(
     console.print(f"[bold cyan]Golem[/bold cyan] v{__version__} (v2 ticket-driven)")
     _validate_spec(spec)
     project_root = _get_project_root()
-    golem_dir = _get_golem_dir(project_root)
+    if golem_dir_override:
+        golem_dir = Path(golem_dir_override)
+    else:
+        golem_dir = _get_golem_dir(project_root)
 
     # Warn if stale state exists from a previous run
     tickets_dir = golem_dir / "tickets"
@@ -138,6 +221,9 @@ def run(
     _create_golem_dirs(golem_dir)
 
     config = load_config(golem_dir)
+    if session_id:
+        config.session_id = session_id
+        config.branch_prefix = f"golem/{session_id}"
     spec_project_root = _resolve_spec_project_root(spec)
     config.infrastructure_checks = detect_infrastructure_checks(spec_project_root)
 

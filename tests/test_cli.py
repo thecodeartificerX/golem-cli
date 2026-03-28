@@ -238,6 +238,61 @@ def test_inspect_cli_no_golem_dir_exits_cleanly() -> None:
     assert "no active" in result.output.lower()
 
 
+from typer.testing import CliRunner
+from golem.cli import app
+
+_runner = CliRunner()
+
+
+def test_run_help_has_session_id() -> None:
+    """--session-id flag appears in run --help."""
+    result = _runner.invoke(app, ["run", "--help"])
+    assert "session-id" in result.output
+
+
+def test_run_help_has_golem_dir() -> None:
+    """--golem-dir flag appears in run --help."""
+    result = _runner.invoke(app, ["run", "--help"])
+    assert "golem-dir" in result.output
+
+
+def test_run_help_has_no_server() -> None:
+    """--no-server flag appears in run --help."""
+    result = _runner.invoke(app, ["run", "--help"])
+    assert "no-server" in result.output
+
+
+def test_server_start_in_help() -> None:
+    """server start sub-command appears in server --help."""
+    result = _runner.invoke(app, ["server", "--help"])
+    assert "start" in result.output
+
+
+def test_server_stop_in_help() -> None:
+    """server stop sub-command appears in server --help."""
+    result = _runner.invoke(app, ["server", "--help"])
+    assert "stop" in result.output
+
+
+def test_server_status_in_help() -> None:
+    """server status sub-command appears in server --help."""
+    result = _runner.invoke(app, ["server", "--help"])
+    assert "status" in result.output
+
+
+def test_server_status_no_running(tmp_path: Path) -> None:
+    """server status with no server.json reports not running."""
+    import os
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        result = _runner.invoke(app, ["server", "status"])
+        assert result.exit_code == 0
+        assert "not running" in result.output.lower() or "no server" in result.output.lower()
+    finally:
+        os.chdir(old_cwd)
+
+
 def test_resume_cli_no_tickets_exits_cleanly() -> None:
     from typer.testing import CliRunner
 
