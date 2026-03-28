@@ -598,6 +598,12 @@ def create_app() -> FastAPI:
         config = load_config(session_dir) if (session_dir / "config.json").exists() else GolemConfig()
         config.session_id = session_id
 
+        # Write security_allowlist.json so hooks can read it
+        if config.security_allowlist:
+            allowlist_path = session_dir / "security_allowlist.json"
+            with open(allowlist_path, "w", encoding="utf-8") as f:
+                json.dump({"commands": config.security_allowlist}, f)
+
         # Run session in-process as async task
         server_url = f"http://127.0.0.1:{os.environ.get('GOLEM_PORT', '7665')}"
         task = asyncio.create_task(
