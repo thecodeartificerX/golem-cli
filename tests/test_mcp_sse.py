@@ -212,6 +212,38 @@ async def test_mcp_message_create_and_read_ticket(client: AsyncClient, tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_mcp_junior_dev_tools_separate(client: AsyncClient, tmp_path: Path) -> None:
+    """Junior Dev MCP tools are registered separately from Tech Lead tools."""
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Test\n", encoding="utf-8")
+
+    resp = await client.post("/api/sessions", json={
+        "spec_path": str(spec),
+        "project_root": str(tmp_path),
+    })
+    session_id = resp.json()["session_id"]
+
+    # Tech Lead tools (full set)
+    resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {},
+    }))
+    tl_tools = [t["name"] for t in resp.json()["result"]["tools"]]
+    assert "create_ticket" in tl_tools
+    assert "create_worktree" in tl_tools
+    assert len(tl_tools) == 8
+
+    # Junior Dev tools (limited set)
+    resp = await client.post(f"/mcp/{session_id}-jd/message", content=json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+    }))
+    assert resp.status_code == 200
+    jd_tools = [t["name"] for t in resp.json()["result"]["tools"]]
+    assert set(jd_tools) == {"run_qa", "update_ticket", "read_ticket"}
+    assert "create_ticket" not in jd_tools
+    assert "create_worktree" not in jd_tools
+
+
+@pytest.mark.asyncio
 async def test_mcp_cleaned_up_after_session_delete(client: AsyncClient, tmp_path: Path) -> None:
     """MCP tools are unregistered when session is deleted."""
     spec = tmp_path / "spec.md"

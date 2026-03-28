@@ -548,6 +548,20 @@ def create_app() -> FastAPI:
         mcp_tools = _build_tools(session_dir, GolemConfig(), project_root)
         mcp_registry.register(session_id, mcp_tools)
 
+        # Register Junior Dev tools (limited set) for this session
+        from functools import partial
+        from claude_agent_sdk import SdkMcpTool
+        from golem.tools import _handle_run_qa, _handle_update_ticket, _handle_read_ticket
+        from golem.tools import _RUN_QA_INPUT_SCHEMA, _UPDATE_TICKET_INPUT_SCHEMA, _READ_TICKET_INPUT_SCHEMA
+        from golem.tickets import TicketStore
+        jd_store = TicketStore(session_dir / "tickets")
+        jd_tools = [
+            SdkMcpTool(name="run_qa", description="Run deterministic QA checks in a worktree.", input_schema=_RUN_QA_INPUT_SCHEMA, handler=_handle_run_qa),
+            SdkMcpTool(name="update_ticket", description="Update ticket status and append a history event.", input_schema=_UPDATE_TICKET_INPUT_SCHEMA, handler=partial(_handle_update_ticket, jd_store)),
+            SdkMcpTool(name="read_ticket", description="Read a ticket by ID.", input_schema=_READ_TICKET_INPUT_SCHEMA, handler=partial(_handle_read_ticket, jd_store)),
+        ]
+        mcp_registry.register(f"{session_id}-jd", jd_tools)
+
         return {"session_id": session_id, "status": "created"}
 
     @app.post("/api/sessions/{session_id}/start")
@@ -640,6 +654,7 @@ def create_app() -> FastAPI:
         if not keep_files:
             delete_session_dir(sessions_dir, session_id)
         mcp_registry.unregister(session_id)
+        mcp_registry.unregister(f"{session_id}-jd")
         session_mgr.remove_session(session_id)
         return {"status": "deleted", "session_id": session_id}
 
@@ -655,6 +670,7 @@ def create_app() -> FastAPI:
                 session_mgr.kill_session(s.id)
                 delete_session_dir(sessions_dir, s.id)
                 mcp_registry.unregister(s.id)
+                mcp_registry.unregister(f"{s.id}-jd")
                 session_mgr.remove_session(s.id)
                 removed.append(s.id)
         return {"removed": removed, "count": len(removed)}
