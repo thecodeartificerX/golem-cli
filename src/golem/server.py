@@ -10,6 +10,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -22,6 +23,9 @@ from golem.mcp_sse import McpSessionRegistry
 from golem.merge import MergeCoordinator
 from golem.session import create_session_dir, generate_session_id, read_session, write_session
 from golem.ui import format_sse
+
+if TYPE_CHECKING:
+    from golem.tickets import Ticket
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +47,81 @@ class CreateSessionRequest(BaseModel):
 
 class GuidanceRequest(BaseModel):
     text: str
+
+
+class TicketStatusPatchRequest(BaseModel):
+    status: str
+    note: str = "Manual status change via board UI"
+
+
+# ---------------------------------------------------------------------------
+# Board column constants and helpers
+# ---------------------------------------------------------------------------
+
+_BOARD_COLUMNS: list[str] = ["pending", "in_progress", "review", "rework", "done", "failed"]
+
+_STATUS_TO_COLUMN: dict[str, str] = {
+    "pending": "pending",
+    "in_progress": "in_progress",
+    "ready_for_review": "review",
+    "needs_work": "rework",
+    "blocked": "rework",
+    "qa_passed": "done",
+    "done": "done",
+    "approved": "done",
+    "failed": "failed",
+}
+
+_COLUMN_TO_STATUS: dict[str, str] = {
+    "pending": "pending",
+    "review": "ready_for_review",
+    "rework": "needs_work",
+    "done": "done",
+    "failed": "failed",
+}
+
+
+def _ticket_to_card(t: Ticket) -> dict[str, object]:
+    """Serialize a Ticket to the board card metadata shape."""
+    actions = {e.action for e in t.history}
+    phase_plan = bool(actions & {"created", "status_changed_to_in_progress"})
+    phase_code = bool(actions & {
+        "status_changed_to_ready_for_review",
+        "status_changed_to_needs_work",
+        "status_changed_to_qa_passed",
+    })
+    phase_qa = bool(actions & {
+        "status_changed_to_qa_passed",
+        "status_changed_to_done",
+        "status_changed_to_approved",
+    })
+    updated_at = t.history[-1].ts if t.history else ""
+    history_count = len(t.history)
+    return {
+        "id": t.id,
+        "title": t.title,
+        "status": t.status,
+        "priority": t.priority,
+        "type": t.type,
+        "assigned_to": t.assigned_to,
+        "created_by": t.created_by,
+        "phase_plan": phase_plan,
+        "phase_code": phase_code,
+        "phase_qa": phase_qa,
+        "updated_at": updated_at,
+        "history_count": history_count,
+        "session_id": t.session_id,
+    }
+
+
+def _group_by_column(cards: list[dict[str, object]]) -> dict[str, object]:
+    """Group card dicts by board column key."""
+    columns: dict[str, list[dict[str, object]]] = {col: [] for col in _BOARD_COLUMNS}
+    for card in cards:
+        status = str(card.get("status", ""))
+        col = _STATUS_TO_COLUMN.get(status, "pending")
+        columns[col].append(card)
+    return {"columns": columns, "column_order": _BOARD_COLUMNS}
 
 
 # ---------------------------------------------------------------------------
@@ -846,7 +925,10 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.get("/api/sessions/{session_id}/tickets")
-    async def session_tickets(session_id: str) -> list[dict[str, object]]:
+    async def session_tickets(
+        session_id: str,
+        view: str = "",
+    ) -> list[dict[str, object]] | dict[str, object]:
         from fastapi import HTTPException
         from golem.tickets import TicketStore
 
@@ -855,10 +937,43 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
         tickets_dir = sessions_dir / session_id / "tickets"
         if not tickets_dir.exists():
+            if view == "board":
+                return _group_by_column([])
             return []
         store = TicketStore(tickets_dir)
         tickets = await store.list_tickets()
-        return [{"id": t.id, "title": t.title, "status": t.status} for t in tickets]
+        cards = [_ticket_to_card(t) for t in tickets]
+        if view == "board":
+            return _group_by_column(cards)
+        return cards
+
+    @app.patch("/api/sessions/{session_id}/tickets/{ticket_id}/status")
+    async def patch_ticket_status(
+        session_id: str,
+        ticket_id: str,
+        req: TicketStatusPatchRequest,
+    ) -> dict[str, object]:
+        from fastapi import HTTPException
+        from golem.tickets import TicketStore
+
+        state = session_mgr.get_session(session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        if req.status == "in_progress":
+            raise HTTPException(status_code=400, detail="Cannot set in_progress via manual update")
+        known = set(_STATUS_TO_COLUMN.keys())
+        if req.status not in known:
+            raise HTTPException(status_code=400, detail=f"Unknown status '{req.status}'")
+        tickets_dir = sessions_dir / session_id / "tickets"
+        if not tickets_dir.exists():
+            raise HTTPException(status_code=404, detail=f"No tickets for session {session_id}")
+        store = TicketStore(tickets_dir)
+        try:
+            await store.update(ticket_id=ticket_id, status=req.status, note=req.note, agent="operator")
+            ticket = await store.read(ticket_id)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Ticket not found: {ticket_id}")
+        return _ticket_to_card(ticket)
 
     @app.get("/api/sessions/{session_id}/diff")
     async def session_diff(session_id: str) -> dict[str, str]:
