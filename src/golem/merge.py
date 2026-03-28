@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +61,7 @@ class MergeCoordinator:
         self._coordinator_dir = coordinator_dir
         self._session_manager = session_manager
         self._queue_file = coordinator_dir / "merge-queue.json"
+        self._conflict_log_path = coordinator_dir / "conflict-log.json"
 
     # ------------------------------------------------------------------
     # Queue management
@@ -268,6 +270,56 @@ class MergeCoordinator:
                     ))
 
         return conflicts
+
+    # ------------------------------------------------------------------
+    # Conflict scanner
+    # ------------------------------------------------------------------
+
+    async def run_conflict_scanner(
+        self,
+        interval_seconds: int = 30,
+        on_new_conflicts: Callable[[list[ConflictInfo]], Awaitable[None]] | None = None,
+    ) -> None:
+        """Run an infinite loop scanning for conflicts every interval_seconds."""
+        # Load previous conflict keys from disk
+        previous_keys: set[str] = set()
+        if self._conflict_log_path.exists():
+            try:
+                raw = json.loads(self._conflict_log_path.read_text(encoding="utf-8"))
+                for item in raw:
+                    key = f"{item.get('file_path')}|{item.get('session_a')}|{item.get('session_b')}"
+                    previous_keys.add(key)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        while True:
+            try:
+                conflicts = await self.detect_conflicts()
+            except Exception:  # noqa: BLE001
+                conflicts = []
+
+            # Persist to conflict-log.json
+            self._coordinator_dir.mkdir(parents=True, exist_ok=True)
+            self._conflict_log_path.write_text(
+                json.dumps([dataclasses.asdict(c) for c in conflicts], indent=2),
+                encoding="utf-8",
+            )
+
+            # Compute new conflicts not seen before
+            current_keys: set[str] = set()
+            for c in conflicts:
+                current_keys.add(f"{c.file_path}|{c.session_a}|{c.session_b}")
+
+            new_conflicts = [
+                c for c in conflicts
+                if f"{c.file_path}|{c.session_a}|{c.session_b}" not in previous_keys
+            ]
+            previous_keys = current_keys
+
+            if new_conflicts and on_new_conflicts is not None:
+                await on_new_conflicts(new_conflicts)
+
+            await asyncio.sleep(interval_seconds)
 
     # ------------------------------------------------------------------
     # Persistence helpers

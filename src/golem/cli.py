@@ -642,18 +642,38 @@ def history(
     """Show chronological event timeline across all tickets."""
     project_root = _get_project_root()
 
-    if session_id:
-        client = _require_server(project_root)
-        if client is None:
-            return
-        async def _session_history() -> None:
+    server_info = find_server(project_root)
+    if server_info is not None:
+        _srv_host, _srv_port = server_info
+        async def _server_history() -> None:
             try:
-                data = await client.get_session(session_id)
-                console.print(f"Session: {data.get('id')} ({data.get('status')})")
-                console.print(f"  Spec: {data.get('spec_path')}")
+                import httpx as _httpx
+                url = f"/api/history?session_id={session_id}" if session_id else "/api/history"
+                async with _httpx.AsyncClient(base_url=f"http://{_srv_host}:{_srv_port}") as http:
+                    resp = await http.get(url, timeout=15.0)
+                    resp.raise_for_status()
+                    items = resp.json()
+                if not items:
+                    console.print("[dim]No history entries found.[/dim]")
+                    return
+                table = Table(title="Session History", show_header=True)
+                table.add_column("Session", style="cyan")
+                table.add_column("Timestamp", style="dim")
+                table.add_column("Message")
+                for entry in items:
+                    table.add_row(
+                        str(entry.get("session_id", "")),
+                        str(entry.get("timestamp", ""))[:19],
+                        str(entry.get("message", "")),
+                    )
+                console.print(table)
             except Exception as exc:
                 console.print(f"[red]Failed to get history: {exc}[/red]")
-        asyncio.run(_session_history())
+        asyncio.run(_server_history())
+        return
+
+    if session_id:
+        console.print("[dim]Server not running — cannot fetch session history by ID.[/dim]")
         return
 
     golem_dir = _get_golem_dir(project_root)
@@ -963,6 +983,31 @@ def diff(
 def stats() -> None:
     """Show statistics from the current run's tickets."""
     project_root = _get_project_root()
+
+    server_info = find_server(project_root)
+    if server_info is not None:
+        _srv_host, _srv_port = server_info
+        async def _server_stats() -> None:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(base_url=f"http://{_srv_host}:{_srv_port}") as http:
+                    resp = await http.get("/api/stats", timeout=15.0)
+                    resp.raise_for_status()
+                    data = resp.json()
+                console.print("[bold]Aggregate Server Statistics[/bold]\n")
+                counts = data.get("session_counts", {})
+                for status, count in sorted(counts.items()):
+                    console.print(f"  {status}: {count}")
+                console.print(f"\n  Total cost: ${data.get('total_cost', 0.0):.4f}")
+                tc = data.get("ticket_counts", {})
+                console.print(f"  Tickets: {tc.get('done', 0)} done / {tc.get('failed', 0)} failed / {tc.get('total', 0)} total")
+                console.print(f"  Pass rate: {data.get('ticket_pass_rate', 0.0) * 100:.0f}%")
+                console.print(f"  Active sessions: {data.get('active_sessions', 0)}")
+            except Exception as exc:
+                console.print(f"[red]Failed to get stats: {exc}[/red]")
+        asyncio.run(_server_stats())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -1673,6 +1718,9 @@ def conflicts() -> None:
         return
     for item in items:
         if isinstance(item, dict):
+            ticket_info = ""
+            if item.get("ticket_a") or item.get("ticket_b"):
+                ticket_info = f" (tickets: {item.get('ticket_a', '-')} vs {item.get('ticket_b', '-')})"
             console.print(
-                f"{item.get('file_path', '')}: {item.get('session_a', '')} vs {item.get('session_b', '')}"
+                f"{item.get('file_path', '')}: {item.get('session_a', '')} vs {item.get('session_b', '')}{ticket_info}"
             )

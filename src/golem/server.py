@@ -256,17 +256,74 @@ def create_app() -> FastAPI:
     session_mgr = SessionManager(sessions_dir)
     merge_coordinator = MergeCoordinator(golem_dir, session_mgr)
 
+    # Queues for aggregate SSE stream (one per connected client)
+    _aggregate_queues: set[asyncio.Queue[str]] = set()
+
+    # Restart recovery: restore non-archived sessions from disk as paused.
+    # Only runs when GOLEM_DIR is explicitly set (non-empty), to avoid accidentally
+    # picking up test artifacts from CWD-relative paths.
+    # Only restores sessions that have a copied spec.md (written by create_session_dir).
+    _golem_dir_env = os.environ.get("GOLEM_DIR", "")
+    if _golem_dir_env and sessions_dir.exists():
+        from golem.session import read_session
+        for session_json in sessions_dir.glob("*/session.json"):
+            session_dir = session_json.parent
+            spec_copy = session_dir / "spec.md"
+            if not spec_copy.exists():
+                # Not a real session dir — skip
+                continue
+            try:
+                meta = read_session(session_dir)
+                if meta.status not in ("archived",) and meta.id:
+                    existing = session_mgr.get_session(meta.id)
+                    if existing is None:
+                        restored = session_mgr.create_session(meta.id, Path(meta.spec_path))
+                        restored.status = "paused"
+            except Exception:  # noqa: BLE001
+                pass
+
+    # Stale mid-merge cleanup: entries with pr_open but no running process → failed
+    try:
+        entries = merge_coordinator._read_queue()
+        changed = False
+        for entry in entries:
+            if entry.status == "pr_open":
+                sess = session_mgr.get_session(entry.session_id)
+                if sess is None or sess.process is None:
+                    entry.status = "failed"
+                    if sess is not None:
+                        sess.status = "failed"
+                    changed = True
+        if changed:
+            merge_coordinator._write_queue(entries)
+    except Exception:  # noqa: BLE001
+        pass
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        yield
-        remove_server_json(golem_dir)
-        # Terminate any running sessions
-        for s in session_mgr.list_sessions():
-            if s.process and s.process.returncode is None:  # Still running
-                try:
-                    s.process.terminate()
-                except (ProcessLookupError, OSError):
-                    pass
+        # Start conflict scanner background task
+        async def _on_new_conflicts(conflicts: list) -> None:
+            for c in conflicts:
+                event_str = format_sse("conflict", dataclasses.asdict(c) if hasattr(c, "__dataclass_fields__") else c)
+                for q in list(_aggregate_queues):
+                    await q.put(event_str)
+
+        _scanner_task = asyncio.create_task(
+            merge_coordinator.run_conflict_scanner(on_new_conflicts=_on_new_conflicts)
+        )
+
+        try:
+            yield
+        finally:
+            _scanner_task.cancel()
+            remove_server_json(golem_dir)
+            # Terminate any running sessions
+            for s in session_mgr.list_sessions():
+                if s.process and s.process.returncode is None:  # Still running
+                    try:
+                        s.process.terminate()
+                    except (ProcessLookupError, OSError):
+                        pass
 
     app = FastAPI(title="Golem Server", lifespan=lifespan)
 
@@ -468,17 +525,21 @@ def create_app() -> FastAPI:
     @app.get("/api/events")
     async def aggregate_events() -> StreamingResponse:
         aggregate_queue: asyncio.Queue[str] = asyncio.Queue()
+        _aggregate_queues.add(aggregate_queue)
 
         async def _stream() -> AsyncGenerator[str, None]:
-            yield format_sse("status", {"state": "connected"})
-            while True:
-                try:
-                    event_str = await asyncio.wait_for(aggregate_queue.get(), timeout=15.0)
-                    yield event_str
-                except TimeoutError:
-                    yield ": heartbeat\n\n"
-                except asyncio.CancelledError:
-                    return
+            try:
+                yield format_sse("status", {"state": "connected"})
+                while True:
+                    try:
+                        event_str = await asyncio.wait_for(aggregate_queue.get(), timeout=15.0)
+                        yield event_str
+                    except TimeoutError:
+                        yield ": heartbeat\n\n"
+                    except asyncio.CancelledError:
+                        return
+            finally:
+                _aggregate_queues.discard(aggregate_queue)
 
         return StreamingResponse(
             _stream(),
@@ -687,5 +748,93 @@ def create_app() -> FastAPI:
     async def get_conflicts() -> list[dict[str, object]]:
         conflicts = await merge_coordinator.detect_conflicts()
         return [dataclasses.asdict(c) for c in conflicts]
+
+    # ------------------------------------------------------------------
+    # Aggregate stats + unified history
+    # ------------------------------------------------------------------
+
+    @app.get("/api/stats")
+    async def aggregate_stats() -> dict[str, object]:
+        import re
+        from golem.tickets import TicketStore
+
+        sessions = session_mgr.list_sessions()
+        session_counts: dict[str, int] = {}
+        for s in sessions:
+            session_counts[s.status] = session_counts.get(s.status, 0) + 1
+
+        total_cost = 0.0
+        ticket_done = 0
+        ticket_failed = 0
+        ticket_total = 0
+
+        for s in sessions:
+            # Cost from progress.log
+            log_path = sessions_dir / s.id / "progress.log"
+            if log_path.exists():
+                for line in log_path.read_text(encoding="utf-8").splitlines():
+                    m = re.search(r"AGENT_COST.*cost=\$([0-9.]+)", line)
+                    if m:
+                        total_cost += float(m.group(1))
+            # Tickets
+            tickets_dir_s = sessions_dir / s.id / "tickets"
+            if tickets_dir_s.exists():
+                store = TicketStore(tickets_dir_s)
+                try:
+                    tickets = await store.list_tickets()
+                    ticket_total += len(tickets)
+                    for t in tickets:
+                        if t.status in ("done", "approved", "qa_passed"):
+                            ticket_done += 1
+                        elif t.status in ("needs_work", "blocked", "failed"):
+                            ticket_failed += 1
+                except Exception:  # noqa: BLE001
+                    pass
+
+        pass_rate = (ticket_done / ticket_total) if ticket_total > 0 else 0.0
+        active_sessions = sum(1 for s in sessions if s.status == "running")
+
+        return {
+            "session_counts": session_counts,
+            "total_cost": round(total_cost, 6),
+            "ticket_pass_rate": round(pass_rate, 4),
+            "ticket_counts": {"done": ticket_done, "failed": ticket_failed, "total": ticket_total},
+            "active_sessions": active_sessions,
+        }
+
+    @app.get("/api/history")
+    async def aggregate_history(session_id: str = "") -> list[dict[str, str]]:
+        entries: list[dict[str, str]] = []
+
+        target_sessions = (
+            [session_mgr.get_session(session_id)] if session_id else session_mgr.list_sessions()
+        )
+
+        for s in target_sessions:
+            if s is None:
+                continue
+            log_path = sessions_dir / s.id / "progress.log"
+            if not log_path.exists():
+                continue
+            try:
+                for line in log_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Lines may be prefixed with timestamp like "[2026-03-28T09:39:35] message"
+                    # Parse out timestamp if present
+                    timestamp = ""
+                    message = line
+                    import re
+                    m = re.match(r"^\[([^\]]+)\]\s*(.*)", line)
+                    if m:
+                        timestamp = m.group(1)
+                        message = m.group(2)
+                    entries.append({"session_id": s.id, "timestamp": timestamp, "message": message})
+            except OSError:
+                pass
+
+        entries.sort(key=lambda e: e["timestamp"])
+        return entries
 
     return app
