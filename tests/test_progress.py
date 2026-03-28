@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from golem.progress import ProgressLogger
 
@@ -284,3 +287,97 @@ def test_log_rebase_failed() -> None:
         content = (Path(tmpdir) / "progress.log").read_text(encoding="utf-8")
         assert "REBASE_FAILED" in content
         assert "error=conflict in server.py" in content
+
+
+# ---------------------------------------------------------------------------
+# EventBus subscriber tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_progress_logger_subscribes_to_event_bus(tmp_path: Path) -> None:
+    """ProgressLogger formats AgentSpawned(planner) as LEAD_ARCHITECT_START."""
+    from golem.events import AgentSpawned, EventBus, QueueBackend
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    logger = ProgressLogger(golem_dir)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+    task = asyncio.create_task(logger.subscribe_to_bus(bus))
+
+    await bus.emit(AgentSpawned(role="planner", model="opus", max_turns=50, mcp_tools=[], stall_config={}))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    log = (golem_dir / "progress.log").read_text(encoding="utf-8")
+    assert "LEAD_ARCHITECT_START" in log
+
+
+@pytest.mark.asyncio
+async def test_progress_logger_formats_agent_cost(tmp_path: Path) -> None:
+    """ProgressLogger formats AgentComplete as AGENT_COST line."""
+    from golem.events import AgentComplete, EventBus, QueueBackend
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    logger = ProgressLogger(golem_dir)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+    task = asyncio.create_task(logger.subscribe_to_bus(bus))
+
+    await bus.emit(AgentComplete(role="planner", total_cost=1.5, total_turns=10, duration_s=120.0, result_preview="done"))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    log = (golem_dir / "progress.log").read_text(encoding="utf-8")
+    assert "AGENT_COST" in log
+    assert "role=planner" in log
+    assert "cost=$1.5" in log
+
+
+@pytest.mark.asyncio
+async def test_progress_logger_formats_qa_result(tmp_path: Path) -> None:
+    """ProgressLogger formats QAResult as QA_PASSED/QA_FAILED."""
+    from golem.events import EventBus, QueueBackend
+    from golem.events import QAResult as QAResultEvent
+
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    logger = ProgressLogger(golem_dir)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    bus = EventBus(QueueBackend(queue), session_id="test")
+    task = asyncio.create_task(logger.subscribe_to_bus(bus))
+
+    await bus.emit(QAResultEvent(ticket_id="TICKET-001", passed=True, summary="all checks ok", checks_run=3))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    log = (golem_dir / "progress.log").read_text(encoding="utf-8")
+    assert "QA_PASSED" in log
+    assert "TICKET-001" in log
+
+
+def test_existing_log_methods_still_work(tmp_path: Path) -> None:
+    """Existing log_* methods work without EventBus (backward compat)."""
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    logger = ProgressLogger(golem_dir)
+    logger.log_planner_start()
+    log = (golem_dir / "progress.log").read_text(encoding="utf-8")
+    assert "LEAD_ARCHITECT_START" in log

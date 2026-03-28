@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from golem.events import EventBus
 
 
 class ProgressLogger:
@@ -134,6 +138,59 @@ class ProgressLogger:
 
     def log_rebase_failed(self, session_id: str, error: str) -> None:
         self._write(f"REBASE_FAILED session_id={session_id} error={error}")
+
+    async def subscribe_to_bus(self, event_bus: EventBus) -> None:
+        """Consume events from EventBus and write to progress.log in legacy format."""
+        from golem.events import (
+            AgentComplete,
+            AgentSpawned,
+            AgentStallKill,
+            AgentStallWarning,
+            MergeComplete,
+            QAResult,
+            SessionComplete,
+            SessionStart,
+            TicketCreated,
+        )
+
+        async for event in event_bus.subscribe():
+            if isinstance(event, AgentSpawned):
+                if event.role == "planner":
+                    self._write("LEAD_ARCHITECT_START")
+                elif event.role == "tech_lead":
+                    self._write(f"TECH_LEAD_START ticket={event.session_id}")
+                elif event.role == "junior_dev":
+                    self._write(f"JUNIOR_DEV_DISPATCHED {event.session_id}")
+            elif isinstance(event, AgentComplete):
+                if event.role == "planner":
+                    self._write(f"LEAD_ARCHITECT_COMPLETE elapsed={event.duration_s}")
+                elif event.role == "tech_lead":
+                    mins = int(event.duration_s) // 60
+                    secs = int(event.duration_s) % 60
+                    self._write(f"TECH_LEAD_COMPLETE elapsed={mins}m{secs}s")
+                self._write(
+                    f"AGENT_COST role={event.role} cost=${event.total_cost}"
+                    f" input_tokens=0 output_tokens=0 cache_read=0"
+                    f" turns={event.total_turns} duration={int(event.duration_s)}s"
+                )
+            elif isinstance(event, TicketCreated):
+                self._write(f"TICKET_CREATED {event.ticket_id} title={event.title}")
+            elif isinstance(event, QAResult):
+                tag = "QA_PASSED" if event.passed else "QA_FAILED"
+                self._write(f"{tag} {event.ticket_id} {event.summary}")
+            elif isinstance(event, MergeComplete):
+                self._write(f"MERGE_COMPLETE branch={event.target_branch}")
+            elif isinstance(event, AgentStallWarning):
+                self._write(
+                    f"STALL_WARNING role={event.role} turn={event.turn}"
+                    f" mcp_actions={event.turns_since_action}"
+                )
+            elif isinstance(event, AgentStallKill):
+                self._write(f"STALL_DETECTED role={event.role} turn={event.turn}")
+            elif isinstance(event, SessionStart):
+                self._write(f"SESSION_START session_id={event.session_id} spec={event.spec_path}")
+            elif isinstance(event, SessionComplete):
+                self._write(f"SESSION_COMPLETE session_id={event.session_id} status={event.status}")
 
     def sum_agent_costs(self) -> float:
         """Sum all AGENT_COST entries in the progress log."""
