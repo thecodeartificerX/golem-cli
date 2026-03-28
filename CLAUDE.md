@@ -106,6 +106,7 @@ src/
     conductor.py        ← Spec complexity + preflight (classify, topology, conflicts)
     config.py           ← Settings, defaults, model configuration
     dialogs.py          ← Native Windows file/folder picker dialogs (ctypes win32)
+    mcp_sse.py          ← MCP-over-SSE registry + JSONRPC routing (ready for when CLI fixes SSE/HTTP)
     merge.py            ← Merge coordinator (FIFO queue, PR lifecycle, rebase cascade)
     planner.py          ← Spec → research + tickets (sub-agent architecture)
     events.py           ← Typed EventBus for agent observability (21 GolemEvent types)
@@ -140,6 +141,8 @@ tests/
   test_config.py        ← GolemConfig, setting_sources, validation
   test_events.py        ← EventBus, backends, roundtrip, subscribe filters
   test_hooks.py         ← PreToolUse hook script tests
+  test_mcp_durability.py  ← MCP handler durability (concurrent, sequential, error recovery)
+  test_mcp_sse.py         ← MCP SSE registry, endpoints, lifecycle integration
   test_merge.py         ← Merge coordinator queue, PR, rebase tests
   test_preflight.py     ← Topology derivation, conflict prediction, env checks, cost
   test_planner.py       ← Planner directory creation and ticket output
@@ -167,7 +170,7 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 
 ### Testing
 - **Framework:** pytest with pytest-asyncio
-- **Run:** `uv run pytest` (494 tests)
+- **Run:** `uv run pytest` (532+ tests)
 - **Focus on:** task graph, state machine, ticket CRUD, config validation, QA checks, worktree merge, CLI commands, progress events, prompt rendering
 - **Do NOT mock** the Claude Agent SDK in tests — test the orchestration logic around it
 - **Test count:** `uv run golem version` shows the current test count
@@ -192,6 +195,9 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Validator PASS detection must be fuzzy** — AI models prefix preamble before "PASS:"; search anywhere, not just `startswith`
 - **Worktrees auto-install deps** — `create_worktree()` runs `uv sync` (if pyproject.toml) or `npm/bun install` (if package.json) automatically; clears `VIRTUAL_ENV` to avoid conflicts
 - **MCP tool naming** — SDK exposes tools as `mcp__<server>__<name>` (e.g. `mcp__golem__create_ticket`). Prompts must use the full prefixed name, not bare names
+- **MCP prefix in stall detection** — `ACTION_TOOLS` in `supervisor.py` uses bare names (`create_ticket`); `_is_action_tool()` strips the `mcp__<server>__` prefix before checking. If adding new action tools, add the bare name only
+- **Never break out of `async for message in query()`** — breaking triggers async generator cleanup in a different task context, causing anyio `RuntimeError: cancel scope in different task`. Set flags and continue consuming instead; return `stalled=True` for callers to handle retry
+- **External MCP transports broken in CLI** — `type:"http"` (CLI sends GET not POST, #33288), `type:"streamable-http"` (CLI ignores, #32708), `type:"sse"` (legacy, unreliable). Only `type:"sdk"` (in-process) works. SSE infrastructure in `mcp_sse.py` is ready for when upstream fixes land
 - **Planner self-healing fallback** — if planner doesn't call `create_ticket` via MCP, `run_planner()` creates a fallback ticket programmatically
 - **Tech Lead self-healing merge** — if Tech Lead doesn't merge integration→main, `_ensure_merged_to_main()` does it after the session
 - **Planner retry logic** — retries up to 2 times on `CLIConnectionError`/`ClaudeSDKError` with configurable `retry_delay` (default 10s)
@@ -214,6 +220,12 @@ Golem.ps1               ← PowerShell ops dashboard (server lifecycle + TUI)
 - **Golem.ps1 launches `golem.server:create_app`** — writes `server.json` for CLI discovery, polls `/api/server/status` for health (verifying PID match), kills stale Python processes on the port, refreshes PATH from Windows registry. Uses `.NET ProcessStartInfo` with `HasExited` polling (not `WaitForExit()` which swallows Ctrl+C)
 - **`server.py` vs `ui.py`** — `server.py` is the multi-session server (concurrent spec execution, session lifecycle); `ui.py` is the legacy single-session dashboard. New features go in `server.py`
 - **Sessions run in-process** — `server.py` uses `asyncio.create_task(run_session(...))` not subprocesses; tests must mock `golem.server.run_session` (not `create_subprocess_exec`)
+- **`_on_session_done` persists to disk** — writes status + error to `session.json` via `write_session()`. Also writes `"running"` at session start. Without this, `session.json` stays `"pending"` forever
+- **`FanoutBackend` for server sessions** — `EventBus(FanoutBackend([QueueBackend(...), FileBackend(...)]))` gives both SSE streaming and `events.jsonl` on disk. CLI mode uses `FileBackend` only
+- **Stderr captured to `session.log`** — `_TeeWriter` in `run_session` mirrors stderr to `golem_dir/session.log` for post-mortem debugging
+- **Two-phase session lifecycle** — `POST /api/sessions` creates (status `"created"`), `POST /api/sessions/{id}/start` launches pipeline. Guards: 404 if missing, 400 if already running
+- **Don't add local imports inside `create_app()` that shadow module-level imports** — causes `NameError: cannot access free variable` in nested endpoint functions due to Python closure scoping
+- **`pollSessions` must call `updateSessionHeader`** — UI buttons (Kill/Pause/Guidance/Start) only update on poll if the selected session's header is refreshed; otherwise buttons stay frozen at initial state
 
 ## Key Design Decisions
 - **Ticket-driven agent hierarchy (v2)** — Planner → Tech Lead → Writer pairs. Communication via structured JSON tickets in `.golem/tickets/`.
