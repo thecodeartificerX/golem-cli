@@ -1506,6 +1506,127 @@ def list_specs() -> None:
     console.print(f"\n[dim]{len(specs)} spec(s) found.[/dim]")
 
 
+@app.command()
+def review(
+    pr_number: int = typer.Argument(..., help="GitHub PR number to review"),
+    repo: str = typer.Option("", "--repo", "-r", help="Repository in OWNER/REPO format (default: current repo)"),
+    post: bool = typer.Option(False, "--post", help="Post findings as PR comments (default: print only)"),
+    passes: str = typer.Option(
+        "quick_scan,security,quality,deep,structural,triage",
+        "--passes",
+        help="Comma-separated list of passes to run: quick_scan,security,quality,deep,structural,triage",
+    ),
+) -> None:
+    """Run multi-pass AI review against a GitHub PR.
+
+    Example: golem review 42
+    Example: golem review 42 --repo owner/repo --post
+    Example: golem review 42 --passes quick_scan,security,quality
+    """
+    from golem.pr_review import _post_review_comments, run_review
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    config = load_config(golem_dir)
+
+    # Resolve repo
+    if not repo:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+            cwd=project_root, capture_output=True, text=True, encoding="utf-8",
+        )
+        if result.returncode != 0:
+            console.print("[red]Could not determine current repo. Pass --repo OWNER/REPO explicitly.[/red]")
+            raise typer.Exit(1)
+        repo = result.stdout.strip()
+        if not repo:
+            console.print("[red]Could not determine current repo. Pass --repo OWNER/REPO explicitly.[/red]")
+            raise typer.Exit(1)
+
+    # Parse passes
+    pass_list = [p.strip() for p in passes.split(",") if p.strip()]
+    valid_passes = {"quick_scan", "security", "quality", "deep", "structural", "triage"}
+    for p in pass_list:
+        if p not in valid_passes:
+            console.print(f"[red]Unknown pass: {p!r}. Valid: {', '.join(sorted(valid_passes))}[/red]")
+            raise typer.Exit(1)
+
+    console.print(f"[bold cyan]Golem Review[/bold cyan] PR #{pr_number} in {repo}")
+    console.print(f"  Passes: {', '.join(pass_list)}")
+    console.print(f"  Model:  {config.validator_model}")
+
+    _sev_rank: dict[str, int] = {"critical": 2, "warning": 1, "info": 0}
+    _severity_styles: dict[str, str] = {
+        "critical": "[red]CRITICAL[/red]",
+        "warning": "[yellow]WARNING[/yellow]",
+        "info": "[dim]INFO[/dim]",
+    }
+
+    async def _review_async() -> None:
+        try:
+            report = await run_review(pr_number, repo, config, passes=pass_list)
+        except RuntimeError as exc:
+            console.print(f"[red]Review failed: {exc}[/red]")
+            raise typer.Exit(1)
+
+        # Print summary
+        console.print(f"\n[bold]Review Complete[/bold] ({report.duration_s:.1f}s, ${report.cost_usd:.4f})")
+        console.print(f"  Complexity: {report.complexity}")
+        console.print(f"  Passes run: {', '.join(report.passes_run)}")
+        console.print(f"  {report.summary}")
+
+        if not report.findings:
+            console.print("\n[green]No findings.[/green]")
+            return
+
+        table = Table(title=f"PR #{pr_number} Review Findings", show_header=True)
+        table.add_column("Severity", width=10)
+        table.add_column("Category", width=12)
+        table.add_column("File:Line", width=30)
+        table.add_column("Title")
+        table.add_column("Pass", width=12)
+
+        sorted_findings = sorted(
+            report.findings,
+            key=lambda f: (
+                -_sev_rank.get(f.severity, 0),
+                f.category,
+                f.file,
+                f.line,
+            ),
+        )
+
+        for finding in sorted_findings:
+            styled_sev = _severity_styles.get(finding.severity, finding.severity)
+            file_line = f"{finding.file}:{finding.line}" if finding.line > 0 else finding.file
+            if len(file_line) > 28:
+                file_line = "..." + file_line[-25:]
+            table.add_row(
+                styled_sev,
+                finding.category,
+                file_line,
+                finding.title[:70],
+                finding.pass_name,
+            )
+
+        console.print(table)
+
+        # Verbose body output for critical findings
+        critical_findings = [f for f in sorted_findings if f.severity == "critical"]
+        if critical_findings:
+            console.print("\n[bold red]Critical Finding Details:[/bold red]")
+            for finding in critical_findings:
+                console.print(f"\n  [bold]{finding.title}[/bold]")
+                console.print(f"  File: {finding.file}:{finding.line}")
+                console.print(f"  {finding.body[:400]}")
+
+        if post:
+            posted = _post_review_comments(report.findings, pr_number, repo)
+            console.print(f"\n[green]Posted {posted} comment(s) to PR #{pr_number}.[/green]")
+
+    asyncio.run(_review_async())
+
+
 # --------------------------------------------------------------------------
 # config subcommand group
 # --------------------------------------------------------------------------
