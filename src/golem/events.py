@@ -253,6 +253,96 @@ class ConflictDetected(GolemEvent):
     session_b: str = ""
 
 
+# -- Orchestrator events --
+
+
+@dataclass
+class OrchestratorStarted(GolemEvent):
+    wave_count: int = 0
+    ticket_count: int = 0
+    wave_sizes: dict[str, int] = field(default_factory=dict)   # wave_number -> ticket_count (str keys for JSON)
+
+
+@dataclass
+class OrchestratorComplete(GolemEvent):
+    waves_completed: int = 0
+    tickets_passed: int = 0
+    tickets_failed: int = 0
+    tickets_skipped: int = 0
+    total_cost_usd: float = 0.0
+    duration_s: float = 0.0
+    integration_branch: str = ""
+
+
+@dataclass
+class OrchestratorAborted(GolemEvent):
+    reason: str = ""
+
+
+@dataclass
+class WaveStarted(GolemEvent):
+    wave_number: int = 0
+    ticket_ids: list[str] = field(default_factory=list)
+    base_branch: str = ""
+
+
+@dataclass
+class WaveCompleted(GolemEvent):
+    wave_number: int = 0
+    passed: int = 0
+    failed: int = 0
+    merge_success: bool = False
+    integration_branch: str = ""
+
+
+@dataclass
+class WaveFailed(GolemEvent):
+    wave_number: int = 0
+    reason: str = ""
+
+
+@dataclass
+class WaveSkipped(GolemEvent):
+    wave_number: int = 0
+    reason: str = ""
+
+
+@dataclass
+class TicketQueued(GolemEvent):
+    ticket_id: str = ""
+    worktree_path: str = ""
+
+
+@dataclass
+class MergeStarted(GolemEvent):
+    wave_number: int = 0
+    source_branches: list[str] = field(default_factory=list)
+    target_branch: str = ""
+
+
+@dataclass
+class MergeCompleted(GolemEvent):
+    wave_number: int = 0
+    source_branches: list[str] = field(default_factory=list)
+    target_branch: str = ""
+    success: bool = False
+    error: str = ""
+
+
+@dataclass
+class MergeConflictPredicted(GolemEvent):
+    filename: str = ""
+    branch_a: str = ""
+    branch_b: str = ""
+    wave_number: int = 0
+
+
+@dataclass
+class RateLimitBackoff(GolemEvent):
+    delay_s: float = 0.0
+    rate_limited_count: int = 0
+
+
 # -- Parallel executor events --
 
 
@@ -295,7 +385,7 @@ EVENT_TYPES: dict[str, type[GolemEvent]] = {}
 
 
 def _register_events() -> None:
-    """Populate EVENT_TYPES from all GolemEvent subclasses (29 event types)."""
+    """Populate EVENT_TYPES from all GolemEvent subclasses (42 event types)."""
     for klass in [
         AgentSpawned, AgentText, AgentToolCall, AgentToolResult,
         AgentTurnComplete, AgentComplete, AgentStallWarning, AgentStallKill,
@@ -305,6 +395,9 @@ def _register_events() -> None:
         ContextExhausted, SessionContinued,
         SessionStart, SessionComplete, ConflictDetected,
         SubtaskStarted, SubtaskCompleted, SubtaskFailed, SubtaskBatchRateLimited,
+        OrchestratorStarted, OrchestratorComplete, OrchestratorAborted,
+        WaveStarted, WaveCompleted, WaveFailed, WaveSkipped,
+        TicketQueued, MergeStarted, MergeCompleted, MergeConflictPredicted, RateLimitBackoff,
     ]:
         name = klass.__name__
         snake = "".join(f"_{c.lower()}" if c.isupper() else c for c in name).lstrip("_")

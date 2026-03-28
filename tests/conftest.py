@@ -25,9 +25,11 @@ def make_ticket():
         blueprint: str = "",
         acceptance: list[str] | None = None,
         qa_checks: list[str] | None = None,
+        id: str = "",
+        depends_on: list[str] | None = None,
     ) -> Ticket:
         return Ticket(
-            id="",
+            id=id,
             type=ticket_type,
             title=title,
             status=status,
@@ -39,6 +41,7 @@ def make_ticket():
                 acceptance=acceptance or [],
                 qa_checks=qa_checks or [],
             ),
+            depends_on=depends_on or [],
         )
 
     return _make
@@ -67,7 +70,13 @@ def golem_dir(tmp_path: Path) -> Path:
     return gd
 
 
-def write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: str) -> None:
+def write_ticket_json(
+    tickets_dir: Path,
+    ticket_id: str,
+    title: str,
+    status: str,
+    depends_on: list[str] | None = None,
+) -> None:
     """Helper to write a ticket JSON file directly (for tests that need files on disk)."""
     data = {
         "id": ticket_id,
@@ -95,6 +104,7 @@ def write_ticket_json(tickets_dir: Path, ticket_id: str, title: str, status: str
                 "attachments": [],
             }
         ],
+        "depends_on": depends_on or [],
     }
     (tickets_dir / f"{ticket_id}.json").write_text(
         json.dumps(data, indent=2), encoding="utf-8"

@@ -79,6 +79,24 @@ class ProgressLogger:
         """Log that operator guidance was received."""
         self._write(f"GUIDANCE_RECEIVED note={note}")
 
+    def log_error(self, role: str, message: str) -> None:
+        self._write(f"ERROR role={role} message={message!r}")
+
+    def log_warning(self, role: str, message: str) -> None:
+        self._write(f"WARNING role={role} message={message!r}")
+
+    # -- Orchestrator wave events --
+
+    def log_wave_start(self, wave_number: int, total_waves: int, ticket_ids: list[str]) -> None:
+        tickets_str = ", ".join(ticket_ids)
+        self._write(f"[WAVE {wave_number + 1}/{total_waves}] Starting: {tickets_str}")
+
+    def log_wave_complete(self, wave_number: int, passed: int, failed: int) -> None:
+        self._write(f"[WAVE {wave_number + 1}] Complete: {passed} passed, {failed} failed")
+
+    def log_wave_skipped(self, wave_number: int, reason: str) -> None:
+        self._write(f"[WAVE {wave_number + 1}] Skipped: {reason}")
+
     def log_classification(self, complexity: str, reasoning: str) -> None:
         self._write(f"CLASSIFICATION complexity={complexity} reasoning={reasoning}")
 

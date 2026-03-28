@@ -19,6 +19,7 @@ from golem.qa import detect_infrastructure_checks
 
 if TYPE_CHECKING:
     from golem.events import EventBus
+from golem.orchestrator import WaveExecutor, assign_waves, build_dag
 from golem.planner import run_planner
 from golem.progress import ProgressLogger
 from golem.tech_lead import run_tech_lead
@@ -292,6 +293,8 @@ def run(
     session_id: str = typer.Option("", "--session-id", help="Session ID for multi-spec execution"),
     golem_dir_override: str = typer.Option("", "--golem-dir", help="Override .golem directory path"),
     no_server: bool = typer.Option(False, "--no-server", help="Run directly without server (current behavior)"),
+    orchestrator: bool = typer.Option(False, "--orchestrator/--no-orchestrator",
+                                      help="Use Python wave orchestrator instead of Tech Lead agent"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR.
 
@@ -433,6 +436,30 @@ def run(
             except Exception as critique_err:
                 console.print(f"  [dim]Self-critique failed (non-fatal): {critique_err}[/dim]")
 
+        # Choose execution path: orchestrator vs Tech Lead vs trivial single-writer
+        use_orchestrator = orchestrator or config.orchestrator_enabled
+
+        if use_orchestrator:
+            console.print("[bold cyan]Golem[/bold cyan] -- Orchestrator executing (wave-based)...")
+            executor = WaveExecutor(
+                golem_dir=golem_dir,
+                project_root=spec_project_root,
+                config=config,
+                event_bus=event_bus,
+            )
+            orch_result = await executor.run()
+            elapsed = time.monotonic() - t0
+            mins, secs = divmod(int(elapsed), 60)
+            progress.log_run_cost_summary(orch_result.total_cost_usd)
+            if orch_result.total_cost_usd > 0:
+                console.print(f"[dim]Run cost: ${orch_result.total_cost_usd:.4f}[/dim]")
+            console.print(
+                f"[bold]Orchestration complete in {mins}m {secs}s:[/bold] "
+                f"{orch_result.tickets_passed} passed, {orch_result.tickets_failed} failed, "
+                f"{orch_result.tickets_skipped} skipped across {orch_result.waves_completed} waves"
+            )
+            return
+
         # Check if Tech Lead should be skipped (TRIVIAL complexity)
         if config.skip_tech_lead:
             console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
@@ -526,9 +553,33 @@ def plan(
         raise typer.Exit(1)
 
 
+def _print_dag(tickets: list) -> None:
+    """Print dependency graph as wave-grouped tree using Rich."""
+    from rich.tree import Tree
+
+    try:
+        nodes = build_dag(tickets)
+        waves = assign_waves(nodes)
+    except Exception as e:
+        console.print(f"[red]Could not build DAG: {e}[/red]")
+        return
+
+    root = Tree("[bold]Execution Waves[/bold]")
+    for wave_num in sorted(waves.keys()):
+        ticket_ids = waves[wave_num]
+        wave_branch = root.add(f"[cyan]Wave {wave_num}[/cyan] ({len(ticket_ids)} tickets, parallel)")
+        for tid in ticket_ids:
+            node = nodes[tid]
+            deps_str = f"  <- {', '.join(node.depends_on)}" if node.depends_on else ""
+            wave_branch.add(f"[green]{tid}[/green]{deps_str}")
+
+    console.print(root)
+
+
 @app.command()
 def status(
     session_id: str = typer.Argument("", help="Session ID for server-routed session detail"),
+    dag: bool = typer.Option(False, "--dag", help="Print dependency graph as wave-grouped tree"),
 ) -> None:
     """Show current run progress from ticket store."""
     project_root = _get_project_root()
@@ -605,6 +656,9 @@ def status(
         in_prog = sum(1 for t in tickets if t.status == "in_progress")
         console.print(table)
         console.print(f"  {done_count}/{total} complete, {in_prog} in progress")
+
+        if dag:
+            _print_dag(tickets)
 
     asyncio.run(_status_async())
 

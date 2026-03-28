@@ -53,6 +53,7 @@ class Ticket:
     context: TicketContext
     history: list[TicketEvent] = field(default_factory=list)
     session_id: str = ""
+    depends_on: list[str] = field(default_factory=list)  # ticket IDs this ticket blocks on
 
 
 def _ticket_to_dict(ticket: Ticket) -> dict:
@@ -92,6 +93,7 @@ def _ticket_from_dict(data: dict) -> Ticket:
         context=context,
         history=history,
         session_id=data.get("session_id", ""),
+        depends_on=data.get("depends_on", []),
     )
 
 

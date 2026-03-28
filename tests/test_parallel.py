@@ -676,10 +676,10 @@ def test_new_event_types_registered() -> None:
 
 
 def test_event_registry_count() -> None:
-    """EVENT_TYPES now contains 29 event types (25 original + 4 new)."""
+    """EVENT_TYPES now contains 41 event types (29 original + 12 orchestrator events)."""
     from golem.events import EVENT_TYPES
 
-    assert len(EVENT_TYPES) == 29
+    assert len(EVENT_TYPES) == 41
 
 
 def test_new_event_types_roundtrip() -> None:

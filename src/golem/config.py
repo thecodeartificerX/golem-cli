@@ -75,6 +75,13 @@ class GolemConfig:
     merge_ai_fallback: bool = True             # allow AI fallback for hard conflicts
     merge_staging_dir: str = ""               # override staging dir (default: .golem/merge_staging)
 
+    # Orchestrator settings
+    max_parallel_per_wave: int = 3          # max concurrent writers per wave
+    wave_failure_policy: str = "continue"   # "continue" | "abort" — what to do when a whole wave fails
+    merge_strategy: str = "sequential"      # "sequential" | "file_overlap_first" — merge ordering within wave
+    max_rework_attempts: int = 1            # QA fail retries per ticket before marking failed (0 = no rework)
+    orchestrator_enabled: bool = False      # Use Python WaveExecutor instead of Tech Lead agent
+
     # Parallel executor settings
     max_concurrency: int = 3            # max simultaneous subagent sessions
     stagger_delay_s: float = 1.0        # seconds between launches in a batch
@@ -245,6 +252,16 @@ class GolemConfig:
             warnings.append(f"max_writer_retries must be >= 1, got {self.max_writer_retries}")
         if self.max_parallel_writers < 1:
             warnings.append(f"max_parallel_writers must be >= 1, got {self.max_parallel_writers}")
+
+        # Orchestrator settings
+        if self.max_parallel_per_wave < 1:
+            warnings.append(f"max_parallel_per_wave must be >= 1, got {self.max_parallel_per_wave}")
+        if self.wave_failure_policy not in ("continue", "abort"):
+            warnings.append(f"wave_failure_policy must be 'continue' or 'abort', got {self.wave_failure_policy!r}")
+        if self.merge_strategy not in ("sequential", "file_overlap_first"):
+            warnings.append(f"merge_strategy must be 'sequential' or 'file_overlap_first', got {self.merge_strategy!r}")
+        if self.max_rework_attempts < 0:
+            warnings.append(f"max_rework_attempts must be >= 0, got {self.max_rework_attempts}")
 
         # Parallel executor settings
         if self.max_concurrency < 1:
