@@ -1972,3 +1972,107 @@ def conflicts() -> None:
             console.print(
                 f"{item.get('file_path', '')}: {item.get('session_a', '')} vs {item.get('session_b', '')}{ticket_info}"
             )
+
+
+@app.command()
+def changelog(
+    since: str = typer.Option(
+        "", "--since", help="Git ref (tag or SHA) to generate changelog from. Defaults to latest tag or first commit."
+    ),
+    version: str = typer.Option("Unreleased", "--version", help="Version label for the changelog entry header."),
+    output: str = typer.Option("", "--output", "-o", help="Write output to this file instead of stdout."),
+) -> None:
+    """Generate a Keep-a-Changelog formatted entry from git history.
+
+    Uses Claude (Haiku) to categorize commits into Added/Changed/Fixed/Removed.
+
+    Example: golem changelog --since v1.0.0 --version 1.1.0
+    Example: golem changelog --output CHANGELOG.md
+    """
+    from golem.changelog import format_changelog, generate_changelog
+
+    project_root = _get_project_root()
+    config = load_config(_get_golem_dir(project_root))
+
+    changelog_path = project_root / "CHANGELOG.md"
+    previous_changelog = ""
+    if changelog_path.exists():
+        previous_changelog = changelog_path.read_text(encoding="utf-8")
+
+    async def _run() -> str:
+        entry = await generate_changelog(
+            since=since,
+            version=version,
+            config=config,
+            previous_changelog=previous_changelog,
+            cwd=str(project_root),
+        )
+        return format_changelog(entry)
+
+    try:
+        formatted = asyncio.run(_run())
+    except Exception as exc:
+        console.print(f"[red]Changelog generation failed: {exc}[/red]")
+        raise typer.Exit(1)
+
+    if output:
+        out_path = Path(output)
+        out_path.write_text(formatted + "\n", encoding="utf-8")
+        console.print(f"Changelog written to {out_path}")
+    else:
+        console.print(formatted)
+
+
+@app.command(name="commit-msg")
+def commit_msg(
+    apply: bool = typer.Option(False, "--apply", help="Create the commit with the generated message."),
+) -> None:
+    """Generate a conventional commit message from staged changes.
+
+    Reads staged diff via git diff --cached and sends to Claude (Haiku).
+
+    Example: golem commit-msg
+    Example: golem commit-msg --apply
+    """
+    from golem.changelog import format_commit_message, generate_commit_message
+
+    project_root = _get_project_root()
+    config = load_config(_get_golem_dir(project_root))
+
+    diff_result = subprocess.run(
+        ["git", "diff", "--cached"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=str(project_root),
+    )
+    if diff_result.returncode != 0:
+        console.print(f"[red]git diff --cached failed: {diff_result.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+
+    staged_diff = diff_result.stdout
+
+    async def _run() -> str:
+        msg = await generate_commit_message(diff=staged_diff, config=config)
+        return format_commit_message(msg)
+
+    try:
+        commit_text = asyncio.run(_run())
+    except Exception as exc:
+        console.print(f"[red]Commit message generation failed: {exc}[/red]")
+        raise typer.Exit(1)
+
+    console.print(commit_text)
+
+    if apply:
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", commit_text],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=str(project_root),
+        )
+        if commit_result.returncode != 0:
+            console.print(f"[red]git commit failed: {commit_result.stderr.strip()}[/red]")
+            raise typer.Exit(1)
+        console.print("[green]Committed.[/green]")
