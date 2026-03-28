@@ -88,6 +88,10 @@ class GolemConfig:
     rate_limit_base_delay_s: float = 30.0   # base for exponential backoff (seconds)
     subagent_max_steps: int = 100       # step budget per subagent (passed as max_turns)
 
+    # Insight extraction settings
+    insight_extraction_enabled: bool = True
+    insight_model: str = "claude-haiku-4-5-20251001"
+
     # Per-run QA depth: "minimal" | "standard" | "strict"
     qa_depth: str = "standard"
     # Maximum rework cycles a Junior Dev can be sent back for (per ticket)
