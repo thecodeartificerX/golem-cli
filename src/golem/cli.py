@@ -600,6 +600,33 @@ def status(
         asyncio.run(_session_detail())
         return
 
+    # Auto-detect running server (mirrors history/stats pattern)
+    server_info = find_server(project_root)
+    if server_info is not None:
+        _srv_host, _srv_port = server_info
+        async def _server_status() -> None:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(base_url=f"http://{_srv_host}:{_srv_port}") as http:
+                    resp = await http.get("/api/sessions", timeout=15.0)
+                    resp.raise_for_status()
+                    sessions = resp.json()
+                if not sessions:
+                    console.print("[dim]No active sessions on server.[/dim]")
+                    return
+                from rich.table import Table
+                table = Table(title="Server Sessions")
+                table.add_column("Session ID")
+                table.add_column("Status")
+                table.add_column("Spec")
+                for s in sessions:
+                    table.add_row(s.get("id", "?"), s.get("status", "?"), s.get("spec_path", "?"))
+                console.print(table)
+            except Exception as exc:
+                console.print(f"[red]Failed to get server status: {exc}[/red]")
+        asyncio.run(_server_status())
+        return
+
     golem_dir = _get_golem_dir(project_root)
     tickets_dir = golem_dir / "tickets"
 
@@ -871,6 +898,35 @@ def inspect(
             except Exception as exc:
                 console.print(f"[red]Failed to inspect ticket: {exc}[/red]")
         asyncio.run(_session_ticket())
+        return
+
+    # Auto-detect running server for ticket lookup
+    server_info = find_server(project_root)
+    if server_info is not None:
+        _srv_host, _srv_port = server_info
+        async def _server_inspect() -> None:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(base_url=f"http://{_srv_host}:{_srv_port}") as http:
+                    # Try all sessions to find the ticket
+                    resp = await http.get("/api/sessions", timeout=15.0)
+                    resp.raise_for_status()
+                    sessions = resp.json()
+                    for s in sessions:
+                        sid = s.get("id", "")
+                        tresp = await http.get(f"/api/sessions/{sid}/tickets", timeout=15.0)
+                        if tresp.status_code == 200:
+                            tickets = tresp.json()
+                            for t in tickets:
+                                if str(t.get("id", "")).upper() == ticket_id.upper():
+                                    console.print(f"\n[bold cyan]{t.get('id')}[/bold cyan] -- {t.get('title')}")
+                                    console.print(f"  Type: {t.get('type')}  |  Status: {t.get('status')}  |  Priority: {t.get('priority')}")
+                                    console.print(f"  Created by: {t.get('created_by')}  |  Assigned to: {t.get('assigned_to')}")
+                                    return
+                console.print(f"[yellow]Ticket {ticket_id} not found on server.[/yellow]")
+            except Exception as exc:
+                console.print(f"[red]Failed to inspect via server: {exc}[/red]")
+        asyncio.run(_server_inspect())
         return
 
     golem_dir = _get_golem_dir(project_root)
@@ -1422,26 +1478,41 @@ def doctor() -> None:
     checks: list[tuple[str, bool, str]] = []
 
     # Check git
-    result = subprocess.run(["git", "--version"], capture_output=True, text=True)
-    checks.append(("git", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    try:
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True)
+        checks.append(("git", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    except FileNotFoundError:
+        checks.append(("git", False, "not found"))
 
     # Check uv
-    result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
-    checks.append(("uv", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    try:
+        result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
+        checks.append(("uv", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    except FileNotFoundError:
+        checks.append(("uv", False, "not found"))
 
     # Check claude CLI
-    result = subprocess.run(["claude", "--version"], capture_output=True, text=True)
-    checks.append(("claude", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    try:
+        result = subprocess.run(["claude", "--version"], capture_output=True, text=True)
+        checks.append(("claude", result.returncode == 0, result.stdout.strip() if result.returncode == 0 else "not found"))
+    except FileNotFoundError:
+        checks.append(("claude", False, "not found"))
 
     # Check ripgrep
-    result = subprocess.run(["rg", "--version"], capture_output=True, text=True)
-    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found"
-    checks.append(("rg (ripgrep)", result.returncode == 0, version_line))
+    try:
+        result = subprocess.run(["rg", "--version"], capture_output=True, text=True)
+        version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found"
+        checks.append(("rg (ripgrep)", result.returncode == 0, version_line))
+    except FileNotFoundError:
+        checks.append(("rg (ripgrep)", False, "not found"))
 
     # Check gh CLI
-    result = subprocess.run(["gh", "--version"], capture_output=True, text=True)
-    version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found (optional)"
-    checks.append(("gh (GitHub CLI)", result.returncode == 0, version_line))
+    try:
+        result = subprocess.run(["gh", "--version"], capture_output=True, text=True)
+        version_line = result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else "not found (optional)"
+        checks.append(("gh (GitHub CLI)", result.returncode == 0, version_line))
+    except FileNotFoundError:
+        checks.append(("gh (GitHub CLI)", False, "not found (optional)"))
 
     all_pass = True
     for name, ok, detail in checks:

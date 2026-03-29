@@ -377,14 +377,17 @@ def _parse_ideas(raw: str, category: IdeaCategory) -> tuple[list[Idea], str]:
     start = raw.find("{")
     end = raw.rfind("}")
     if start == -1 or end == -1 or end <= start:
+        print(f"[IDEATION] Failed to parse {category}: no JSON object found in response ({len(raw)} chars)", file=sys.stderr)
         return [], ""
 
     try:
         data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        print(f"[IDEATION] Failed to parse {category}: {exc}", file=sys.stderr)
         return [], ""
 
     if not isinstance(data, dict):
+        print(f"[IDEATION] Failed to parse {category}: expected dict, got {type(data).__name__}", file=sys.stderr)
         return [], ""
 
     summary = str(data.get("summary", "")).strip()
@@ -478,7 +481,7 @@ async def run_ideation(
         async for message in query(prompt=user_message, options=options):
             if isinstance(message, ResultMessage):
                 if message.result:
-                    raw_response = message.result
+                    raw_response += message.result
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if hasattr(block, "text"):
@@ -495,6 +498,10 @@ async def run_ideation(
             duration_s=time.monotonic() - t0,
         )
 
+    if not raw_response.strip():
+        print(f"[IDEATION] Warning: empty response for category '{category}'", file=sys.stderr)
+    else:
+        print(f"[IDEATION] Parsing response for '{category}' ({len(raw_response)} chars)", file=sys.stderr)
     ideas, summary = _parse_ideas(raw_response, category)
     # Apply max_ideas cap
     ideas = ideas[:max_ideas]

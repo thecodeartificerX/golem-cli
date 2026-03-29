@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.requests import Request
 
@@ -129,6 +129,13 @@ def _group_by_column(cards: list[dict[str, object]]) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+def _make_set_event() -> asyncio.Event:
+    """Create an asyncio.Event that starts in the set (unpaused) state."""
+    ev = asyncio.Event()
+    ev.set()
+    return ev
+
+
 @dataclass
 class SessionState:
     id: str
@@ -142,6 +149,7 @@ class SessionState:
     observe_queue: asyncio.Queue[object] = field(default_factory=asyncio.Queue)
     log_buffer: deque[dict[str, str | None]] = field(default_factory=lambda: deque(maxlen=200))
     background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
+    resume_event: asyncio.Event = field(default_factory=_make_set_event)
 
 
 class SessionManager:
@@ -173,9 +181,17 @@ class SessionManager:
         return self._sessions.pop(session_id, None) is not None
 
     def pause_session(self, session_id: str) -> bool:
-        """Pause a running session's subprocess."""
+        """Pause a running session (subprocess via signal, or task via event)."""
         session = self._sessions.get(session_id)
-        if not session or not session.process or session.process.returncode is not None:
+        if not session:
+            return False
+        # In-process task path — cooperative pause via event
+        if session.task and not session.task.done():
+            session.resume_event.clear()
+            session.status = "paused"
+            return True
+        # Subprocess path
+        if not session.process or session.process.returncode is not None:
             return False
         import signal
         try:
@@ -186,9 +202,17 @@ class SessionManager:
             return False
 
     def resume_session(self, session_id: str) -> bool:
-        """Resume a paused session's subprocess."""
+        """Resume a paused session (subprocess via signal, or task via event)."""
         session = self._sessions.get(session_id)
-        if not session or session.status != "paused" or not session.process:
+        if not session or session.status != "paused":
+            return False
+        # In-process task path
+        if session.task and not session.task.done():
+            session.resume_event.set()
+            session.status = "running"
+            return True
+        # Subprocess path
+        if not session.process:
             return False
         import signal
         try:
@@ -289,8 +313,15 @@ async def tail_progress_log(state: SessionState, sessions_dir: Path) -> None:
 
     while True:
         await asyncio.sleep(0.5)
-        if state.process is None or state.process.returncode is not None:
-            break
+        # Support both subprocess-based and in-process (asyncio.Task) sessions
+        if state.process is not None:
+            if state.process.returncode is not None:
+                break
+        elif state.task is not None:
+            if state.task.done():
+                break
+        else:
+            break  # neither process nor task — nothing to tail
         if not log_path.exists():
             continue
         try:
@@ -845,6 +876,26 @@ def create_app() -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
+
+    @app.get("/api/sessions/{session_id}/events/snapshot")
+    async def get_events_snapshot(session_id: str) -> JSONResponse:
+        """Return all recorded events for a session as a JSON array."""
+        state = session_mgr.get_session(session_id)
+        if state is None:
+            return JSONResponse({"error": "session not found"}, status_code=404)
+        events_path = sessions_dir / session_id / "events.jsonl"
+        if not events_path.exists():
+            return JSONResponse([], status_code=200)
+        events: list[dict[str, object]] = []
+        try:
+            with open(events_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        events.append(json.loads(line))
+        except (OSError, json.JSONDecodeError):
+            return JSONResponse({"error": "failed to read events"}, status_code=500)
+        return JSONResponse(events, status_code=200)
 
     @app.get("/api/events")
     async def aggregate_events() -> StreamingResponse:

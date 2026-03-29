@@ -263,13 +263,13 @@ async def test_pause_resume_session(client: AsyncClient, tmp_path: Path) -> None
         resp = await client.post(f"/api/sessions/{session_id}/start")
     assert resp.status_code == 200
 
-    # Pause — returns 400 for in-process tasks (no subprocess to SIGSTOP)
+    # Pause — cooperative pause via asyncio.Event for in-process tasks
     resp = await client.post(f"/api/sessions/{session_id}/pause")
-    assert resp.status_code == 400
+    assert resp.status_code == 200
 
-    # Resume — returns 400 (not paused)
+    # Resume — unblocks the cooperative pause event
     resp = await client.post(f"/api/sessions/{session_id}/resume")
-    assert resp.status_code == 400
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
