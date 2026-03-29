@@ -337,16 +337,25 @@ async def _handle_run_qa(
     args: dict[str, object],
     event_bus: EventBus | None = None,
 ) -> dict[str, object]:
+    import asyncio
     import sys
     try:
         checks_raw = args.get("checks") or []
         infra_raw = args.get("infrastructure_checks") or []
         qa_depth_raw = args.get("qa_depth") or "standard"
-        result = run_qa(
-            worktree_path=str(args["worktree_path"]),
-            checks=[str(c) for c in checks_raw],  # type: ignore[union-attr]
-            infrastructure_checks=[str(c) for c in infra_raw],  # type: ignore[union-attr]
-            qa_depth=str(qa_depth_raw),
+        worktree_path = str(args["worktree_path"])
+        checks_list = [str(c) for c in checks_raw]  # type: ignore[union-attr]
+        infra_list = [str(c) for c in infra_raw]  # type: ignore[union-attr]
+        qa_depth_str = str(qa_depth_raw)
+        # run_qa uses subprocess.run() (synchronous, blocks up to 120 s per check).
+        # Offload to a thread so the asyncio event loop stays responsive and the SDK
+        # can continue processing MCP control_request messages during QA execution.
+        result = await asyncio.to_thread(
+            run_qa,
+            worktree_path=worktree_path,
+            checks=checks_list,
+            infrastructure_checks=infra_list,
+            qa_depth=qa_depth_str,
         )
     except Exception as e:
         # Safety net: always return valid QAResult JSON — never let an exception
@@ -475,14 +484,11 @@ async def _handle_get_build_progress(
     return {"content": [{"type": "text", "text": text}]}
 
 
-async def _handle_record_discovery(
-    memory_dir: Path,
-    args: dict[str, object],
-) -> dict[str, object]:
+def _record_discovery_sync(memory_dir: Path, file_path: str, description: str, category: str) -> None:
+    """Synchronous core of record_discovery — runs in a thread via asyncio.to_thread()."""
     memory_dir.mkdir(parents=True, exist_ok=True)
     map_file = memory_dir / "codebase_map.json"
 
-    # Read existing or create fresh
     codebase_map: dict[str, object] = {"discovered_files": {}, "last_updated": None}
     if map_file.exists():
         try:
@@ -493,27 +499,37 @@ async def _handle_record_discovery(
         except (json.JSONDecodeError, OSError):
             pass  # corrupt file: start fresh
 
-    file_path = str(args["file_path"])
     discovered = codebase_map.setdefault("discovered_files", {})
     if not isinstance(discovered, dict):
         discovered = {}
         codebase_map["discovered_files"] = discovered
 
     discovered[file_path] = {
-        "description": str(args["description"]),
-        "category": str(args.get("category") or "general"),
+        "description": description,
+        "category": category,
         "discovered_at": datetime.now(tz=UTC).isoformat(),
     }
     codebase_map["last_updated"] = datetime.now(tz=UTC).isoformat()
-
     _write_json_atomic(map_file, codebase_map)
-    return {"content": [{"type": "text", "text": json.dumps({"ok": True, "file": file_path})}]}
 
 
-async def _handle_record_gotcha(
+async def _handle_record_discovery(
     memory_dir: Path,
     args: dict[str, object],
 ) -> dict[str, object]:
+    import asyncio
+
+    file_path = str(args["file_path"])
+    description = str(args["description"])
+    category = str(args.get("category") or "general")
+    # Offload file I/O to a thread — _write_json_atomic uses os.replace() which can
+    # block on Windows when another process has the file open.
+    await asyncio.to_thread(_record_discovery_sync, memory_dir, file_path, description, category)
+    return {"content": [{"type": "text", "text": json.dumps({"ok": True, "file": file_path})}]}
+
+
+def _record_gotcha_sync(memory_dir: Path, gotcha_text: str, context_text: str) -> None:
+    """Synchronous core of record_gotcha — runs in a thread via asyncio.to_thread()."""
     memory_dir.mkdir(parents=True, exist_ok=True)
     gotchas_file = memory_dir / "gotchas.md"
 
@@ -522,9 +538,6 @@ async def _handle_record_gotcha(
         f"{now.year}-{now.month:02d}-{now.day:02d}"
         f" {now.hour:02d}:{now.minute:02d}"
     )
-    gotcha_text = str(args["gotcha"])
-    context_text = str(args.get("context") or "")
-
     is_new = not gotchas_file.exists() or gotchas_file.stat().st_size == 0
     header = "# Gotchas & Pitfalls\n\nThings to watch out for in this codebase.\n" if is_new else ""
     entry = f"\n## [{timestamp}]\n{gotcha_text}"
@@ -535,6 +548,17 @@ async def _handle_record_gotcha(
     with open(gotchas_file, "a" if not is_new else "w", encoding="utf-8") as f:
         f.write(header + entry)
 
+
+async def _handle_record_gotcha(
+    memory_dir: Path,
+    args: dict[str, object],
+) -> dict[str, object]:
+    import asyncio
+
+    gotcha_text = str(args["gotcha"])
+    context_text = str(args.get("context") or "")
+    # Offload file I/O to a thread — file writes can block on Windows.
+    await asyncio.to_thread(_record_gotcha_sync, memory_dir, gotcha_text, context_text)
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 

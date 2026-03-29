@@ -19,6 +19,7 @@ import pytest
 from golem.config import GolemConfig
 from golem.tools import (
     create_golem_mcp_server,
+    create_golem_planner_mcp_server,
     create_junior_dev_mcp_server,
     get_tech_lead_tools,
     handle_tool_call,
@@ -397,3 +398,183 @@ async def test_two_servers_share_ticket_store(tmp_path: Path) -> None:
     result = await _call_mcp_tool(tl, "read_ticket", {"ticket_id": ticket_id})
     assert result["status"] == "done"
     assert any("Finished by JD" in h.get("note", "") for h in result["history"])
+
+
+# ---------------------------------------------------------------------------
+# Test: wait_for_result_and_end_input is no-op when SDK MCP servers present
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wait_for_result_noop_with_mcp_servers() -> None:
+    """Verify wait_for_result_and_end_input skips end_input() when MCP servers are present.
+
+    The patch overrides wait_for_result_and_end_input to be a no-op when sdk_mcp_servers
+    is non-empty.  This prevents premature stdin closure after intermediate sub-agent
+    result messages — the root cause of 'Stream closed' MCP errors in multi-agent sessions.
+    """
+    # Import planner to trigger the monkey-patch at module level
+    import golem.planner  # noqa: F401 — side-effect: applies the patch
+
+    from claude_agent_sdk._internal.client import Query  # type: ignore[import]
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_transport = MagicMock()
+    mock_transport.end_input = AsyncMock()
+
+    # With MCP servers: wait_for_result_and_end_input should NOT call end_input
+    query_with_mcp = Query(
+        transport=mock_transport,
+        is_streaming_mode=True,
+        sdk_mcp_servers={"golem": MagicMock()},
+    )
+    await query_with_mcp.wait_for_result_and_end_input()
+    mock_transport.end_input.assert_not_called()
+
+    # Without MCP servers: end_input should be called (original behavior)
+    mock_transport_no_mcp = MagicMock()
+    mock_transport_no_mcp.end_input = AsyncMock()
+    query_no_mcp = Query(
+        transport=mock_transport_no_mcp,
+        is_streaming_mode=True,
+        sdk_mcp_servers={},
+    )
+    await query_no_mcp.wait_for_result_and_end_input()
+    mock_transport_no_mcp.end_input.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test: record_discovery and record_gotcha don't block the event loop
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_record_discovery_nonblocking(tmp_path: Path) -> None:
+    """record_discovery runs I/O in a thread and doesn't block the asyncio event loop."""
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    server_config = create_golem_planner_mcp_server(golem_dir, config, tmp_path)
+    server = server_config["instance"]
+
+    # Call record_discovery multiple times — each should complete without blocking
+    for i in range(5):
+        result = await _call_mcp_tool(server, "record_discovery", {
+            "file_path": f"src/module_{i}.py",
+            "description": f"Handles operation {i}",
+            "category": "api",
+        })
+        assert result["ok"] is True
+        assert result["file"] == f"src/module_{i}.py"
+
+    # Verify all discoveries were persisted to codebase_map.json
+    memory_dir = golem_dir / "memory"
+    map_file = memory_dir / "codebase_map.json"
+    assert map_file.exists()
+    data = json.loads(map_file.read_text(encoding="utf-8"))
+    assert len(data["discovered_files"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_record_gotcha_nonblocking(tmp_path: Path) -> None:
+    """record_gotcha runs I/O in a thread and appends entries correctly."""
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    server_config = create_golem_planner_mcp_server(golem_dir, config, tmp_path)
+    server = server_config["instance"]
+
+    result = await _call_mcp_tool(server, "record_gotcha", {
+        "gotcha": "Always use encoding='utf-8' on Windows",
+        "context": "File I/O across Windows/Linux",
+    })
+    assert result["ok"] is True
+
+    # Append a second entry
+    result = await _call_mcp_tool(server, "record_gotcha", {
+        "gotcha": "Never use threading — use asyncio",
+    })
+    assert result["ok"] is True
+
+    memory_dir = golem_dir / "memory"
+    gotchas_file = memory_dir / "gotchas.md"
+    assert gotchas_file.exists()
+    content = gotchas_file.read_text(encoding="utf-8")
+    assert "Always use encoding" in content
+    assert "Never use threading" in content
+    assert "# Gotchas & Pitfalls" in content
+
+
+# ---------------------------------------------------------------------------
+# Test: run_qa handler offloads to thread (doesn't starve the event loop)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_qa_handler_nonblocking(tmp_path: Path) -> None:
+    """run_qa offloads subprocess.run() to a thread so other coroutines can run."""
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    server_config = create_golem_mcp_server(golem_dir, config, tmp_path)
+    server = server_config["instance"]
+
+    # Track whether a concurrent coroutine can make progress while run_qa runs
+    progress_made = []
+
+    async def _background_task() -> None:
+        for _ in range(3):
+            await asyncio.sleep(0)  # yield to event loop
+            progress_made.append(True)
+
+    # Run run_qa and background_task concurrently
+    bg = asyncio.create_task(_background_task())
+    result = await _call_mcp_tool(server, "run_qa", {
+        "worktree_path": str(tmp_path),
+        "checks": [],
+        "infrastructure_checks": [],
+        "qa_depth": "minimal",
+    })
+    await bg
+
+    # run_qa must succeed (no checks = passed)
+    assert result["passed"] is True
+    # Background task must have made progress (event loop was not starved)
+    assert len(progress_made) == 3
+
+
+# ---------------------------------------------------------------------------
+# Test: planner MCP server exposes the correct tool set
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_planner_mcp_server_tool_set(tmp_path: Path) -> None:
+    """Planner MCP server exposes exactly the expected planner tools."""
+    golem_dir = tmp_path / ".golem"
+    (golem_dir / "tickets").mkdir(parents=True)
+    config = GolemConfig()
+
+    server_config = create_golem_planner_mcp_server(golem_dir, config, tmp_path)
+    server = server_config["instance"]
+
+    tools = await _list_mcp_tools(server)
+
+    # Planner should have these 7 tools
+    expected = {
+        "create_ticket",
+        "read_ticket",
+        "list_tickets",
+        "get_session_context",
+        "record_discovery",
+        "record_gotcha",
+        "get_build_progress",
+    }
+    assert set(tools) == expected, f"Unexpected tool set: {set(tools)}"
+
+    # Planner must NOT have write/qa/worktree tools
+    forbidden = {"update_ticket", "run_qa", "create_worktree", "merge_branches", "commit_worktree"}
+    assert not (set(tools) & forbidden), f"Planner got forbidden tools: {set(tools) & forbidden}"

@@ -50,6 +50,44 @@ try:
 except Exception:
     pass
 
+# Monkey-patch SDK to prevent premature stdin closure for MCP sessions.
+#
+# Root cause of "Stream closed" MCP errors:
+#   process_query() for string prompts calls wait_for_result_and_end_input() which
+#   waits for the FIRST {"type": "result"} message, then calls transport.end_input()
+#   to close stdin permanently.  In multi-agent sessions (planner with Explorer/Researcher
+#   sub-agents, tech lead with Junior Dev/QA sub-agents), the CLI emits intermediate
+#   {"type": "result"} messages for every sub-agent completion — not just the final one.
+#   The first sub-agent result fires _first_result_event, end_input() closes stdin, but
+#   the parent agent keeps running and subsequently calls MCP tools (create_ticket, etc.).
+#   Those MCP control_requests arrive from CLI stdout, but _handle_control_request tries
+#   to write responses back over stdin — which is already closed.  CLIConnectionError is
+#   raised, the error response write also fails, and the anyio task-group dies.
+#
+#   The _stream_close_timeout approach (setting it to 24h) does NOT work because
+#   _first_result_event is an anyio.Event — once set by any sub-agent result, await
+#   returns immediately regardless of timeout.  The timeout only matters if the event
+#   is never set.
+#
+# Fix: override wait_for_result_and_end_input to be a no-op when sdk_mcp_servers are
+#   registered.  Stdin stays open for the full session and closes naturally when the
+#   CLI process exits.  This is safe because the only purpose of end_input() is to
+#   signal "no more user messages" — but for string prompts the user message was already
+#   written, and MCP responses flow over stdin for the rest of the session.
+try:
+    from claude_agent_sdk._internal.client import Query as _Query  # type: ignore[import]
+
+    _orig_wait_for_result = _Query.wait_for_result_and_end_input
+
+    async def _patched_wait_for_result(self) -> None:  # type: ignore[no-untyped-def]
+        if getattr(self, "sdk_mcp_servers", None):
+            return  # Keep stdin open — MCP responses need it for the full session
+        await _orig_wait_for_result(self)
+
+    _Query.wait_for_result_and_end_input = _patched_wait_for_result  # type: ignore[method-assign]
+except Exception:
+    pass
+
 
 async def _run_planner_session(
     prompt: str,
@@ -198,8 +236,13 @@ async def run_planner(
 
         if retry_result.stalled:
             progress.log_stall_fatal("planner", retry_result.turns)
-            raise RuntimeError(
-                f"Planner stalled after retry -- {retry_result.turns} turns with no progress"
+            # Don't raise — fall through to content verification and fallback
+            # ticket creation. The planner may have written plan files even
+            # though it never called create_ticket.
+            print(
+                f"[LEAD ARCHITECT] Planner stalled after retry ({retry_result.turns} turns) "
+                "-- attempting fallback ticket creation",
+                file=sys.stderr,
             )
         session_result = retry_result
 

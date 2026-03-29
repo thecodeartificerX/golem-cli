@@ -35,6 +35,12 @@ ACTION_TOOLS: set[str] = {
     "merge_branches",
     "commit_worktree",
     "run_qa",
+    # Planner progress tools — these indicate active system interaction
+    # and should prevent premature stall-kill during exploration phases.
+    "get_session_context",
+    "get_build_progress",
+    "record_discovery",
+    "record_gotcha",
 }
 
 

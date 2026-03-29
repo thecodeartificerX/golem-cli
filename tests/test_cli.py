@@ -182,11 +182,12 @@ def test_version_cli_shows_version() -> None:
     assert "0.2.0" in result.output
 
 
-def test_status_cli_no_golem_dir_exits_cleanly() -> None:
+def test_status_cli_no_golem_dir_exits_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     from golem.cli import app
 
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
     runner = CliRunner()
     # Run from a temp dir with no .golem/
     result = runner.invoke(app, ["status"])
@@ -195,11 +196,12 @@ def test_status_cli_no_golem_dir_exits_cleanly() -> None:
     assert "No active run" in result.output or "no active" in result.output.lower()
 
 
-def test_history_cli_no_golem_dir_exits_cleanly() -> None:
+def test_history_cli_no_golem_dir_exits_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     from golem.cli import app
 
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
     runner = CliRunner()
     result = runner.invoke(app, ["history"])
     assert result.exit_code == 0
@@ -227,11 +229,12 @@ def test_logs_cli_no_progress_log_exits() -> None:
     assert result.exit_code != 0 or "no progress" in result.output.lower()
 
 
-def test_inspect_cli_no_golem_dir_exits_cleanly() -> None:
+def test_inspect_cli_no_golem_dir_exits_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     from golem.cli import app
 
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
     runner = CliRunner()
     result = runner.invoke(app, ["inspect", "TICKET-001"])
     assert result.exit_code == 0
