@@ -19,6 +19,11 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage
 
 from golem.config import GolemConfig
 
+try:
+    from claude_agent_sdk import RateLimitEvent
+except ImportError:
+    RateLimitEvent = None  # SDK version doesn't support it yet
+
 if TYPE_CHECKING:
     from golem.events import EventBus
 
@@ -181,8 +186,11 @@ class SupervisedResult:
     stalled: bool
     stall_turn: int | None
     registry: ToolCallRegistry
-    stop_reason: str | None = None   # from ResultMessage
-    sdk_session_id: str = ""         # from ResultMessage.session_id
+    stop_reason: str | None = None         # from ResultMessage
+    sdk_session_id: str = ""               # from ResultMessage.session_id
+    cache_read_tokens: int = 0             # from usage["cache_read_input_tokens"]
+    drained_turns: int = 0                 # turns consumed after kill_hit (token burn visibility)
+    rate_limit_resets_at: float | None = None  # unix timestamp from RateLimitEvent.resets_at
 
 
 @dataclass
@@ -190,16 +198,18 @@ class ContinuationResult:
     """Merged result from one or more supervised session segments."""
 
     result_text: str
-    cost_usd: float           # Cumulative across all segments
-    input_tokens: int         # Cumulative
-    output_tokens: int        # Cumulative
-    turns: int                # Cumulative
-    duration_s: float         # Cumulative
-    stalled: bool             # True if final segment stalled
-    stall_turn: int | None    # From final segment
-    registry: ToolCallRegistry  # From final segment only
-    continuation_count: int   # 0 = no continuation, N = N continuations used
-    exhausted: bool           # True if hit max_continuations cap
+    cost_usd: float               # Cumulative across all segments
+    input_tokens: int             # Cumulative
+    output_tokens: int            # Cumulative
+    turns: int                    # Cumulative
+    duration_s: float             # Cumulative
+    stalled: bool                 # True if final segment stalled
+    stall_turn: int | None        # From final segment
+    registry: ToolCallRegistry    # From final segment only
+    continuation_count: int       # 0 = no continuation, N = N continuations used
+    exhausted: bool               # True if hit max_continuations cap
+    cache_read_tokens: int = 0             # Cumulative across all segments
+    rate_limit_resets_at: float | None = None  # From any segment that hit a rate limit
 
 
 # Context exhaustion detection constants
@@ -294,6 +304,9 @@ async def supervised_session(
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    drained_turns: int = 0
+    rate_limit_resets_at: float | None = None
     stall_turn: int | None = None
     current_prompt = prompt
 
@@ -318,9 +331,10 @@ async def supervised_session(
         if isinstance(message, AssistantMessage):
             current_turn += 1
 
-            # After kill threshold, skip message processing but keep
-            # consuming so the generator exits naturally.
+            # After kill threshold, count drained turns and skip processing but
+            # keep consuming so the generator exits naturally.
             if kill_hit:
+                drained_turns += 1
                 continue
 
             for block in message.content:
@@ -394,11 +408,29 @@ async def supervised_session(
                     from golem.events import AgentStallKill
                     await event_bus.emit(AgentStallKill(role=role, turn=current_turn))
 
+        elif RateLimitEvent is not None and isinstance(message, RateLimitEvent):
+            info = getattr(message, "rate_limit_info", None)
+            if info is not None:
+                status = getattr(info, "status", None)
+                if status == "allowed_warning":
+                    utilization = getattr(info, "utilization", None)
+                    util_str = f" (utilization: {utilization:.0%})" if utilization is not None else ""
+                    if golem_dir:
+                        ProgressLogger(golem_dir).log_warning(
+                            role, f"rate limit approaching{util_str}"
+                        )
+                elif status == "rejected":
+                    kill_hit = True
+                    resets_at = getattr(info, "resets_at", None)
+                    if resets_at is not None:
+                        rate_limit_resets_at = float(resets_at)
+
         elif isinstance(message, ResultMessage):
             cost_usd = message.total_cost_usd or 0.0
             usage = message.usage or {}
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            cache_read_tokens = usage.get("cache_read_input_tokens", 0)
             stop_reason = message.stop_reason
             sdk_session_id = message.session_id or ""
             if message.result:
@@ -429,6 +461,9 @@ async def supervised_session(
         registry=registry,
         stop_reason=stop_reason,
         sdk_session_id=sdk_session_id,
+        cache_read_tokens=cache_read_tokens,
+        drained_turns=drained_turns,
+        rate_limit_resets_at=rate_limit_resets_at,
     )
 
 
@@ -652,16 +687,25 @@ async def continuation_supervised_session(
             registry=result.registry,
             continuation_count=0,
             exhausted=False,
+            cache_read_tokens=result.cache_read_tokens,
+            rate_limit_resets_at=result.rate_limit_resets_at,
         )
 
     max_continuations = config.max_continuations
     current_prompt = prompt
     continuation_count = 0
+    # total_cost tracks the true cumulative cost across all segments.
+    # ResultMessage.total_cost_usd is itself cumulative for the entire SDK session
+    # (including all prior continuations), so we compute the per-segment delta by
+    # subtracting the previous cumulative value before adding to total_cost.
     total_cost: float = 0.0
+    previous_cumulative_cost: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cache_read_tokens: int = 0
     total_turns: int = 0
     total_duration_s: float = 0.0
+    last_rate_limit_resets_at: float | None = None
 
     for i in range(max_continuations + 1):  # +1 for the initial session
         result = await supervised_session(
@@ -676,12 +720,20 @@ async def continuation_supervised_session(
             event_bus=event_bus,
         )
 
-        # Accumulate metrics from this segment
-        total_cost += result.cost_usd
+        # Accumulate metrics from this segment.
+        # cost_usd from supervised_session() comes from ResultMessage.total_cost_usd which
+        # is CUMULATIVE across the entire SDK session.  Compute the incremental cost for
+        # this segment only, then advance the previous baseline.
+        segment_cost = result.cost_usd - previous_cumulative_cost
+        previous_cumulative_cost = result.cost_usd
+        total_cost += segment_cost
         total_input_tokens += result.input_tokens
         total_output_tokens += result.output_tokens
+        total_cache_read_tokens += result.cache_read_tokens
         total_turns += result.turns
         total_duration_s += result.duration_s
+        if result.rate_limit_resets_at is not None:
+            last_rate_limit_resets_at = result.rate_limit_resets_at
 
         # Check if context exhausted
         exhausted = _is_context_exhausted(result)
@@ -700,6 +752,8 @@ async def continuation_supervised_session(
                 registry=result.registry,
                 continuation_count=continuation_count,
                 exhausted=False,
+                cache_read_tokens=total_cache_read_tokens,
+                rate_limit_resets_at=last_rate_limit_resets_at,
             )
 
         # Emit ContextExhausted event
@@ -727,6 +781,8 @@ async def continuation_supervised_session(
                 registry=result.registry,
                 continuation_count=continuation_count,
                 exhausted=True,  # Caller can log this but should not fail
+                cache_read_tokens=total_cache_read_tokens,
+                rate_limit_resets_at=last_rate_limit_resets_at,
             )
 
         # Compact and build the continuation prompt

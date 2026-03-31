@@ -26,7 +26,7 @@ from golem.config import GolemConfig
 
 if TYPE_CHECKING:
     from golem.events import EventBus
-    from golem.supervisor import SupervisedResult
+    from golem.supervisor import ContinuationResult, SupervisedResult
 
 
 # ---------------------------------------------------------------------------
@@ -347,12 +347,12 @@ class RecoveryCoordinator:
 
     async def run_with_recovery(
         self,
-        session_fn: Callable[[], Coroutine[None, None, SupervisedResult]],
+        session_fn: Callable[[], Coroutine[None, None, ContinuationResult | SupervisedResult]],
         role: str,
         label: str,
         golem_dir: Path | None = None,
         event_bus: EventBus | None = None,
-    ) -> SupervisedResult:
+    ) -> ContinuationResult | SupervisedResult:
         """Run session_fn with classification-aware retry.
 
         Retry budget per failure type:

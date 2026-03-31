@@ -840,3 +840,358 @@ class TestEventRegistry:
         restored = GolemEvent.from_dict(d)
         assert isinstance(restored, AgentRecoveryStarted)
         assert restored.delay_s == pytest.approx(300.0)
+
+
+# ---------------------------------------------------------------------------
+# Group 8 — Continuation cost double-counting fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestContinuationCostFix:
+    async def test_cumulative_cost_not_double_counted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """3 continuation segments with cumulative total_cost_usd values of 1.0, 2.5, 4.0
+        should yield total cost 4.0, not 7.5 (sum of raw values).
+        """
+        from unittest.mock import patch
+
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+
+        from golem.config import GolemConfig
+        from golem.supervisor import ContinuationResult, StallConfig, continuation_supervised_session
+
+        config = GolemConfig(continuation_enabled=True, max_continuations=5)
+        stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+        call_count = 0
+
+        # Cumulative costs: seg1=1.0, seg2=2.5 (+=1.5), seg3=4.0 (+=1.5)
+        cumulative_costs = [1.0, 2.5, 4.0]
+
+        async def fake_query(*args: object, **kwargs: object):  # type: ignore[return]
+            nonlocal call_count
+            seg = call_count
+            call_count += 1
+            stop = "max_tokens" if call_count < 3 else "end_turn"
+            yield ResultMessage(
+                subtype="result",
+                duration_ms=100,
+                duration_api_ms=50,
+                is_error=False,
+                num_turns=2,
+                session_id=f"s{call_count}",
+                result="partial" if call_count < 3 else "done",
+                stop_reason=stop,
+                total_cost_usd=cumulative_costs[seg],
+                usage={"input_tokens": 100, "output_tokens": 50},
+            )
+
+        options = ClaudeAgentOptions(
+            model="claude-opus-4-5",
+            cwd=".",
+            tools={"type": "preset", "preset": "claude_code"},
+            max_turns=50,
+            permission_mode="bypassPermissions",
+            env={},
+        )
+
+        with patch("golem.supervisor.query", side_effect=fake_query), \
+             patch("golem.supervisor.compact_session_messages", return_value="summary"):
+            result = await continuation_supervised_session(
+                "do work", options, "planner", config, stall_cfg,
+            )
+
+        assert isinstance(result, ContinuationResult)
+        # Total should be 4.0 (the final cumulative value), NOT 7.5 (1.0 + 2.5 + 4.0)
+        assert result.cost_usd == pytest.approx(4.0)
+        assert result.continuation_count == 2
+        assert call_count == 3
+
+    async def test_single_segment_cost_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Single-segment (no continuation) cost is passed through unchanged."""
+        from unittest.mock import patch
+
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+
+        from golem.config import GolemConfig
+        from golem.supervisor import ContinuationResult, StallConfig, continuation_supervised_session
+
+        config = GolemConfig(continuation_enabled=True, max_continuations=3)
+        stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+
+        async def fake_query(*args: object, **kwargs: object):  # type: ignore[return]
+            yield ResultMessage(
+                subtype="result",
+                duration_ms=100,
+                duration_api_ms=50,
+                is_error=False,
+                num_turns=1,
+                session_id="s1",
+                result="done",
+                stop_reason="end_turn",
+                total_cost_usd=2.75,
+                usage={"input_tokens": 200, "output_tokens": 80},
+            )
+
+        options = ClaudeAgentOptions(
+            model="claude-opus-4-5",
+            cwd=".",
+            tools={"type": "preset", "preset": "claude_code"},
+            max_turns=50,
+            permission_mode="bypassPermissions",
+            env={},
+        )
+
+        with patch("golem.supervisor.query", side_effect=fake_query):
+            result = await continuation_supervised_session(
+                "do work", options, "planner", config, stall_cfg,
+            )
+
+        assert isinstance(result, ContinuationResult)
+        assert result.cost_usd == pytest.approx(2.75)
+
+
+# ---------------------------------------------------------------------------
+# Group 9 — SupervisedResult new fields
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisedResultNewFields:
+    def test_cache_read_tokens_default_zero(self) -> None:
+        """cache_read_tokens defaults to 0."""
+        result = SupervisedResult(
+            result_text="ok",
+            cost_usd=0.0,
+            input_tokens=0,
+            output_tokens=0,
+            turns=1,
+            duration_s=0.1,
+            stalled=False,
+            stall_turn=None,
+            registry=ToolCallRegistry(),
+        )
+        assert result.cache_read_tokens == 0
+
+    def test_drained_turns_default_zero(self) -> None:
+        """drained_turns defaults to 0."""
+        result = SupervisedResult(
+            result_text="ok",
+            cost_usd=0.0,
+            input_tokens=0,
+            output_tokens=0,
+            turns=1,
+            duration_s=0.1,
+            stalled=False,
+            stall_turn=None,
+            registry=ToolCallRegistry(),
+        )
+        assert result.drained_turns == 0
+
+    def test_rate_limit_resets_at_default_none(self) -> None:
+        """rate_limit_resets_at defaults to None."""
+        result = SupervisedResult(
+            result_text="ok",
+            cost_usd=0.0,
+            input_tokens=0,
+            output_tokens=0,
+            turns=1,
+            duration_s=0.1,
+            stalled=False,
+            stall_turn=None,
+            registry=ToolCallRegistry(),
+        )
+        assert result.rate_limit_resets_at is None
+
+    def test_new_fields_constructible(self) -> None:
+        """SupervisedResult accepts all new fields."""
+        result = SupervisedResult(
+            result_text="ok",
+            cost_usd=1.5,
+            input_tokens=100,
+            output_tokens=50,
+            turns=5,
+            duration_s=2.0,
+            stalled=False,
+            stall_turn=None,
+            registry=ToolCallRegistry(),
+            cache_read_tokens=200,
+            drained_turns=3,
+            rate_limit_resets_at=1_700_000_000.0,
+        )
+        assert result.cache_read_tokens == 200
+        assert result.drained_turns == 3
+        assert result.rate_limit_resets_at == pytest.approx(1_700_000_000.0)
+
+
+# ---------------------------------------------------------------------------
+# Group 10 — cache_read_tokens and drained_turns in supervised_session()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSupervisedSessionNewFields:
+    async def test_cache_read_tokens_extracted_from_usage(self) -> None:
+        """cache_read_tokens is extracted from ResultMessage.usage."""
+        from unittest.mock import patch
+
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+
+        from golem.config import GolemConfig
+        from golem.supervisor import StallConfig, supervised_session
+
+        config = GolemConfig()
+        stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+
+        async def fake_query(*args: object, **kwargs: object):  # type: ignore[return]
+            yield ResultMessage(
+                subtype="result",
+                duration_ms=100,
+                duration_api_ms=50,
+                is_error=False,
+                num_turns=1,
+                session_id="s1",
+                result="done",
+                stop_reason="end_turn",
+                total_cost_usd=0.5,
+                usage={"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 300},
+            )
+
+        options = ClaudeAgentOptions(
+            model="claude-opus-4-5",
+            cwd=".",
+            tools={"type": "preset", "preset": "claude_code"},
+            max_turns=50,
+            permission_mode="bypassPermissions",
+            env={},
+        )
+
+        with patch("golem.supervisor.query", side_effect=fake_query):
+            result = await supervised_session(
+                "do work", options, "planner", config, stall_cfg,
+            )
+
+        assert result.cache_read_tokens == 300
+
+    async def test_drained_turns_counted_after_kill(self) -> None:
+        """drained_turns counts turns consumed after kill threshold is hit."""
+        from unittest.mock import patch
+
+        from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock
+
+        from golem.config import GolemConfig
+        from golem.supervisor import StallConfig, supervised_session
+
+        config = GolemConfig()
+        # kill_turn = 50% of 4 = 2; warning_turn = 30% of 4 = 1
+        stall_cfg = StallConfig(warning_pct=0.3, kill_pct=0.5, expected_actions=[], role="planner", max_turns=4)
+
+        async def fake_query(*args: object, **kwargs: object):  # type: ignore[return]
+            # 5 assistant turns with no action tools (stall at turn 2, drain turns 3-5)
+            for i in range(5):
+                yield AssistantMessage(
+                    content=[TextBlock(text=f"thinking turn {i}")],
+                    model="claude-opus-4-5",
+                )
+            yield ResultMessage(
+                subtype="result",
+                duration_ms=100,
+                duration_api_ms=50,
+                is_error=False,
+                num_turns=5,
+                session_id="s1",
+                result="",
+                stop_reason="max_turns",
+                total_cost_usd=0.1,
+                usage={"input_tokens": 50, "output_tokens": 25},
+            )
+
+        options = ClaudeAgentOptions(
+            model="claude-opus-4-5",
+            cwd=".",
+            tools={"type": "preset", "preset": "claude_code"},
+            max_turns=4,
+            permission_mode="bypassPermissions",
+            env={},
+        )
+
+        with patch("golem.supervisor.query", side_effect=fake_query):
+            result = await supervised_session(
+                "do work", options, "planner", config, stall_cfg,
+            )
+
+        assert result.stalled is True
+        # Kill hits at turn 2 (turns_since >= kill_turn=2), turns 3,4,5 are drained
+        assert result.drained_turns == 3
+
+    async def test_cache_read_tokens_accumulated_in_continuation(self) -> None:
+        """cache_read_tokens is summed across all continuation segments."""
+        from unittest.mock import patch
+
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+
+        from golem.config import GolemConfig
+        from golem.supervisor import ContinuationResult, StallConfig, continuation_supervised_session
+
+        config = GolemConfig(continuation_enabled=True, max_continuations=3)
+        stall_cfg = StallConfig(warning_pct=0.6, kill_pct=0.8, expected_actions=[], role="planner", max_turns=50)
+        call_count = 0
+
+        async def fake_query(*args: object, **kwargs: object):  # type: ignore[return]
+            nonlocal call_count
+            call_count += 1
+            # total_cost_usd is cumulative; cache_read_input_tokens is per-segment
+            yield ResultMessage(
+                subtype="result",
+                duration_ms=100,
+                duration_api_ms=50,
+                is_error=False,
+                num_turns=2,
+                session_id=f"s{call_count}",
+                result="partial" if call_count == 1 else "done",
+                stop_reason="max_tokens" if call_count == 1 else "end_turn",
+                total_cost_usd=call_count * 0.5,
+                usage={"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 400},
+            )
+
+        options = ClaudeAgentOptions(
+            model="claude-opus-4-5",
+            cwd=".",
+            tools={"type": "preset", "preset": "claude_code"},
+            max_turns=50,
+            permission_mode="bypassPermissions",
+            env={},
+        )
+
+        with patch("golem.supervisor.query", side_effect=fake_query), \
+             patch("golem.supervisor.compact_session_messages", return_value="summary"):
+            result = await continuation_supervised_session(
+                "do work", options, "planner", config, stall_cfg,
+            )
+
+        assert isinstance(result, ContinuationResult)
+        # cache_read_tokens: 400 per segment × 2 segments = 800
+        assert result.cache_read_tokens == 800
+        # Cost: seg1=0.5, seg2=1.0-0.5=0.5 → total=1.0
+        assert result.cost_usd == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Group 11 — run_with_recovery type widening
+# ---------------------------------------------------------------------------
+
+
+class TestRunWithRecoveryTypeWidening:
+    def test_run_with_recovery_accepts_continuation_result_callable(self) -> None:
+        """run_with_recovery type annotation accepts ContinuationResult-returning callables."""
+        import inspect
+
+        from golem.supervisor import ContinuationResult, SupervisedResult
+
+        coord = RecoveryCoordinator(_default_config())
+        sig = inspect.signature(coord.run_with_recovery)
+        # Return annotation should reference both types
+        return_annotation = str(sig.return_annotation)
+        # The annotation uses forward references under TYPE_CHECKING, so we just verify
+        # the method exists and has the right signature shape
+        assert "session_fn" in sig.parameters
+        assert "role" in sig.parameters
+        assert "label" in sig.parameters

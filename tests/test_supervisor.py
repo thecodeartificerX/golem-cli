@@ -1006,7 +1006,8 @@ async def test_continuation_on_max_tokens_triggers_continuation() -> None:
                 usage={"input_tokens": 500, "output_tokens": 200},
             )
         else:
-            # Second session: normal completion
+            # Second session: normal completion.
+            # total_cost_usd is CUMULATIVE across all segments: 0.5 (seg1) + 0.3 (seg2) = 0.8
             yield ResultMessage(
                 subtype="result",
                 duration_ms=150,
@@ -1016,7 +1017,7 @@ async def test_continuation_on_max_tokens_triggers_continuation() -> None:
                 session_id="s2",
                 result="all done",
                 stop_reason="end_turn",
-                total_cost_usd=0.3,
+                total_cost_usd=0.8,
                 usage={"input_tokens": 300, "output_tokens": 100},
             )
 
@@ -1061,7 +1062,8 @@ async def test_continuation_cap_returns_exhausted() -> None:
     async def fake_query(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        # Every session hits max_tokens
+        # Every session hits max_tokens.
+        # total_cost_usd is CUMULATIVE: seg1=0.1, seg2=0.2, seg3=0.3
         yield ResultMessage(
             subtype="result",
             duration_ms=100,
@@ -1071,7 +1073,7 @@ async def test_continuation_cap_returns_exhausted() -> None:
             session_id=f"s{call_count}",
             result=f"partial {call_count}",
             stop_reason="max_tokens",
-            total_cost_usd=0.1,
+            total_cost_usd=call_count * 0.1,
             usage={"input_tokens": 100, "output_tokens": 50},
         )
 
@@ -1094,7 +1096,7 @@ async def test_continuation_cap_returns_exhausted() -> None:
     assert result.exhausted is True
     # 3 sessions total (initial + 2 continuations)
     assert call_count == 3
-    # Metrics accumulated across all 3
+    # Metrics accumulated across all 3: seg1=0.1, seg2=0.2-0.1=0.1, seg3=0.3-0.2=0.1 → total=0.3
     assert result.cost_usd == pytest.approx(0.3)
     assert result.input_tokens == 300
 
@@ -1119,6 +1121,7 @@ async def test_continuation_emits_context_exhausted_event() -> None:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
+            # total_cost_usd is CUMULATIVE: seg1 = 0.1
             yield ResultMessage(
                 subtype="result",
                 duration_ms=100,
@@ -1132,6 +1135,7 @@ async def test_continuation_emits_context_exhausted_event() -> None:
                 usage={"input_tokens": 100, "output_tokens": 50},
             )
         else:
+            # total_cost_usd is CUMULATIVE: seg1 + seg2 = 0.1 + 0.1 = 0.2
             yield ResultMessage(
                 subtype="result",
                 duration_ms=100,
@@ -1141,7 +1145,7 @@ async def test_continuation_emits_context_exhausted_event() -> None:
                 session_id="s2",
                 result="done",
                 stop_reason="end_turn",
-                total_cost_usd=0.1,
+                total_cost_usd=0.2,
                 usage={"input_tokens": 100, "output_tokens": 50},
             )
 
@@ -1203,6 +1207,7 @@ async def test_continuation_emits_session_continued_event() -> None:
                 usage={"input_tokens": 200, "output_tokens": 100},
             )
         else:
+            # total_cost_usd is CUMULATIVE: seg1 (0.2) + seg2 (0.1) = 0.3
             yield ResultMessage(
                 subtype="result",
                 duration_ms=100,
@@ -1212,7 +1217,7 @@ async def test_continuation_emits_session_continued_event() -> None:
                 session_id="s2",
                 result="done",
                 stop_reason="end_turn",
-                total_cost_usd=0.1,
+                total_cost_usd=0.3,
                 usage={"input_tokens": 100, "output_tokens": 50},
             )
 
