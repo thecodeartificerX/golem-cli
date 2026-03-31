@@ -48,7 +48,10 @@ note the discrepancy in your completion note.
 
 {file_contents}
 
-## References
+## Reference Documentation
+
+The following reference files were curated by the Planner for this task.
+This content is already in your context -- do NOT re-read these files.
 
 {references}
 

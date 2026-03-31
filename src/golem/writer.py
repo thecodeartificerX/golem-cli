@@ -88,11 +88,14 @@ def build_writer_prompt(
     rework_count: int = 0,
     rework_notes: list[str] | None = None,
     worktree_path: Path | None = None,
+    golem_dir: Path | None = None,
 ) -> str:
     """Build junior dev prompt from ticket context, with optional rework context.
 
     If worktree_path is provided and is detected as a git worktree, injects a
     prominent isolation warning naming the parent repo the agent must not escape to.
+    If golem_dir is provided, reference file content is injected inline instead of
+    just listing paths.
     """
     template_name = "junior_dev_rework.md" if rework_count > 0 else "junior_dev.md"
     template_path = Path(__file__).parent / "prompts" / template_name
@@ -116,7 +119,26 @@ def build_writer_prompt(
             parts.append(f"### {filename}\n```\n{contents}\n```")
         file_contents = "\n\n".join(parts)
 
-    references = "\n".join(ctx.references) if ctx.references else ""
+    # Inject reference file content inline (with caps to avoid prompt bloat)
+    _MAX_PER_REF = 5_000
+    _MAX_TOTAL_REF = 20_000
+    if ctx.references:
+        reference_sections: list[str] = []
+        total_chars = 0
+        for ref_path in ctx.references:
+            ref_full_path = golem_dir / ref_path if golem_dir and not Path(ref_path).is_absolute() else Path(ref_path)
+            if ref_full_path.exists():
+                content = ref_full_path.read_text(encoding="utf-8")[:_MAX_PER_REF]
+                if total_chars + len(content) > _MAX_TOTAL_REF:
+                    reference_sections.append(f"### {ref_path}\n(content omitted -- read if needed)")
+                    continue
+                reference_sections.append(f"### {ref_path}\n{content}")
+                total_chars += len(content)
+            else:
+                reference_sections.append(f"### {ref_path}\n(file not found)")
+        references = "\n\n".join(reference_sections) if reference_sections else "(no references)"
+    else:
+        references = ""
     blueprint = ctx.blueprint
     acceptance = "\n".join(f"- {a}" for a in ctx.acceptance) if ctx.acceptance else ""
     qa_checks = "\n".join(f"- `{q}`" for q in ctx.qa_checks) if ctx.qa_checks else ""
@@ -184,6 +206,7 @@ async def spawn_junior_dev(
         rework_count=rework_count,
         rework_notes=rework_notes,
         worktree_path=Path(worktree_path),
+        golem_dir=golem_dir,
     )
 
     # Stagger parallel junior dev spawns to reduce I/O contention on uv cache
