@@ -8,7 +8,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_MAX_RETRIES = 2
 _RETRY_DELAY_S = 10
 
 from claude_agent_sdk import (
@@ -220,6 +219,10 @@ async def spawn_junior_dev(
     def on_tool(name: str) -> None:
         print(f"[JUNIOR DEV] tool: {name}", file=sys.stderr)
 
+    # Extract edict_id from golem_dir path convention: .golem/edicts/EDICT-001 → "EDICT-001"
+    _effective_golem_dir = golem_dir or Path(worktree_path)
+    edict_id = _effective_golem_dir.name if _effective_golem_dir.parent.name == "edicts" else ""
+
     session_result: ContinuationResult | None = None
 
     from golem.recovery import RecoveryCoordinator, RecoveryExhausted
@@ -241,6 +244,7 @@ async def spawn_junior_dev(
             role="junior_dev",
             label=ticket.id,
             golem_dir=golem_dir,
+            edict_id=edict_id,
             event_bus=event_bus,
         )
     except RecoveryExhausted as exc:
@@ -249,7 +253,7 @@ async def spawn_junior_dev(
     if session_result is None:
         raise RuntimeError(f"Junior Dev failed (ticket {ticket.id}): no session result")
 
-    # Handle stall: retry with escalated prompt
+    # Handle stall: retry with escalated prompt (wrapped in RecoveryCoordinator for consistent error handling)
     if session_result.stalled:
         log_dir = golem_dir if golem_dir else Path(worktree_path)
         ProgressLogger(log_dir).log_stall_retry("junior_dev")
@@ -265,21 +269,29 @@ async def spawn_junior_dev(
                 "junior_dev", rework_base, session_result.turns, stall_cfg.expected_actions
             )
 
+        stall_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await continuation_supervised_session(
-                prompt=escalated,
-                options=options,
+            retry_result = await stall_coordinator.run_with_recovery(
+                session_fn=lambda: continuation_supervised_session(
+                    prompt=escalated,
+                    options=options,
+                    role="junior_dev",
+                    config=config,
+                    stall_config=stall_cfg,
+                    on_text=on_text,
+                    on_tool=on_tool,
+                    golem_dir=golem_dir,
+                    event_bus=event_bus,
+                ),
                 role="junior_dev",
-                config=config,
-                stall_config=stall_cfg,
-                on_text=on_text,
-                on_tool=on_tool,
+                label=f"{ticket.id}-stall-retry",
                 golem_dir=golem_dir,
+                edict_id=edict_id,
                 event_bus=event_bus,
             )
-        except (CLIConnectionError, ClaudeSDKError) as e:
+        except RecoveryExhausted as e:
             from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
+            if _is_rate_limit_error(str(e)):
                 raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev retry failed (ticket {ticket.id}): {e}"
@@ -310,7 +322,8 @@ async def spawn_junior_dev(
     diff_output = "skip"
     if os.environ.get("GOLEM_TEST_MODE") != "1":
         try:
-            diff_proc = subprocess.run(
+            diff_proc = await asyncio.to_thread(
+                subprocess.run,
                 ["git", "diff", "--stat", "HEAD"],
                 cwd=worktree_path,
                 capture_output=True,
@@ -330,21 +343,29 @@ async def spawn_junior_dev(
         escalated = build_escalated_prompt(
             "junior_dev", original_prompt, session_result.turns, ["file edits"]
         )
+        no_diff_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await continuation_supervised_session(
-                prompt=escalated,
-                options=options,
+            retry_result = await no_diff_coordinator.run_with_recovery(
+                session_fn=lambda: continuation_supervised_session(
+                    prompt=escalated,
+                    options=options,
+                    role="junior_dev",
+                    config=config,
+                    stall_config=stall_cfg,
+                    on_text=on_text,
+                    on_tool=on_tool,
+                    golem_dir=golem_dir,
+                    event_bus=event_bus,
+                ),
                 role="junior_dev",
-                config=config,
-                stall_config=stall_cfg,
-                on_text=on_text,
-                on_tool=on_tool,
+                label=f"{ticket.id}-no-diff-retry",
                 golem_dir=golem_dir,
+                edict_id=edict_id,
                 event_bus=event_bus,
             )
-        except (CLIConnectionError, ClaudeSDKError) as e:
+        except RecoveryExhausted as e:
             from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
+            if _is_rate_limit_error(str(e)):
                 raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev no-diff retry failed (ticket {ticket.id}): {e}"
@@ -375,6 +396,7 @@ async def spawn_junior_dev(
     output_tokens = session_result.output_tokens
     num_turns = session_result.turns
     duration_ms = int(session_result.duration_s * 1000)
+    cache_read_tokens = getattr(session_result, "cache_read_tokens", 0)
 
     log_dir = golem_dir if golem_dir else Path(worktree_path)
     ProgressLogger(log_dir).log_agent_cost(
@@ -382,7 +404,7 @@ async def spawn_junior_dev(
         cost_usd=cost_usd,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cache_read=0,
+        cache_read=cache_read_tokens,
         turns=num_turns,
         duration_s=int(session_result.duration_s),
     )
@@ -414,7 +436,7 @@ async def spawn_junior_dev(
         cost_usd=cost_usd,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cache_read_tokens=0,
+        cache_read_tokens=cache_read_tokens,
         num_turns=num_turns,
         duration_ms=duration_ms,
     )

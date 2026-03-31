@@ -6,8 +6,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_MAX_RETRIES = 2
-
 from claude_agent_sdk import (
     CLIConnectionError,
     CLINotFoundError,
@@ -40,7 +38,7 @@ class TechLeadResult:
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 
-def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem") -> None:
+async def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem") -> None:
     """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -49,40 +47,42 @@ def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem") -> 
         )
 
     # Find golem integration branches
-    result = _git("branch", "--list", f"{branch_prefix}/*/integration")
+    result = await asyncio.to_thread(_git, "branch", "--list", f"{branch_prefix}/*/integration")
     integration_branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
     if not integration_branches:
         return
 
     # Check if main already has the integration commits
-    checkout_result = _git("checkout", "main")
+    checkout_result = await asyncio.to_thread(_git, "checkout", "main")
     if checkout_result.returncode != 0:
         # Fallback: try 'master' or detect default branch
-        checkout_result = _git("checkout", "master")
+        checkout_result = await asyncio.to_thread(_git, "checkout", "master")
         if checkout_result.returncode != 0:
             print("[TECH LEAD] Warning: could not checkout main or master branch", file=sys.stderr)
             return
 
     for branch in integration_branches:
         # Check if branch is already merged into main
-        merge_check = _git("merge-base", "--is-ancestor", branch, "main")
+        merge_check = await asyncio.to_thread(_git, "merge-base", "--is-ancestor", branch, "main")
         if merge_check.returncode == 0:
             continue  # Already merged
 
         # Skip branches with no actual changes (diff against HEAD which is now on main/master)
-        diff_stat = _git("diff", "--stat", f"HEAD...{branch}")
+        diff_stat = await asyncio.to_thread(_git, "diff", "--stat", f"HEAD...{branch}")
         if not diff_stat.stdout.strip():
             print(f"[TECH LEAD] Skipping {branch} -- no changes", file=sys.stderr)
             continue
 
         print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
-        merge_result = _git("merge", branch, "--ff-only")
+        merge_result = await asyncio.to_thread(_git, "merge", branch, "--ff-only")
         if merge_result.returncode != 0:
             # ff-only failed, try regular merge
-            merge_result = _git("merge", "--no-ff", "-m", f"feat: merge {branch} (golem self-heal)", branch)
+            merge_result = await asyncio.to_thread(
+                _git, "merge", "--no-ff", "-m", f"feat: merge {branch} (golem self-heal)", branch
+            )
             if merge_result.returncode != 0:
                 print(f"[TECH LEAD] Warning: could not merge {branch} into main: {merge_result.stderr}", file=sys.stderr)
-                _git("merge", "--abort")
+                await asyncio.to_thread(_git, "merge", "--abort")
 
 
 def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
@@ -99,9 +99,10 @@ def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
                 print(f"[TECH LEAD] Warning: could not clean worktree {wt.name}: {cleanup_err}", file=sys.stderr)
 
 
-def _check_integration_commits(project_root: Path) -> bool:
+async def _check_integration_commits(project_root: Path) -> bool:
     """Return True if at least one golem integration branch has commits beyond main."""
-    result = subprocess.run(
+    result = await asyncio.to_thread(
+        subprocess.run,
         ["git", "branch", "--list", "golem/*/integration"],
         cwd=project_root,
         capture_output=True,
@@ -113,7 +114,8 @@ def _check_integration_commits(project_root: Path) -> bool:
         return False
 
     for branch in branches:
-        log_result = subprocess.run(
+        log_result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "log", "--oneline", branch, "--not", "main"],
             cwd=project_root,
             capture_output=True,
@@ -195,6 +197,9 @@ async def run_tech_lead(
     def on_tool(name: str) -> None:
         print(f"[TECH LEAD] tool: {name}(...)", file=sys.stderr)
 
+    # Extract edict_id from golem_dir path convention: .golem/edicts/EDICT-001 → "EDICT-001"
+    edict_id = golem_dir.name if golem_dir.parent.name == "edicts" else ""
+
     progress = ProgressLogger(golem_dir)
     session_result: ContinuationResult | None = None
 
@@ -217,6 +222,7 @@ async def run_tech_lead(
             role="tech_lead",
             label=ticket_id,
             golem_dir=golem_dir,
+            edict_id=edict_id,
             event_bus=event_bus,
         )
     except RecoveryExhausted as exc:
@@ -226,30 +232,35 @@ async def run_tech_lead(
     if session_result is None:
         raise RuntimeError("Tech Lead session produced no result")
 
-    # Handle stall: retry with escalated prompt
+    # Handle stall: retry with escalated prompt (wrapped in RecoveryCoordinator for consistent error handling)
     if session_result.stalled:
         progress.log_stall_detected("tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count())
         progress.log_stall_retry("tech_lead")
         escalated = build_escalated_prompt(
             "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
+        stall_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await continuation_supervised_session(
-                prompt=escalated,
-                options=options,
+            retry_result = await stall_coordinator.run_with_recovery(
+                session_fn=lambda: continuation_supervised_session(
+                    prompt=escalated,
+                    options=options,
+                    role="tech_lead",
+                    config=config,
+                    stall_config=stall_cfg,
+                    on_text=on_text,
+                    on_tool=on_tool,
+                    golem_dir=golem_dir,
+                    event_bus=event_bus,
+                ),
                 role="tech_lead",
-                config=config,
-                stall_config=stall_cfg,
-                on_text=on_text,
-                on_tool=on_tool,
+                label=f"{ticket_id}-stall-retry",
                 golem_dir=golem_dir,
+                edict_id=edict_id,
                 event_bus=event_bus,
             )
-        except (CLIConnectionError, ClaudeSDKError) as e:
+        except RecoveryExhausted as e:
             _cleanup_golem_worktrees(golem_dir, project_root)
-            from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
-                raise RateLimitError(str(e)) from e
             raise RuntimeError(f"Tech Lead retry failed: {e}") from None
 
         if retry_result.stalled:
@@ -261,7 +272,7 @@ async def run_tech_lead(
         session_result = retry_result
 
     # Post-session verification: check for commits on integration branch beyond main
-    if not _check_integration_commits(project_root):
+    if not await _check_integration_commits(project_root):
         # No commits produced — treat as stall and retry with escalated prompt
         progress.log_stall_warning(
             "tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count()
@@ -269,23 +280,28 @@ async def run_tech_lead(
         escalated = build_escalated_prompt(
             "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
+        no_commits_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await continuation_supervised_session(
-                prompt=escalated,
-                options=options,
+            retry_result = await no_commits_coordinator.run_with_recovery(
+                session_fn=lambda: continuation_supervised_session(
+                    prompt=escalated,
+                    options=options,
+                    role="tech_lead",
+                    config=config,
+                    stall_config=stall_cfg,
+                    on_text=on_text,
+                    on_tool=on_tool,
+                    golem_dir=golem_dir,
+                    event_bus=event_bus,
+                ),
                 role="tech_lead",
-                config=config,
-                stall_config=stall_cfg,
-                on_text=on_text,
-                on_tool=on_tool,
+                label=f"{ticket_id}-no-commits-retry",
                 golem_dir=golem_dir,
+                edict_id=edict_id,
                 event_bus=event_bus,
             )
-        except (CLIConnectionError, ClaudeSDKError) as e:
+        except RecoveryExhausted as e:
             _cleanup_golem_worktrees(golem_dir, project_root)
-            from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
-                raise RateLimitError(str(e)) from e
             raise RuntimeError(f"Tech Lead no-commits retry failed: {e}") from None
 
         if retry_result.stalled:
@@ -296,25 +312,26 @@ async def run_tech_lead(
             )
         session_result = retry_result
 
+    _cache_read = getattr(session_result, "cache_read_tokens", 0)
     progress.log_agent_cost(
         role="tech_lead",
         cost_usd=session_result.cost_usd,
         input_tokens=session_result.input_tokens,
         output_tokens=session_result.output_tokens,
-        cache_read=0,
+        cache_read=_cache_read,
         turns=session_result.turns,
         duration_s=int(session_result.duration_s),
     )
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
-    _ensure_merged_to_main(project_root, branch_prefix=branch_prefix)
+    await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix)
 
     return TechLeadResult(
         cost_usd=session_result.cost_usd,
         input_tokens=session_result.input_tokens,
         output_tokens=session_result.output_tokens,
-        cache_read_tokens=0,
+        cache_read_tokens=_cache_read,
         num_turns=session_result.turns,
         duration_ms=int(session_result.duration_s * 1000),
     )

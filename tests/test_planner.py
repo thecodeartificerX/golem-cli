@@ -3,11 +3,27 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from golem.config import GolemConfig
+
+
+class _PassthroughCoordinator:
+    """Test double for RecoveryCoordinator that calls session_fn() directly."""
+
+    def __init__(self, config: GolemConfig) -> None:
+        self._edict_id_calls: list[str] = []
+
+    async def run_with_recovery(
+        self,
+        session_fn: Any,
+        **kwargs: Any,
+    ) -> Any:
+        self._edict_id_calls.append(kwargs.get("edict_id", ""))
+        return await session_fn()
 
 
 async def _fake_query(*args, **kwargs):
@@ -60,7 +76,8 @@ async def test_run_planner_creates_directories() -> None:
         golem_dir = Path(tmpdir) / ".golem"
         config = GolemConfig()
 
-        with patch("golem.supervisor.query", side_effect=_fake_query):
+        with patch("golem.supervisor.query", side_effect=_fake_query), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert (golem_dir / "research").exists()
@@ -76,7 +93,8 @@ async def test_run_planner_returns_ticket_id() -> None:
         golem_dir = Path(tmpdir) / ".golem"
         config = GolemConfig()
 
-        with patch("golem.supervisor.query", side_effect=_fake_query):
+        with patch("golem.supervisor.query", side_effect=_fake_query), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             ticket_id = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert ticket_id.startswith("TICKET-")
@@ -121,7 +139,8 @@ async def test_run_planner_injects_project_context() -> None:
             return
             yield
 
-        with patch("golem.supervisor.query", side_effect=_capturing_query):
+        with patch("golem.supervisor.query", side_effect=_capturing_query), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert len(captured_prompts) == 1
@@ -197,7 +216,8 @@ async def test_planner_stall_triggers_retry() -> None:
 
         mock_session = AsyncMock(side_effect=[_make_stalled_result(), _make_ok_result()])
 
-        with patch("golem.planner.continuation_supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert mock_session.call_count == 2
@@ -221,7 +241,8 @@ async def test_planner_empty_overview_triggers_retry() -> None:
 
         mock_session = AsyncMock(return_value=_make_ok_result())
 
-        with patch("golem.planner.continuation_supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         # Initial session + verification retry = 2 calls
@@ -247,7 +268,8 @@ async def test_planner_no_task_files_triggers_retry() -> None:
 
         mock_session = AsyncMock(return_value=_make_ok_result())
 
-        with patch("golem.planner.continuation_supervised_session", mock_session):
+        with patch("golem.planner.continuation_supervised_session", mock_session), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         # Initial session + verification retry = 2 calls
@@ -267,7 +289,8 @@ async def test_planner_fallback_ticket_logs_warning() -> None:
         _write_good_plans(golem_dir)
         # No ticket in store — planner should create fallback ticket
 
-        with patch("golem.planner.continuation_supervised_session", AsyncMock(return_value=_make_ok_result())):
+        with patch("golem.planner.continuation_supervised_session", AsyncMock(return_value=_make_ok_result())), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert result.startswith("TICKET-")
@@ -324,7 +347,8 @@ def test_skip_research_instruction_injected_when_true(tmp_path: "Path") -> None:
         return
         yield
 
-    with patch("golem.supervisor.query", side_effect=_capturing_query):
+    with patch("golem.supervisor.query", side_effect=_capturing_query), \
+         patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
         asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
 
     assert len(captured_prompts) >= 1
@@ -362,7 +386,8 @@ def test_skip_research_instruction_absent_when_false(tmp_path: "Path") -> None:
         return
         yield
 
-    with patch("golem.supervisor.query", side_effect=_capturing_query):
+    with patch("golem.supervisor.query", side_effect=_capturing_query), \
+         patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
         asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
 
     assert len(captured_prompts) >= 1
@@ -382,3 +407,39 @@ def test_stall_config_expected_actions_shorter_with_skip_research() -> None:
     # With research: includes spawn explorer and spawn researcher
     assert any("explorer" in a for a in with_research.expected_actions)
     assert any("researcher" in a for a in with_research.expected_actions)
+
+
+# ---------------------------------------------------------------------------
+# edict_id propagation test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_planner_passes_edict_id_to_recovery_coordinator() -> None:
+    """run_planner extracts edict_id from golem_dir path and passes it to RecoveryCoordinator."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        spec_path = Path(tmpdir) / "spec.md"
+        spec_path.write_text("# Test Spec\n\nBuild something.\n", encoding="utf-8")
+        # Simulate edict-style golem_dir: .golem/edicts/EDICT-001
+        golem_dir = Path(tmpdir) / ".golem" / "edicts" / "EDICT-001"
+        golem_dir.mkdir(parents=True)
+        config = GolemConfig()
+
+        recorded_kwargs: list[dict[str, Any]] = []
+
+        class _RecordingCoordinator:
+            def __init__(self, _config: GolemConfig) -> None:
+                pass
+
+            async def run_with_recovery(self, session_fn: Any, **kwargs: Any) -> Any:
+                recorded_kwargs.append(dict(kwargs))
+                # Set up plan files and ticket so run_planner can complete
+                _write_good_plans(golem_dir)
+                await _make_fallback_ticket(golem_dir)
+                return _make_ok_result()
+
+        with patch("golem.recovery.RecoveryCoordinator", _RecordingCoordinator):
+            await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
+
+        assert len(recorded_kwargs) >= 1
+        assert recorded_kwargs[0].get("edict_id") == "EDICT-001"
