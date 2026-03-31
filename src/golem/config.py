@@ -19,6 +19,7 @@ class GolemConfig:
     tech_lead_model: str = "claude-opus-4-6"
     max_worker_turns: int = 50
     max_validator_turns: int = 20
+    max_writer_retries: int = 3
     auto_pr: bool = True
     pr_target: str = "main"
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
@@ -41,6 +42,8 @@ class GolemConfig:
             warnings.append(f"max_retries must be >= 0, got {self.max_retries}")
         if self.max_worker_turns < 1:
             warnings.append(f"max_worker_turns must be >= 1, got {self.max_worker_turns}")
+        if self.max_writer_retries < 1:
+            warnings.append(f"max_writer_retries must be >= 1, got {self.max_writer_retries}")
         return warnings
 
 

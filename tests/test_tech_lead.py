@@ -108,3 +108,13 @@ def test_cleanup_golem_worktrees_removes_worktree() -> None:
 
         _cleanup_golem_worktrees(golem_dir, repo)
         assert not wt_path.exists()
+
+
+def test_tech_lead_prompt_includes_blocker_instructions() -> None:
+    """Tech Lead prompt should contain blocker-checking instructions."""
+    prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "tech_lead.md"
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "type=blocker" in content
+    assert "type=escalation" in content
+    assert "assigned_to=operator" in content
+    assert "Blocker Handling" in content

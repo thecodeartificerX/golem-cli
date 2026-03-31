@@ -68,6 +68,19 @@ Wait for all writers to complete before reviewing.
 
 ---
 
+### Blocker Handling (check before each phase)
+
+Before starting each phase, call `mcp__golem__list_tickets` and check for:
+- Any ticket with `type=blocker` and `status=pending` -- this means a Writer hit its max rework cycles and escalated
+
+For blocker tickets:
+1. Read the blocker's context to understand what failed (the `blueprint` field contains the original ticket ID, failure reason, and context)
+2. Decide: revise the approach and create a new ticket, rework the original ticket differently, or escalate to the operator
+3. To escalate to operator: create a ticket with `type=escalation`, `assigned_to=operator`, describing what went wrong and what the operator should do
+4. After resolving the blocker, update it to `done`
+
+---
+
 ### Phase 5: Review Work
 
 When a writer completes:
