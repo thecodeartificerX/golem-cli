@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 _MAX_RETRIES = 2
@@ -24,6 +25,16 @@ from golem.tickets import Ticket
 from golem.tools import create_writer_mcp_server
 
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
+
+
+@dataclass
+class JuniorDevResult:
+    """Result from a junior dev (writer) session."""
+
+    ticket_id: str
+    result_text: str
+    success: bool = True
+    errors: list[str] = field(default_factory=list)
 
 
 def _strip_section(template: str, key: str) -> str:
@@ -75,13 +86,13 @@ def build_writer_prompt(ticket: Ticket) -> str:
     return prompt
 
 
-async def spawn_writer_pair(
+async def spawn_junior_dev(
     ticket: Ticket,
     worktree_path: str,
     config: GolemConfig,
     golem_dir: Path | None = None,
 ) -> str:
-    """Spawn a writer SDK session for the given ticket in the worktree.
+    """Spawn a junior dev (writer) SDK session for the given ticket in the worktree.
 
     Returns the writer's result text.
     """
@@ -137,3 +148,8 @@ async def spawn_writer_pair(
                 ) from None
 
     return result_text
+
+
+# Backward compatibility
+spawn_writer_pair = spawn_junior_dev
+WriterResult = JuniorDevResult

@@ -8,7 +8,7 @@ import pytest
 
 from golem.config import GolemConfig
 from golem.tickets import Ticket, TicketContext
-from golem.writer import build_writer_prompt, spawn_writer_pair
+from golem.junior_dev import build_writer_prompt, spawn_writer_pair
 
 
 def _make_ticket_with_context() -> Ticket:
@@ -127,7 +127,7 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             return
             yield
 
-        with patch("golem.writer.query", side_effect=fake_query):
+        with patch("golem.junior_dev.query", side_effect=fake_query):
             await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]
