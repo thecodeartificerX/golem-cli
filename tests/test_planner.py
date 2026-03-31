@@ -203,7 +203,11 @@ async def test_run_planner_substitutes_project_root() -> None:
             if match:
                 gd = Path(match.group(1))
                 (gd / "plans").mkdir(parents=True, exist_ok=True)
-                (gd / "plans" / "overview.md").write_text("# Overview\n", encoding="utf-8")
+                (gd / "plans" / "overview.md").write_text(
+                    "# Overview\n\n## Blueprint\nTest blueprint.\n\nMore details here.\n",
+                    encoding="utf-8",
+                )
+                (gd / "plans" / "task-001.md").write_text("# Task 001\n\nDo the thing.\n", encoding="utf-8")
                 from golem.tickets import Ticket, TicketContext, TicketStore
                 store = TicketStore(gd / "tickets")
                 ticket = Ticket(
@@ -215,7 +219,8 @@ async def test_run_planner_substitutes_project_root() -> None:
             return
             yield
 
-        with patch("golem.planner.query", side_effect=_capturing_query):
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_capturing_query)), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
         assert len(captured_prompts) == 1
