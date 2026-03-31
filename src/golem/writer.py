@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
+from golem.reviewer import run_reviewer
 from golem.supervisor import ContinuationResult, StallConfig, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import Ticket
 from golem.tools import create_junior_dev_mcp_server
@@ -166,12 +167,14 @@ async def spawn_junior_dev(
     golem_dir: Path | None = None,
     event_bus: EventBus | None = None,
     server_url: str = "",
+    project_root: Path | None = None,
 ) -> JuniorDevResult:
     """Spawn a junior dev SDK session for the given ticket in the worktree.
 
     Uses supervised_session() for stall detection. On stall, retries with an
     escalated prompt. On double stall, marks ticket as failed and raises RuntimeError.
     Post-session: verifies git diff shows changed files in the worktree.
+    After successful coding, runs a Reviewer sub-agent (unless skip_review is set).
 
     Returns a JuniorDevResult with result text and cost/token data.
     """
@@ -413,6 +416,41 @@ async def spawn_junior_dev(
             )
         except Exception as _exc:
             print(f"[INSIGHT] Warning: insight write failed for {ticket.id}: {_exc}", file=sys.stderr)
+
+    # --- Reviewer gate (skip for trivial tickets) ---
+    if not ticket.context.skip_review:
+        effective_root = project_root or Path(worktree_path)
+        plan_section = ""
+        if ticket.context.plan_file and Path(ticket.context.plan_file).exists():
+            plan_section = Path(ticket.context.plan_file).read_text(encoding="utf-8")
+
+        try:
+            verdict = await run_reviewer(
+                worktree_path=Path(worktree_path),
+                project_root=effective_root,
+                ticket_title=ticket.title,
+                plan_section=plan_section,
+                acceptance_criteria=ticket.context.acceptance,
+                config=config,
+            )
+        except Exception as review_err:
+            # Reviewer failure should not block the pipeline -- log and proceed
+            print(f"[REVIEWER] Error during review (proceeding to QA): {review_err}", file=sys.stderr)
+            verdict = None
+
+        if verdict is not None:
+            if verdict.decision == "approve":
+                print(f"[REVIEWER] Approved: {verdict.summary}", file=sys.stderr)
+            elif verdict.decision == "warning":
+                warnings_text = "; ".join(verdict.important_issues) if verdict.important_issues else verdict.summary
+                print(f"[REVIEWER] Warning (proceeding to QA): {warnings_text}", file=sys.stderr)
+                result_text += f"\n\n[REVIEWER WARNINGS] {warnings_text}"
+            elif verdict.decision == "block":
+                issues_text = "\n".join(f"- {i}" for i in verdict.critical_issues)
+                print(f"[REVIEWER] Blocked -- requesting rework:\n{issues_text}", file=sys.stderr)
+                result_text += f"\n\n[REVIEWER BLOCKED] {issues_text}"
+    else:
+        print(f"[WRITER] Skipping review for ticket {ticket.id} (skip_review=True)", file=sys.stderr)
 
     return JuniorDevResult(
         result_text=result_text,

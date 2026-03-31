@@ -17,6 +17,8 @@ class GolemConfig:
     worker_model: str = "claude-opus-4-6"
     validator_model: str = "claude-sonnet-4-6"
     tech_lead_model: str = "claude-opus-4-6"
+    reviewer_model: str = "claude-sonnet-4-6"
+    reviewer_budget_usd: float = 0.25
     max_worker_turns: int = 50
     max_tech_lead_turns: int = 100
     sdk_timeout: int = 180
@@ -202,7 +204,7 @@ class GolemConfig:
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""
         warnings: list[str] = []
-        for field_name in ("planner_model", "worker_model", "validator_model", "tech_lead_model"):
+        for field_name in ("planner_model", "worker_model", "validator_model", "tech_lead_model", "reviewer_model"):
             model = getattr(self, field_name)
             if not any(model.startswith(p) for p in _KNOWN_MODEL_PREFIXES):
                 warnings.append(f"Unknown model for {field_name}: {model!r} — may fail at runtime")

@@ -49,6 +49,7 @@ class TicketContext:
     acceptance: list[str] = field(default_factory=list)
     qa_checks: list[str] = field(default_factory=list)
     parallelism_hints: list[str] = field(default_factory=list)
+    skip_review: bool = False
 
 
 @dataclass
@@ -84,6 +85,7 @@ def _ticket_from_dict(data: dict) -> Ticket:
         acceptance=ctx_data.get("acceptance", []),
         qa_checks=ctx_data.get("qa_checks", []),
         parallelism_hints=ctx_data.get("parallelism_hints", []),
+        skip_review=ctx_data.get("skip_review", False),
     )
     history = [
         TicketEvent(
