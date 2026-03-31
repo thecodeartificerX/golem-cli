@@ -4,8 +4,9 @@ Provides ParallelExecutor for running multiple SDK subagent sessions
 concurrently with:
   - asyncio.Semaphore-based concurrency control (configurable max_concurrency)
   - Per-call failure isolation (asyncio.gather with return_exceptions=True)
-  - Stagger delay between launches (1s default, prevents burst 429s)
-  - Exponential backoff between batches on rate limit detection (30s base, 300s cap)
+  - Stagger delay before semaphore acquire (1s default, prevents burst 429s)
+  - Exponential backoff after rate-limit detection (30s base, 300s cap, exponent capped at 5)
+  - Work-stealing: all tasks launched at once, semaphore gates concurrency naturally
   - EventBus events: SubtaskStarted, SubtaskCompleted, SubtaskFailed, SubtaskBatchRateLimited
   - Cooperative cancellation via asyncio.Event
 
@@ -24,6 +25,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic, TypeVar
 
+from golem.recovery import is_rate_limit_error
+
 if TYPE_CHECKING:
     from golem.events import EventBus
 
@@ -31,6 +34,7 @@ if TYPE_CHECKING:
 _DEFAULT_MAX_CONCURRENCY: int = 3
 _RATE_LIMIT_BASE_DELAY_S: float = 30.0
 _RATE_LIMIT_MAX_DELAY_S: float = 300.0
+_RATE_LIMIT_EXPONENT_CAP: int = 5          # max backoff = base * 2^5 = ~960s with 30s base
 _STAGGER_DELAY_S: float = 1.0
 
 T = TypeVar("T")
@@ -47,9 +51,8 @@ class RateLimitError(RuntimeError):
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
-    """Detect rate limit from exception message."""
-    msg = str(exc).lower()
-    return "429" in msg or "rate limit" in msg or "too many requests" in msg
+    """Detect rate limit from exception.  Delegates to golem.recovery.is_rate_limit_error."""
+    return is_rate_limit_error(str(exc))
 
 
 # -- Result types --
@@ -78,8 +81,15 @@ class BatchResult(Generic[T]):
 
 # -- Helper functions --
 
-def _create_batches(items: list[str], batch_size: int) -> list[list[str]]:
-    """Split items into non-overlapping sequential windows of batch_size."""
+_ItemT = TypeVar("_ItemT")
+
+
+def _create_batches(items: list[_ItemT], batch_size: int) -> list[list[_ItemT]]:
+    """Split items into non-overlapping sequential windows of batch_size.
+
+    Generic: works for list[str], list[Ticket], or any other item type.
+    Imported by golem.orchestrator to avoid duplication.
+    """
     return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 
 
@@ -99,12 +109,19 @@ async def _interruptible_sleep(delay_s: float, cancel_event: asyncio.Event) -> N
 # -- Main class --
 
 class ParallelExecutor(Generic[T]):
-    """Batch-parallel subagent runner with rate limit backoff.
+    """Semaphore-gated parallel subagent runner with rate limit backoff.
 
-    Splits subtask_ids into fixed-size batches, runs each batch concurrently
-    with asyncio.gather(return_exceptions=True), staggers launches within a
-    batch by stagger_delay_s, and applies exponential backoff between batches
-    when rate limits are detected.
+    Launches ALL tasks at once, each gated by an asyncio.Semaphore limited to
+    max_concurrency.  This is a work-stealing approach: when one task finishes
+    the semaphore slot is released immediately and the next waiting task starts
+    without waiting for an entire batch to complete.
+
+    Stagger delay (index * stagger_delay_s) fires before semaphore acquire to
+    prevent N tasks from piling up at the semaphore simultaneously.
+
+    Rate limit backoff: when any task returns rate_limited=True, the next
+    backoff period is computed as base * 2^min(rl_count, 5) (capped at max_delay
+    and with exponent capped at 5 to prevent unbounded growth over long runs).
 
     Emits EventBus events: SubtaskStarted, SubtaskCompleted, SubtaskFailed,
     SubtaskBatchRateLimited.
@@ -132,56 +149,64 @@ class ParallelExecutor(Generic[T]):
         subtask_ids: list[str],
         runner: SubtaskRunner[T],
     ) -> BatchResult[T]:
-        """Execute all subtasks in parallel batches with rate limit backoff.
+        """Execute all subtasks with semaphore-gated work-stealing parallelism.
 
-        Splits subtask_ids into fixed-size batches of max_concurrency. Each batch
-        runs concurrently via asyncio.gather(return_exceptions=True). A rate limit
-        result in any batch triggers exponential backoff before the next batch starts.
+        All tasks are launched at once.  Each task staggers by index * stagger_delay_s
+        before acquiring the semaphore, then runs under the semaphore.  When a slot
+        is released the next waiting task starts immediately — no batch-wide barrier.
+
+        After all tasks complete, if any were rate-limited, an interruptible backoff
+        sleep runs before returning.  The backoff exponent is capped at
+        _RATE_LIMIT_EXPONENT_CAP to prevent unbounded growth over long runs.
         """
         if not subtask_ids:
             return BatchResult()
 
-        batches = _create_batches(subtask_ids, self._max_concurrency)
-        all_results: list[SubtaskResult[T]] = []
-        rate_limit_backoff_s: float = 0.0
-
-        for batch in batches:
-            if self._cancel_event.is_set():
-                break
-
-            if rate_limit_backoff_s > 0:
-                await self._emit_rate_limited(rate_limit_backoff_s)
-                await _interruptible_sleep(rate_limit_backoff_s, self._cancel_event)
-                rate_limit_backoff_s = 0.0
-
-            coros = [
-                self._run_single(subtask_id, runner, index * self._stagger_delay_s)
-                for index, subtask_id in enumerate(batch)
+        if self._cancel_event.is_set():
+            cancelled_results: list[SubtaskResult[T]] = [
+                SubtaskResult(subtask_id=sid, success=False, error="Cancelled", rate_limited=False)
+                for sid in subtask_ids
             ]
+            return BatchResult(
+                results=cancelled_results,
+                success_count=0,
+                failure_count=len(cancelled_results),
+                rate_limited_count=0,
+                cancelled=True,
+            )
 
-            outcomes = await asyncio.gather(*coros, return_exceptions=True)
+        coros = [
+            self._run_single(subtask_id, runner, index * self._stagger_delay_s)
+            for index, subtask_id in enumerate(subtask_ids)
+        ]
 
-            for outcome in outcomes:
-                if isinstance(outcome, BaseException):
-                    # Unexpected throw from _run_single itself (should not happen — it catches all)
-                    all_results.append(SubtaskResult(
-                        subtask_id="unknown",
-                        success=False,
-                        error=str(outcome),
-                        rate_limited=False,
-                    ))
-                else:
-                    all_results.append(outcome)
-                    if outcome.rate_limited:
-                        # Exponential backoff: base * 2^(count of rate-limited so far)
-                        rl_count = sum(1 for r in all_results if r.rate_limited)
-                        rate_limit_backoff_s = min(
-                            self._rate_limit_base_s * (2 ** rl_count),
-                            self._rate_limit_max_s,
-                        )
+        outcomes = await asyncio.gather(*coros, return_exceptions=True)
+
+        all_results: list[SubtaskResult[T]] = []
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                # Unexpected throw from _run_single itself (should not happen — it catches all)
+                all_results.append(SubtaskResult(
+                    subtask_id="unknown",
+                    success=False,
+                    error=str(outcome),
+                    rate_limited=False,
+                ))
+            else:
+                all_results.append(outcome)
+
+        # Apply rate limit backoff once, after all tasks complete
+        rl_count = sum(1 for r in all_results if r.rate_limited)
+        if rl_count > 0 and not self._cancel_event.is_set():
+            exponent = min(rl_count, _RATE_LIMIT_EXPONENT_CAP)
+            backoff_s = min(
+                self._rate_limit_base_s * (2 ** exponent),
+                self._rate_limit_max_s,
+            )
+            await self._emit_rate_limited(backoff_s)
+            await _interruptible_sleep(backoff_s, self._cancel_event)
 
         success_count = sum(1 for r in all_results if r.success)
-        rl_count = sum(1 for r in all_results if r.rate_limited)
         return BatchResult(
             results=all_results,
             success_count=success_count,

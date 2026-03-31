@@ -27,7 +27,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig
+from golem.parallel import _create_batches
 from golem.progress import ProgressLogger
+from golem.recovery import is_rate_limit_error
 from golem.tickets import Ticket, TicketStore
 from golem.worktree import commit_task, create_worktree, delete_worktree, merge_group_branches
 from golem.writer import JuniorDevResult, spawn_junior_dev
@@ -250,15 +252,6 @@ class OrchestratorResult:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
-
-
-def _is_rate_limit_error(message: str) -> bool:
-    lower = message.lower()
-    return "429" in lower or "rate limit" in lower or "too many requests" in lower
-
-
-def _create_batches(items: list[Ticket], batch_size: int) -> list[list[Ticket]]:
-    return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 
 
 def _get_branch_changed_files(branch: str, base_branch: str, repo_root: Path) -> list[str]:
@@ -626,7 +619,7 @@ class WaveExecutor:
                         delay_s=backoff_s,
                         rate_limited_count=rate_limited_count,
                     ))
-                await asyncio.sleep(backoff_s)
+                await self._interruptible_sleep(backoff_s)
                 rate_limited_count = 0
 
             # Launch batch with staggered starts
@@ -653,7 +646,7 @@ class WaveExecutor:
                         outcome=TicketOutcome.FAILED,
                         error=err_msg,
                     ))
-                    if _is_rate_limit_error(err_msg):
+                    if is_rate_limit_error(err_msg):
                         rate_limited_count += 1
 
         return results
@@ -701,7 +694,7 @@ class WaveExecutor:
             )
         except RuntimeError as e:
             err = str(e)
-            if _is_rate_limit_error(err):
+            if is_rate_limit_error(err):
                 await self._store.update(
                     ticket.id, status="pending",
                     note="Rate limited, will retry", agent="orchestrator",
@@ -844,6 +837,19 @@ class WaveExecutor:
         )
 
         return success, conflict_info
+
+    async def _interruptible_sleep(self, duration: float) -> bool:
+        """Sleep for duration seconds, waking early if the abort event fires.
+
+        Returns True if interrupted by abort, False if the full duration elapsed.
+        Mirrors the pattern from golem.parallel._interruptible_sleep but gates on
+        the WaveExecutor's own _abort event so kill signals cancel backoff waits.
+        """
+        try:
+            await asyncio.wait_for(self._abort.wait(), timeout=duration)
+            return True  # interrupted
+        except asyncio.TimeoutError:
+            return False  # completed normally
 
     # -- Helpers --
 

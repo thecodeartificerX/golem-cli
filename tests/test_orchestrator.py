@@ -18,11 +18,11 @@ from golem.orchestrator import (
     TicketOutcome,
     WaveExecutor,
     WaveResult,
-    _create_batches,
-    _is_rate_limit_error,
     assign_waves,
     build_dag,
 )
+from golem.parallel import _create_batches
+from golem.recovery import is_rate_limit_error
 from golem.tickets import Ticket, TicketStore
 
 
@@ -197,12 +197,12 @@ async def test_ticket_depends_on_defaults_empty(tmp_path):
 
 def test_rate_limit_detection():
     """Rate limit detection covers 429, 'rate limit', and 'too many requests'."""
-    assert _is_rate_limit_error("HTTP 429 Too Many Requests")
-    assert _is_rate_limit_error("rate limit exceeded")
-    assert _is_rate_limit_error("too many requests from this IP")
-    assert not _is_rate_limit_error("connection refused")
-    assert not _is_rate_limit_error("auth failure")
-    assert not _is_rate_limit_error("timeout")
+    assert is_rate_limit_error("HTTP 429 Too Many Requests")
+    assert is_rate_limit_error("rate limit exceeded")
+    assert is_rate_limit_error("too many requests from this IP")
+    assert not is_rate_limit_error("connection refused")
+    assert not is_rate_limit_error("auth failure")
+    assert not is_rate_limit_error("timeout")
 
 
 def test_create_batches_even(make_ticket):
@@ -234,6 +234,51 @@ def test_create_batches_single(make_ticket):
 def test_create_batches_empty():
     """_create_batches on empty list returns empty list."""
     assert _create_batches([], 3) == []
+
+
+# ---------------------------------------------------------------------------
+# WaveExecutor._interruptible_sleep tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wave_executor_interruptible_sleep_completes(tmp_path):
+    """_interruptible_sleep returns False (not interrupted) after the full duration."""
+    config = GolemConfig()
+    executor = WaveExecutor(golem_dir=tmp_path / ".golem", project_root=tmp_path, config=config)
+    interrupted = await executor._interruptible_sleep(0.05)
+    assert interrupted is False
+
+
+@pytest.mark.asyncio
+async def test_wave_executor_interruptible_sleep_aborts(tmp_path):
+    """_interruptible_sleep returns True immediately when abort is already set."""
+    config = GolemConfig()
+    executor = WaveExecutor(golem_dir=tmp_path / ".golem", project_root=tmp_path, config=config)
+    executor._abort.set()
+    interrupted = await executor._interruptible_sleep(10.0)
+    assert interrupted is True
+
+
+@pytest.mark.asyncio
+async def test_wave_executor_interruptible_sleep_wakes_on_abort(tmp_path):
+    """_interruptible_sleep wakes early when abort fires mid-sleep."""
+    import time as _time
+
+    config = GolemConfig()
+    executor = WaveExecutor(golem_dir=tmp_path / ".golem", project_root=tmp_path, config=config)
+
+    async def set_abort_soon() -> None:
+        await asyncio.sleep(0.05)
+        executor._abort.set()
+
+    asyncio.create_task(set_abort_soon())
+    start = _time.monotonic()
+    interrupted = await executor._interruptible_sleep(10.0)
+    elapsed = _time.monotonic() - start
+
+    assert interrupted is True
+    assert elapsed < 1.0  # woke up well before the 10s timeout
 
 
 # ---------------------------------------------------------------------------

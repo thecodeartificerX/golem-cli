@@ -4,6 +4,9 @@ Provides FailureType taxonomy, classify_failure() with regex pattern matching
 (ported from Aperant TypeScript patterns), CircularFixDetector with djb2 hashing,
 recovery_delay() exponential backoff schedule, and RecoveryCoordinator which
 wraps supervised_session() calls with classification-aware retry logic.
+
+Module-level helpers shared across golem.parallel and golem.orchestrator:
+    is_rate_limit_error(text) -> bool
 """
 
 from __future__ import annotations
@@ -24,6 +27,22 @@ from golem.config import GolemConfig
 if TYPE_CHECKING:
     from golem.events import EventBus
     from golem.supervisor import SupervisedResult
+
+
+# ---------------------------------------------------------------------------
+# 0. Shared rate-limit detection helper
+# ---------------------------------------------------------------------------
+
+
+def is_rate_limit_error(text: str) -> bool:
+    """Return True if text indicates an API rate limit response.
+
+    Detects HTTP 429, "rate limit" phrase, and "too many requests" phrase,
+    all case-insensitive.  Used by both golem.parallel and golem.orchestrator
+    to classify exceptions and error strings.
+    """
+    lower = text.lower()
+    return "429" in lower or "rate limit" in lower or "too many requests" in lower
 
 
 # ---------------------------------------------------------------------------

@@ -358,11 +358,68 @@ async def test_no_backoff_without_rate_limit(monkeypatch: pytest.MonkeyPatch) ->
     async def runner(sid: str) -> str:
         return "ok"
 
-    # Two batches of 1, no stagger
+    # Two tasks, no stagger
     executor: ParallelExecutor[str] = ParallelExecutor(max_concurrency=1, stagger_delay_s=0)
     await executor.run_batch(["a", "b"], runner)
     # fake_sleep should not be called (no stagger, no backoff)
     assert slept == []
+
+
+@pytest.mark.asyncio
+async def test_backoff_exponent_capped_at_5(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Backoff exponent is capped at 5 regardless of how many tasks rate-limited."""
+    slept: list[float] = []
+
+    async def fake_sleep(s: float, _: asyncio.Event) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("golem.parallel._interruptible_sleep", fake_sleep)
+
+    async def always_rate_limit(sid: str) -> str:
+        raise RateLimitError("429")
+
+    # 10 tasks all rate-limited -- exponent should cap at 5 not grow to 10
+    executor: ParallelExecutor[str] = ParallelExecutor(
+        max_concurrency=10,
+        stagger_delay_s=0,
+        rate_limit_base_delay_s=30.0,
+        rate_limit_max_delay_s=9999.0,   # disable the absolute cap to test exponent cap alone
+    )
+    await executor.run_batch([str(i) for i in range(10)], always_rate_limit)
+    # exponent = min(10, 5) = 5 => 30 * 32 = 960s
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(960.0)
+
+
+@pytest.mark.asyncio
+async def test_backoff_exponent_cap_below_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When rl_count is below cap (<=5), exponent equals rl_count exactly."""
+    slept: list[float] = []
+
+    async def fake_sleep(s: float, _: asyncio.Event) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("golem.parallel._interruptible_sleep", fake_sleep)
+
+    call_count = 0
+
+    async def runner(sid: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            raise RateLimitError("429")
+        return "ok"
+
+    executor: ParallelExecutor[str] = ParallelExecutor(
+        max_concurrency=5,
+        stagger_delay_s=0,
+        rate_limit_base_delay_s=30.0,
+        rate_limit_max_delay_s=9999.0,
+    )
+    # 3 rate-limited + 2 success: exponent = min(3, 5) = 3 => 30 * 8 = 240s
+    await executor.run_batch([str(i) for i in range(5)], runner)
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(240.0)
 
 
 # ---------------------------------------------------------------------------
