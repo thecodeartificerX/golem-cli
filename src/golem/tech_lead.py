@@ -76,6 +76,42 @@ def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
                 print(f"[TECH LEAD] Warning: could not clean worktree {wt.name}: {cleanup_err}", file=sys.stderr)
 
 
+async def _promote_debrief_to_memory(
+    golem_dir: Path,
+    project_root: Path,
+    edict_id: str,
+) -> None:
+    """Copy the Tech Lead's debrief to project-level memory."""
+    debrief_src = golem_dir / "debrief.md"
+    if not debrief_src.exists():
+        return
+    memory_dir = project_root / ".golem" / "memory"
+    debriefs_dir = memory_dir / "debriefs"
+    debriefs_dir.mkdir(parents=True, exist_ok=True)
+    dest = debriefs_dir / f"{edict_id}.md"
+    dest.write_text(debrief_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+async def _promote_gotchas_to_memory(
+    golem_dir: Path,
+    project_root: Path,
+) -> None:
+    """Append per-edict gotchas to project-level memory (does not overwrite)."""
+    gotchas_src = golem_dir / "gotchas.md"
+    if not gotchas_src.exists():
+        return
+    memory_dir = project_root / ".golem" / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    dest = memory_dir / "gotchas.md"
+    new_content = gotchas_src.read_text(encoding="utf-8")
+    if dest.exists():
+        existing = dest.read_text(encoding="utf-8")
+        combined = existing.rstrip("\n") + "\n\n" + new_content
+        dest.write_text(combined, encoding="utf-8")
+    else:
+        dest.write_text(new_content, encoding="utf-8")
+
+
 async def run_tech_lead(
     ticket_id: str,
     golem_dir: Path,
@@ -155,3 +191,8 @@ async def run_tech_lead(
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     _ensure_merged_to_main(project_root)
+
+    # Promote debrief and gotchas to project-level memory
+    edict_id = golem_dir.name
+    await _promote_debrief_to_memory(golem_dir, project_root, edict_id)
+    await _promote_gotchas_to_memory(golem_dir, project_root)

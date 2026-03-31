@@ -156,3 +156,17 @@ All tools use the `mcp__golem__` prefix:
 - Spawn UX smoke test only for web projects
 - If a writer fails or times out, create a NEW ticket for the remaining work and dispatch a fresh writer — do not retry the same session
 - Never leave the pipeline in an incomplete state — if something fails, either fix it or report exactly what failed and what remains
+
+---
+
+### Phase 9: Post-Edict Debrief
+
+Write a debrief file to `{golem_dir}/debrief.md` capturing:
+
+1. **What was delivered** -- list of tickets completed, files changed, PR URL
+2. **What broke** -- tickets that failed, QA failures, rework cycles, merge conflicts
+3. **Planning accuracy** -- where the planner's task decomposition was wrong (missing tasks, wrong dependencies, over/under-scoped tickets)
+4. **Lessons learned** -- patterns that worked well, patterns that failed, framework-specific gotchas discovered
+5. **Recommendations** -- what to do differently next time for this repo
+
+Keep it concise. Focus on actionable insights, not narrative.
