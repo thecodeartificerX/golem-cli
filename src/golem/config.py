@@ -10,17 +10,6 @@ _KNOWN_MODEL_PREFIXES = ("claude-opus-", "claude-sonnet-", "claude-haiku-")
 
 
 @dataclass
-class ComplexityProfile:
-    planner_model: str = "claude-opus-4-6"
-    planner_max_turns: int = 50
-    tech_lead_model: str = "claude-opus-4-6"
-    tech_lead_max_turns: int = 100
-    worker_model: str = "claude-opus-4-6"
-    worker_max_turns: int = 50
-    skip_tech_lead: bool = False
-
-
-@dataclass
 class GolemConfig:
     max_parallel: int = 3
     max_retries: int = 2
@@ -103,6 +92,13 @@ class GolemConfig:
     # Maximum parallel Junior Dev sessions per dispatch group
     max_parallel_writers: int = 3
 
+    # Per-agent budget caps (USD) -- enforced via ClaudeAgentOptions.max_budget_usd
+    planner_budget_usd: float = 2.0
+    tech_lead_budget_usd: float = 5.0
+    worker_budget_usd: float = 1.0
+    # Fallback model when primary is unavailable
+    fallback_model: str = "claude-sonnet-4-6"
+
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
         "TRIVIAL": {
@@ -118,6 +114,9 @@ class GolemConfig:
             "qa_depth": "minimal",
             "self_critique_enabled": False,
             "max_parallel_writers": 1,
+            "planner_budget_usd": 0.10,
+            "tech_lead_budget_usd": 0.0,
+            "worker_budget_usd": 0.25,
         },
         "SIMPLE": {
             "planner_model": "claude-sonnet-4-6",
@@ -132,6 +131,9 @@ class GolemConfig:
             "qa_depth": "standard",
             "self_critique_enabled": False,
             "max_parallel_writers": 2,
+            "planner_budget_usd": 0.50,
+            "tech_lead_budget_usd": 1.0,
+            "worker_budget_usd": 0.50,
         },
         "STANDARD": {
             "planner_model": "claude-opus-4-6",
@@ -146,6 +148,9 @@ class GolemConfig:
             "qa_depth": "standard",
             "self_critique_enabled": False,
             "max_parallel_writers": 3,
+            "planner_budget_usd": 2.0,
+            "tech_lead_budget_usd": 5.0,
+            "worker_budget_usd": 1.0,
         },
         "CRITICAL": {
             "planner_model": "claude-opus-4-6",
@@ -160,6 +165,9 @@ class GolemConfig:
             "qa_depth": "strict",
             "self_critique_enabled": True,
             "max_parallel_writers": 2,
+            "planner_budget_usd": 5.0,
+            "tech_lead_budget_usd": 10.0,
+            "worker_budget_usd": 2.0,
         },
     })
 
@@ -181,6 +189,10 @@ class GolemConfig:
         self.qa_depth = profile_dict.get("qa_depth", self.qa_depth)
         self.self_critique_enabled = profile_dict.get("self_critique_enabled", self.self_critique_enabled)
         self.max_parallel_writers = profile_dict.get("max_parallel_writers", self.max_parallel_writers)
+        # Budget overrides
+        self.planner_budget_usd = profile_dict.get("planner_budget_usd", self.planner_budget_usd)
+        self.tech_lead_budget_usd = profile_dict.get("tech_lead_budget_usd", self.tech_lead_budget_usd)
+        self.worker_budget_usd = profile_dict.get("worker_budget_usd", self.worker_budget_usd)
 
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""

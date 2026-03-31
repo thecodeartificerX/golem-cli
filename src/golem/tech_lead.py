@@ -183,7 +183,7 @@ async def run_tech_lead(
         setting_sources=sources,
         max_turns=config.max_tech_lead_turns,
         permission_mode="bypassPermissions",
-        env=sdk_env(),
+        env=sdk_env(session_id=config.session_id, golem_dir=str(golem_dir)),
     )
 
     stall_cfg = stall_config_for_role("tech_lead", config.max_tech_lead_turns)
