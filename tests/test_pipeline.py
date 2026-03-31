@@ -13,6 +13,7 @@ from golem.config import GolemConfig
 from golem.edict import (
     EDICT_DONE,
     EDICT_FAILED,
+    EDICT_NEEDS_ATTENTION,
     EDICT_PENDING,
     Edict,
     EdictStore,
@@ -193,7 +194,7 @@ async def test_pipeline_run_status_transitions(tmp_path: Path, edict_env: tuple[
 async def test_pipeline_run_failure_on_exception(
     tmp_path: Path, edict_env: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When update_status raises after the first call, pipeline marks edict as failed."""
+    """Transient exception triggers retry; pipeline recovers on second attempt."""
     edicts_dir, tickets_dir, golem_dir = edict_env
     edict = _make_edict()
     edict_store = EdictStore(edicts_dir)
@@ -208,7 +209,7 @@ async def test_pipeline_run_failure_on_exception(
         nonlocal call_count
         call_count += 1
         if call_count == 2:
-            # Fail on the second call (in_progress transition)
+            # Fail on the second call (in_progress transition) — transient
             raise RuntimeError("Simulated agent failure")
         await original_update(eid, status, error)
 
@@ -217,9 +218,9 @@ async def test_pipeline_run_failure_on_exception(
     coord = _make_coordinator(edict, edict_store, ticket_store, tmp_path)
     result = await coord.run()
 
-    assert result.status == EDICT_FAILED
-    assert result.error is not None
-    assert "Simulated agent failure" in result.error
+    # The retry logic recovers from the transient failure
+    assert result.status == EDICT_DONE
+    assert result.error is None
 
 
 # ---------------------------------------------------------------------------
@@ -734,3 +735,128 @@ async def test_kill_cancels_running_stage(
 
     assert result.status == EDICT_FAILED
     assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
+# Test 16: edict_max_retries — retry on pipeline failure, then needs_attention
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edict_max_retries_exhausted_lands_in_needs_attention(
+    tmp_path: Path, edict_env: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pipeline retries up to edict_max_retries on failure, then lands in needs_attention."""
+    edicts_dir, tickets_dir, golem_dir = edict_env
+    edict = _make_edict()
+    edict_store = EdictStore(edicts_dir)
+    ticket_store = TicketStore(tickets_dir)
+
+    edict_id = await edict_store.create(edict)
+
+    # Make run_planner always raise so every attempt fails
+    async def _failing_planner(*args: object, **kwargs: object) -> _MockPlannerResult:
+        raise RuntimeError("Simulated planner crash")
+
+    monkeypatch.setattr("golem.planner.run_planner", _failing_planner)
+
+    config = GolemConfig()
+    config.edict_max_retries = 2  # allow 2 retries
+
+    coord = PipelineCoordinator(
+        edict=edict,
+        edict_store=edict_store,
+        ticket_store=ticket_store,
+        config=config,
+        project_root=tmp_path,
+        golem_dir=tmp_path / ".golem",
+    )
+    result = await coord.run()
+
+    # After exhausting retries, edict should be in needs_attention
+    assert result.status == EDICT_NEEDS_ATTENTION
+    assert result.error is not None
+    assert "Simulated planner crash" in result.error
+
+    # Verify persisted status on disk
+    persisted = await edict_store.read(edict_id)
+    assert persisted.status == EDICT_NEEDS_ATTENTION
+
+
+@pytest.mark.asyncio
+async def test_edict_max_retries_succeeds_on_retry(
+    tmp_path: Path, edict_env: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pipeline recovers if a retry attempt succeeds after earlier failures."""
+    edicts_dir, tickets_dir, golem_dir = edict_env
+    edict = _make_edict()
+    edict_store = EdictStore(edicts_dir)
+    ticket_store = TicketStore(tickets_dir)
+
+    await edict_store.create(edict)
+
+    attempt = 0
+
+    async def _flaky_planner(*args: object, **kwargs: object) -> _MockPlannerResult:
+        nonlocal attempt
+        attempt += 1
+        if attempt <= 1:
+            raise RuntimeError("Transient failure")
+        return _MockPlannerResult()
+
+    monkeypatch.setattr("golem.planner.run_planner", _flaky_planner)
+
+    config = GolemConfig()
+    config.edict_max_retries = 3
+
+    coord = PipelineCoordinator(
+        edict=edict,
+        edict_store=edict_store,
+        ticket_store=ticket_store,
+        config=config,
+        project_root=tmp_path,
+        golem_dir=tmp_path / ".golem",
+    )
+    result = await coord.run()
+
+    assert result.status == EDICT_DONE
+    assert result.error is None
+    # Planner was called twice: once failed, once succeeded
+    assert attempt == 2
+
+
+@pytest.mark.asyncio
+async def test_edict_max_retries_zero_no_retry(
+    tmp_path: Path, edict_env: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With edict_max_retries=0, pipeline goes straight to needs_attention on first failure."""
+    edicts_dir, tickets_dir, golem_dir = edict_env
+    edict = _make_edict()
+    edict_store = EdictStore(edicts_dir)
+    ticket_store = TicketStore(tickets_dir)
+
+    edict_id = await edict_store.create(edict)
+
+    async def _failing_planner(*args: object, **kwargs: object) -> _MockPlannerResult:
+        raise RuntimeError("Immediate failure")
+
+    monkeypatch.setattr("golem.planner.run_planner", _failing_planner)
+
+    config = GolemConfig()
+    config.edict_max_retries = 0
+
+    coord = PipelineCoordinator(
+        edict=edict,
+        edict_store=edict_store,
+        ticket_store=ticket_store,
+        config=config,
+        project_root=tmp_path,
+        golem_dir=tmp_path / ".golem",
+    )
+    result = await coord.run()
+
+    assert result.status == EDICT_NEEDS_ATTENTION
+    assert "Immediate failure" in (result.error or "")
+
+    persisted = await edict_store.read(edict_id)
+    assert persisted.status == EDICT_NEEDS_ATTENTION
