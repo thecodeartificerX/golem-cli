@@ -35,167 +35,6 @@ if TYPE_CHECKING:
     from golem.tool_registry import ToolContext, ToolRegistry
 
 # ---------------------------------------------------------------------------
-# Input schemas (JSON Schema format used by SdkMcpTool.input_schema)
-# ---------------------------------------------------------------------------
-
-_CREATE_TICKET_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test"},
-        "title": {"type": "string", "description": "Short descriptive title"},
-        "assigned_to": {"type": "string", "description": "Agent role to assign this ticket to"},
-        "priority": {"type": "string", "description": "Priority: low|medium|high", "default": "medium"},
-        "created_by": {"type": "string", "description": "Agent creating the ticket", "default": "planner"},
-        "plan_file": {"type": "string", "description": "Path to the plan file for this ticket"},
-        "blueprint": {"type": "string", "description": "Architectural context for the task"},
-        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "Acceptance criteria"},
-        "qa_checks": {"type": "array", "items": {"type": "string"}, "description": "QA check commands"},
-        "references": {"type": "array", "items": {"type": "string"}, "description": "Reference file paths"},
-        "parallelism_hints": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Hints for parallel sub-tasks",
-        },
-    },
-    "required": ["type", "title", "assigned_to"],
-}
-
-_UPDATE_TICKET_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
-        "status": {
-            "type": "string",
-            "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done",
-        },
-        "note": {"type": "string", "description": "Note to append to history"},
-        "agent": {"type": "string", "description": "Agent performing the update", "default": "system"},
-        "attachments": {"type": "array", "items": {"type": "string"}, "description": "File paths or URLs to attach"},
-    },
-    "required": ["ticket_id", "status", "note"],
-}
-
-_READ_TICKET_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
-    },
-    "required": ["ticket_id"],
-}
-
-_LIST_TICKETS_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "status_filter": {"type": "string", "description": "Filter by status"},
-        "assigned_to_filter": {"type": "string", "description": "Filter by assigned_to"},
-    },
-}
-
-_RUN_QA_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "worktree_path": {"type": "string", "description": "Absolute path to the worktree"},
-        "checks": {"type": "array", "items": {"type": "string"}, "description": "Spec-defined check commands"},
-        "infrastructure_checks": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Infrastructure checks (run first)",
-        },
-        "qa_depth": {
-            "type": "string",
-            "description": "QA depth: minimal (infra only) | standard (infra+spec) | strict (infra+spec+recheck loop)",
-            "default": "standard",
-        },
-    },
-    "required": ["worktree_path", "checks"],
-}
-
-_CREATE_WORKTREE_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "group_id": {"type": "string", "description": "Group identifier"},
-        "branch": {"type": "string", "description": "New branch name"},
-        "base_branch": {"type": "string", "description": "Base branch to branch from"},
-        "path": {"type": "string", "description": "Filesystem path for the worktree"},
-        "repo_root": {"type": "string", "description": "Repository root path"},
-    },
-    "required": ["group_id", "branch", "base_branch", "path", "repo_root"],
-}
-
-_MERGE_BRANCHES_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "group_branches": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "List of branch names to merge",
-        },
-        "target_branch": {"type": "string", "description": "Branch to merge into"},
-        "repo_root": {"type": "string", "description": "Repository root path"},
-    },
-    "required": ["group_branches", "target_branch", "repo_root"],
-}
-
-_COMMIT_WORKTREE_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "worktree_path": {"type": "string", "description": "Path to the worktree"},
-        "task_id": {"type": "string", "description": "Task ID for commit message"},
-        "description": {"type": "string", "description": "Description for commit message"},
-    },
-    "required": ["worktree_path", "task_id", "description"],
-}
-
-_GET_BUILD_PROGRESS_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "session_id": {
-            "type": "string",
-            "description": "Session ID to filter tickets. Defaults to current session.",
-        },
-    },
-}
-
-_RECORD_DISCOVERY_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "file_path": {
-            "type": "string",
-            "description": "Path to the file or module being documented (relative or absolute)",
-        },
-        "description": {
-            "type": "string",
-            "description": "What was discovered about this file or module",
-        },
-        "category": {
-            "type": "string",
-            "description": 'Category: "api", "config", "ui", "test", "general"',
-        },
-    },
-    "required": ["file_path", "description"],
-}
-
-_RECORD_GOTCHA_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "gotcha": {
-            "type": "string",
-            "description": "Description of the gotcha or pitfall",
-        },
-        "context": {
-            "type": "string",
-            "description": "When this gotcha applies (optional)",
-        },
-    },
-    "required": ["gotcha"],
-}
-
-_GET_SESSION_CONTEXT_INPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {},
-}
-
-# ---------------------------------------------------------------------------
 # Constants for get_session_context output limits
 # ---------------------------------------------------------------------------
 
@@ -687,7 +526,27 @@ def build_tool_registry(
         return SdkMcpTool(
             name="create_ticket",
             description="Create a new ticket in the ticket store.",
-            input_schema=_CREATE_TICKET_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test"},
+                    "title": {"type": "string", "description": "Short descriptive title"},
+                    "assigned_to": {"type": "string", "description": "Agent role to assign this ticket to"},
+                    "priority": {"type": "string", "description": "Priority: low|medium|high", "default": "medium"},
+                    "created_by": {"type": "string", "description": "Agent creating the ticket", "default": "planner"},
+                    "plan_file": {"type": "string", "description": "Path to the plan file for this ticket"},
+                    "blueprint": {"type": "string", "description": "Architectural context for the task"},
+                    "acceptance": {"type": "array", "items": {"type": "string"}, "description": "Acceptance criteria"},
+                    "qa_checks": {"type": "array", "items": {"type": "string"}, "description": "QA check commands"},
+                    "references": {"type": "array", "items": {"type": "string"}, "description": "Reference file paths"},
+                    "parallelism_hints": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Hints for parallel sub-tasks",
+                    },
+                },
+                "required": ["type", "title", "assigned_to"],
+            },
             handler=_wrap_handler(
                 "create_ticket",
                 partial(_handle_create_ticket, store, event_bus=event_bus),
@@ -698,7 +557,24 @@ def build_tool_registry(
         return SdkMcpTool(
             name="update_ticket",
             description="Update ticket status and append a history event.",
-            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
+                    "status": {
+                        "type": "string",
+                        "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done",
+                    },
+                    "note": {"type": "string", "description": "Note to append to history"},
+                    "agent": {"type": "string", "description": "Agent performing the update", "default": "system"},
+                    "attachments": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "File paths or URLs to attach",
+                    },
+                },
+                "required": ["ticket_id", "status", "note"],
+            },
             handler=_wrap_handler(
                 "update_ticket",
                 partial(_handle_update_ticket, store, event_bus=event_bus),
@@ -709,7 +585,13 @@ def build_tool_registry(
         return SdkMcpTool(
             name="read_ticket",
             description="Read a ticket by ID.",
-            input_schema=_READ_TICKET_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
+                },
+                "required": ["ticket_id"],
+            },
             handler=_wrap_handler("read_ticket", partial(_handle_read_ticket, store)),
         )
 
@@ -717,7 +599,13 @@ def build_tool_registry(
         return SdkMcpTool(
             name="list_tickets",
             description="List tickets, optionally filtered by status or assignee.",
-            input_schema=_LIST_TICKETS_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status_filter": {"type": "string", "description": "Filter by status"},
+                    "assigned_to_filter": {"type": "string", "description": "Filter by assigned_to"},
+                },
+            },
             handler=_wrap_handler("list_tickets", partial(_handle_list_tickets, store)),
         )
 
@@ -725,7 +613,28 @@ def build_tool_registry(
         return SdkMcpTool(
             name="run_qa",
             description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
-            input_schema=_RUN_QA_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "worktree_path": {"type": "string", "description": "Absolute path to the worktree"},
+                    "checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Spec-defined check commands",
+                    },
+                    "infrastructure_checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Infrastructure checks (run first)",
+                    },
+                    "qa_depth": {
+                        "type": "string",
+                        "description": "QA depth: minimal (infra only) | standard (infra+spec) | strict (infra+spec+recheck loop)",
+                        "default": "standard",
+                    },
+                },
+                "required": ["worktree_path", "checks"],
+            },
             handler=_wrap_handler(
                 "run_qa",
                 partial(_handle_run_qa, event_bus=event_bus),
@@ -736,7 +645,17 @@ def build_tool_registry(
         return SdkMcpTool(
             name="create_worktree",
             description="Create a git worktree for a group on a new branch.",
-            input_schema=_CREATE_WORKTREE_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "group_id": {"type": "string", "description": "Group identifier"},
+                    "branch": {"type": "string", "description": "New branch name"},
+                    "base_branch": {"type": "string", "description": "Base branch to branch from"},
+                    "path": {"type": "string", "description": "Filesystem path for the worktree"},
+                    "repo_root": {"type": "string", "description": "Repository root path"},
+                },
+                "required": ["group_id", "branch", "base_branch", "path", "repo_root"],
+            },
             handler=_wrap_handler(
                 "create_worktree",
                 partial(_handle_create_worktree, event_bus=event_bus),
@@ -747,7 +666,19 @@ def build_tool_registry(
         return SdkMcpTool(
             name="merge_branches",
             description="Merge group branches into a target branch.",
-            input_schema=_MERGE_BRANCHES_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "group_branches": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of branch names to merge",
+                    },
+                    "target_branch": {"type": "string", "description": "Branch to merge into"},
+                    "repo_root": {"type": "string", "description": "Repository root path"},
+                },
+                "required": ["group_branches", "target_branch", "repo_root"],
+            },
             handler=_wrap_handler(
                 "merge_branches",
                 partial(_handle_merge_branches, event_bus=event_bus),
@@ -765,7 +696,15 @@ def build_tool_registry(
         return SdkMcpTool(
             name="commit_worktree",
             description="Stage and commit all changes in an assigned worktree.",
-            input_schema=_COMMIT_WORKTREE_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "worktree_path": {"type": "string", "description": "Path to the worktree"},
+                    "task_id": {"type": "string", "description": "Task ID for commit message"},
+                    "description": {"type": "string", "description": "Description for commit message"},
+                },
+                "required": ["worktree_path", "task_id", "description"],
+            },
             handler=_wrap_handler("commit_worktree", _guarded),
         )
 
@@ -778,7 +717,15 @@ def build_tool_registry(
                 "Get current build progress: ticket counts by status, percentage done, "
                 "and next pending ticket. Call at session start for orientation."
             ),
-            input_schema=_GET_BUILD_PROGRESS_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID to filter tickets. Defaults to current session.",
+                    },
+                },
+            },
             handler=_wrap_handler(
                 "get_build_progress",
                 partial(_handle_get_build_progress, store, session_id),
@@ -792,7 +739,24 @@ def build_tool_registry(
                 "Record a codebase discovery to session memory. "
                 "Use when you learn something important about the codebase structure."
             ),
-            input_schema=_RECORD_DISCOVERY_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file or module being documented (relative or absolute)",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What was discovered about this file or module",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": 'Category: "api", "config", "ui", "test", "general"',
+                    },
+                },
+                "required": ["file_path", "description"],
+            },
             handler=_wrap_handler(
                 "record_discovery",
                 partial(_handle_record_discovery, memory_dir),
@@ -806,7 +770,20 @@ def build_tool_registry(
                 "Record a gotcha or pitfall. "
                 "Use when you encounter something future sessions should know to avoid repeating mistakes."
             ),
-            input_schema=_RECORD_GOTCHA_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gotcha": {
+                        "type": "string",
+                        "description": "Description of the gotcha or pitfall",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "When this gotcha applies (optional)",
+                    },
+                },
+                "required": ["gotcha"],
+            },
             handler=_wrap_handler(
                 "record_gotcha",
                 partial(_handle_record_gotcha, memory_dir),
@@ -820,7 +797,10 @@ def build_tool_registry(
                 "Get context from previous sessions: codebase discoveries, gotchas, and patterns. "
                 "Call at session start to pick up where the last session left off."
             ),
-            input_schema=_GET_SESSION_CONTEXT_INPUT_SCHEMA,
+            input_schema={
+                "type": "object",
+                "properties": {},
+            },
             handler=_wrap_handler(
                 "get_session_context",
                 partial(_handle_get_session_context, memory_dir),
@@ -936,7 +916,28 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
     qa_tool = SdkMcpTool(
         name="run_qa",
         description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
-        input_schema=_RUN_QA_INPUT_SCHEMA,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "worktree_path": {"type": "string", "description": "Absolute path to the worktree"},
+                "checks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Spec-defined check commands",
+                },
+                "infrastructure_checks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Infrastructure checks (run first)",
+                },
+                "qa_depth": {
+                    "type": "string",
+                    "description": "QA depth: minimal (infra only) | standard (infra+spec) | strict (infra+spec+recheck loop)",
+                    "default": "standard",
+                },
+            },
+            "required": ["worktree_path", "checks"],
+        },
         handler=_handle_run_qa,
     )
     return create_sdk_mcp_server("golem-qa", tools=[qa_tool])
