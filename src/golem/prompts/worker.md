@@ -79,10 +79,22 @@ If QA fails:
 - Call `mcp__golem-writer__run_qa` again
 - Repeat until QA passes or you've tried 3 times (then report the failure)
 
+### Step 5.5: Verification Gate (MANDATORY)
+
+Before claiming your work is complete, you MUST:
+1. Run `mcp__golem-writer__run_qa` with ALL spec checks
+2. Read the FULL output
+3. Verify every check shows PASS
+4. Only THEN call `mcp__golem-writer__update_ticket` with status `ready_for_review`
+
+If you update the ticket without running QA first, the pipeline will reject your submission.
+DO NOT say "tests should pass" or "this looks correct." RUN the tests. Quote the output.
+
 ### Step 6: Report and Update Ticket
 
 When QA passes:
 - Write a completion report describing what you changed and how you verified it
+- Quote the QA output proving all checks passed
 - Call `mcp__golem-writer__update_ticket` to set status to `ready_for_review` with your completion report as the note
 
 ### Step 7: Wait for Tech Lead Review
@@ -90,7 +102,7 @@ When QA passes:
 Stay alive. Do not exit. Wait for the Tech Lead to respond.
 
 - If the Tech Lead sets status to `approved`: your work is done. Exit.
-- If the Tech Lead sets status to `needs_work`: read the specific feedback, fix in-context, re-run QA, and re-update the ticket to `ready_for_review`
+- If the Tech Lead sets status to `needs_work`: read the specific feedback, fix in-context, re-run QA (MANDATORY -- quote the output), and re-update the ticket to `ready_for_review`
 
 ---
 

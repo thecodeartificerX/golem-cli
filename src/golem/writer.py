@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _MAX_RETRIES = 2
@@ -20,10 +21,21 @@ from claude_agent_sdk import (
 )
 
 from golem.config import GolemConfig, sdk_env
-from golem.tickets import Ticket
+from golem.qa import run_qa
+from golem.tickets import Ticket, TicketStore
 from golem.tools import create_writer_mcp_server
 
 _WRITER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "worker.md"
+
+
+@dataclass
+class WriterResult:
+    """Result from a writer session including QA verification status."""
+
+    text: str
+    qa_called: bool
+    qa_forced: bool = False
+    qa_passed: bool | None = None
 
 
 def _strip_section(template: str, key: str) -> str:
@@ -80,15 +92,19 @@ async def spawn_writer_pair(
     worktree_path: str,
     config: GolemConfig,
     golem_dir: Path | None = None,
-) -> str:
+) -> WriterResult:
     """Spawn a writer SDK session for the given ticket in the worktree.
 
-    Returns the writer's result text.
+    Returns a WriterResult with session text and QA verification status.
+    If the writer never called run_qa, the harness forces a QA run and
+    triggers rework (via ticket update) if it fails.
     """
     prompt = build_writer_prompt(ticket)
     result_text = ""
+    qa_called = False
 
-    writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
+    effective_golem_dir = golem_dir if golem_dir else Path(worktree_path)
+    writer_server = create_writer_mcp_server(effective_golem_dir)
 
     last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
@@ -112,6 +128,8 @@ async def spawn_writer_pair(
                             preview = block.text[:120].replace("\n", " ")
                             print(f"[WRITER] {preview}", file=sys.stderr)
                         elif isinstance(block, ToolUseBlock):
+                            if "run_qa" in block.name:
+                                qa_called = True
                             print(f"[WRITER] tool: {block.name}({', '.join(f'{k}=' for k in list(block.input.keys())[:3])})", file=sys.stderr)
                 elif isinstance(message, ResultMessage):
                     if message.result:
@@ -136,4 +154,30 @@ async def spawn_writer_pair(
                     f"Writer failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
-    return result_text
+    # --- Verification gate: enforce QA was actually run ---
+    if qa_called:
+        return WriterResult(text=result_text, qa_called=True)
+
+    print(f"[WRITER] Verification gate: writer did not call run_qa for {ticket.id}, forcing QA run", file=sys.stderr)
+    qa_checks = ticket.context.qa_checks
+    infrastructure_checks: list[str] = []
+    qa_result = run_qa(
+        worktree_path=worktree_path,
+        checks=qa_checks,
+        infrastructure_checks=infrastructure_checks,
+    )
+
+    if qa_result.passed:
+        print(f"[WRITER] Forced QA passed for {ticket.id}: {qa_result.summary}", file=sys.stderr)
+        return WriterResult(text=result_text, qa_called=False, qa_forced=True, qa_passed=True)
+
+    # QA failed — update ticket to needs_work to trigger rework
+    print(f"[WRITER] Forced QA FAILED for {ticket.id}: {qa_result.summary}", file=sys.stderr)
+    store = TicketStore(effective_golem_dir / "tickets")
+    await store.update(
+        ticket_id=ticket.id,
+        status="needs_work",
+        note=f"Harness verification gate: writer skipped QA. Forced QA failed: {qa_result.summary}",
+        agent="harness",
+    )
+    return WriterResult(text=result_text, qa_called=False, qa_forced=True, qa_passed=False)

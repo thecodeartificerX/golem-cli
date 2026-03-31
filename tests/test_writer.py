@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from golem.config import GolemConfig
-from golem.tickets import Ticket, TicketContext
-from golem.writer import build_writer_prompt, spawn_writer_pair
+from golem.qa import QACheck, QAResult
+from golem.tickets import Ticket, TicketContext, TicketStore
+from golem.writer import WriterResult, build_writer_prompt, spawn_writer_pair
 
 
 def _make_ticket_with_context() -> Ticket:
@@ -118,6 +121,8 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
         golem_dir = Path(tmpdir) / ".golem"
         (golem_dir / "tickets").mkdir(parents=True)
         ticket = _make_ticket_with_context()
+        # Create ticket JSON on disk so forced QA / ticket update works
+        _write_ticket_json(golem_dir / "tickets", ticket)
         config = GolemConfig()
         captured_cwd: list[str] = []
 
@@ -127,7 +132,133 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
             return
             yield
 
-        with patch("golem.writer.query", side_effect=fake_query):
-            await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+        # Writer never calls run_qa, so the harness forces it.
+        # Mock run_qa to pass so we don't need real commands.
+        passing_qa = QAResult(passed=True, checks=[], summary="0/0 checks passed.")
+        with patch("golem.writer.query", side_effect=fake_query), \
+             patch("golem.writer.run_qa", return_value=passing_qa):
+            result = await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert captured_cwd == [tmpdir]
+        assert isinstance(result, WriterResult)
+
+
+def _write_ticket_json(tickets_dir: Path, ticket: Ticket) -> None:
+    """Write a ticket JSON file for harness tests that need to read/update tickets."""
+    tickets_dir.mkdir(parents=True, exist_ok=True)
+    path = tickets_dir / f"{ticket.id}.json"
+    path.write_text(json.dumps(asdict(ticket), indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Verification gate tests
+# ---------------------------------------------------------------------------
+
+
+def test_verification_gate_text_in_worker_prompt() -> None:
+    """The verification gate text must appear in the worker prompt template."""
+    prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "worker.md"
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "Verification Gate (MANDATORY)" in content
+    assert "RUN the tests. Quote the output." in content
+    assert "pipeline will reject your submission" in content
+
+
+def test_verification_gate_rework_text_in_worker_prompt() -> None:
+    """The rework path must also mandate re-running QA."""
+    prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "worker.md"
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "re-run QA (MANDATORY" in content
+
+
+@pytest.mark.asyncio
+async def test_harness_detects_missing_qa_and_forces_run() -> None:
+    """When writer never calls run_qa, the harness forces a QA run."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        ticket = _make_ticket_with_context()
+        _write_ticket_json(golem_dir / "tickets", ticket)
+        config = GolemConfig()
+
+        async def fake_query(prompt, options=None, **kwargs):
+            # Writer session that never calls run_qa
+            return
+            yield
+
+        passing_qa = QAResult(passed=True, checks=[
+            QACheck(type="acceptance", tool="python -m py_compile src/main.py", passed=True, stdout="", stderr=""),
+        ], summary="1/1 checks passed.")
+
+        with patch("golem.writer.query", side_effect=fake_query), \
+             patch("golem.writer.run_qa", return_value=passing_qa) as mock_qa:
+            result = await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert result.qa_called is False
+        assert result.qa_forced is True
+        assert result.qa_passed is True
+        mock_qa.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_harness_forced_qa_failure_triggers_rework() -> None:
+    """When forced QA fails, the harness updates the ticket to needs_work."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        ticket = _make_ticket_with_context()
+        _write_ticket_json(golem_dir / "tickets", ticket)
+        config = GolemConfig()
+
+        async def fake_query(prompt, options=None, **kwargs):
+            return
+            yield
+
+        failing_qa = QAResult(passed=False, checks=[
+            QACheck(type="acceptance", tool="python -m py_compile src/main.py", passed=False, stdout="", stderr="error"),
+        ], summary="0/1 checks passed. Failed: ['python -m py_compile src/main.py']")
+
+        with patch("golem.writer.query", side_effect=fake_query), \
+             patch("golem.writer.run_qa", return_value=failing_qa):
+            result = await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert result.qa_called is False
+        assert result.qa_forced is True
+        assert result.qa_passed is False
+
+        # Verify ticket was updated to needs_work
+        store = TicketStore(golem_dir / "tickets")
+        updated_ticket = await store.read(ticket.id)
+        assert updated_ticket.status == "needs_work"
+        # Check that the harness note is in the history
+        harness_events = [e for e in updated_ticket.history if e.agent == "harness"]
+        assert len(harness_events) == 1
+        assert "writer skipped QA" in harness_events[0].note
+
+
+@pytest.mark.asyncio
+async def test_harness_skips_forced_qa_when_writer_called_run_qa() -> None:
+    """When writer calls run_qa during the session, the harness does not force it."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        ticket = _make_ticket_with_context()
+        _write_ticket_json(golem_dir / "tickets", ticket)
+        config = GolemConfig()
+
+        # Simulate a writer session that calls run_qa
+        from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+        async def fake_query_with_qa(prompt, options=None, **kwargs):
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(id="tool_1", name="mcp__golem-writer__run_qa", input={"worktree_path": tmpdir, "checks": []}),
+                ],
+                model="claude-sonnet-4-20250514",
+            )
+
+        with patch("golem.writer.query", side_effect=fake_query_with_qa), \
+             patch("golem.writer.run_qa") as mock_qa:
+            result = await spawn_writer_pair(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert result.qa_called is True
+        assert result.qa_forced is False
+        # run_qa should NOT have been called by the harness
+        mock_qa.assert_not_called()
