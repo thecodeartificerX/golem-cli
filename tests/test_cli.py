@@ -1563,3 +1563,126 @@ def test_run_timeout_zero_means_no_limit(tmp_path: Path, monkeypatch: pytest.Mon
     # wait_for should NOT be called when timeout=0
     assert len(wait_for_called) == 0
     assert "Timeout" not in result.output
+
+
+def test_retry_help_shows_ticket_id_argument() -> None:
+    """golem retry --help shows ticket-id argument."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["retry", "--help"])
+    assert "TICKET_ID" in result.output or "ticket-id" in result.output.lower()
+    assert "retry" in result.output.lower()
+
+
+def test_retry_no_active_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem retry with no .golem/tickets shows 'no active run' message."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["retry", "TICKET-001"])
+    assert "no active run" in result.output.lower()
+
+
+def test_retry_ticket_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem retry with non-existent ticket shows error."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    tickets_dir = tmp_path / ".golem" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["retry", "TICKET-999"])
+    assert "not found" in result.output.lower()
+    assert result.exit_code == 1
+
+
+def test_retry_resets_ticket_and_dispatches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem retry resets ticket to pending and dispatches to writer."""
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+    from golem.writer import JuniorDevResult
+
+    monkeypatch.chdir(tmp_path)
+
+    # Create minimal .golem structure
+    golem_dir = tmp_path / ".golem"
+    tickets_dir = golem_dir / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    # Create a failed ticket
+    ticket_data = {
+        "id": "TICKET-001",
+        "type": "feature",
+        "title": "Test ticket",
+        "status": "failed",
+        "priority": "medium",
+        "created_by": "test",
+        "assigned_to": "",
+        "context": {
+            "plan_file": "",
+            "files": {},
+            "references": [],
+            "blueprint": "Do something",
+            "acceptance": ["it works"],
+            "qa_checks": [],
+            "parallelism_hints": [],
+        },
+        "history": [],
+        "session_id": "",
+        "depends_on": [],
+        "edict_id": "",
+        "pipeline_stage": "",
+        "agent_id": "",
+    }
+    (tickets_dir / "TICKET-001.json").write_text(json.dumps(ticket_data), encoding="utf-8")
+
+    # Mock git operations
+    subprocess_calls: list[list[str]] = []
+
+    def mock_run(cmd: list[str], *args: object, **kwargs: object) -> MagicMock:
+        subprocess_calls.append(cmd)
+        result = MagicMock()
+        result.stdout = ""
+        result.returncode = 0
+        return result
+
+    monkeypatch.setattr("golem.worktree.subprocess.run", mock_run)
+
+    # Mock spawn_junior_dev to return success
+    mock_result = JuniorDevResult(
+        result_text="Done",
+        cost_usd=0.01,
+        input_tokens=100,
+        output_tokens=50,
+        num_turns=3,
+    )
+    mock_spawn = AsyncMock(return_value=mock_result)
+    monkeypatch.setattr("golem.cli.spawn_junior_dev", mock_spawn)
+
+    # Mock delete_worktree
+    monkeypatch.setattr("golem.worktree.subprocess.run", mock_run)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["retry", "TICKET-001"])
+
+    # Check output
+    assert "Reset TICKET-001" in result.output or "pending" in result.output.lower()
+    assert "TICKET-001 completed" in result.output or "completed" in result.output.lower()
+
+    # Verify spawn_junior_dev was called
+    assert mock_spawn.called

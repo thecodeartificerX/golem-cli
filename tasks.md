@@ -281,7 +281,7 @@ Tasks are organized by theme. Each task should be:
 **What:** `validate()` checks `max_worker_turns >= 1` but not `max_validator_turns`. Add the check.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 163. Wire `GolemConfig.setting_sources` to SDK sessions
+#### [x] 163. Wire `GolemConfig.setting_sources` to SDK sessions (DONE: already implemented)
 **Size:** Medium | **Files:** `src/golem/planner.py`, `src/golem/tech_lead.py`, `src/golem/writer.py`
 **What:** `config.setting_sources` is loaded but never passed to `ClaudeAgentOptions`. Add `setting_sources=config.setting_sources` to all three agent spawners.
 **Done when:** `uv run pytest` passes.
@@ -498,7 +498,7 @@ Tasks are organized by theme. Each task should be:
 **What:** New command showing: total runs, total tickets, average duration, pass rate. Stored in `.golem/stats.json`.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 204. `golem retry <ticket-id>` — Re-run a specific failed ticket
+#### [x] 204. `golem retry <ticket-id>` — Re-run a specific failed ticket (DONE)
 **Size:** Medium | **Files:** `src/golem/cli.py`
 **What:** Reset ticket to `pending`, re-dispatch to a fresh writer with original context.
 **Done when:** `uv run pytest` passes.

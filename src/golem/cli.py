@@ -1566,6 +1566,97 @@ def reset_ticket(
     asyncio.run(_reset_async())
 
 
+@app.command()
+def retry(
+    ticket_id: str = typer.Argument(..., help="Ticket ID to retry (e.g. TICKET-001)"),
+) -> None:
+    """Re-run a specific failed ticket — reset to pending and dispatch to a fresh writer."""
+    from golem.worktree import create_worktree, delete_worktree
+
+    project_root = _get_project_root()
+    golem_dir = _get_golem_dir(project_root)
+    tickets_dir = golem_dir / "tickets"
+
+    if not tickets_dir.exists():
+        console.print("[dim]No active run. Use 'golem run <spec>' to start one.[/dim]")
+        return
+
+    config = load_config(project_root)
+    progress = ProgressLogger(golem_dir)
+
+    async def _retry_async() -> None:
+        store = TicketStore(tickets_dir)
+        try:
+            ticket = await store.read(ticket_id)
+        except (FileNotFoundError, KeyError):
+            console.print(f"[red]Ticket {ticket_id} not found.[/red]")
+            raise typer.Exit(1)
+
+        # 1. Reset ticket to pending
+        old_status = ticket.status
+        await store.update(ticket_id, "pending", f"Retry requested (was {old_status})", agent="cli")
+        ticket = await store.read(ticket_id)  # Refresh after update
+        console.print(f"[dim]Reset {ticket_id} from {old_status} to pending.[/dim]")
+
+        # 2. Create worktree
+        branch_prefix = config.branch_prefix
+        session_prefix = f"{branch_prefix}/{config.session_id}" if config.session_id else branch_prefix
+        branch = f"{session_prefix}/{ticket_id.lower()}-retry"
+        wt_path = golem_dir / "worktrees" / f"{ticket_id.lower()}-retry"
+
+        # Clean up existing retry worktree if it exists
+        if wt_path.exists():
+            try:
+                delete_worktree(wt_path, project_root)
+            except Exception:
+                pass
+
+        try:
+            create_worktree(
+                group_id=ticket_id,
+                branch=branch,
+                base_branch=config.pr_target,
+                path=wt_path,
+                repo_root=project_root,
+                branch_prefix=branch_prefix,
+            )
+            console.print(f"[dim]Created worktree at {wt_path}[/dim]")
+        except Exception as e:
+            console.print(f"[red]Failed to create worktree: {e}[/red]")
+            raise typer.Exit(1)
+
+        # 3. Dispatch to writer
+        console.print(f"[bold]Retrying {ticket_id}...[/bold]")
+        await store.update(ticket_id, "in_progress", "Dispatched to writer (retry)", agent="cli")
+
+        try:
+            result = await spawn_junior_dev(
+                ticket=ticket,
+                worktree_path=str(wt_path),
+                config=config,
+                golem_dir=golem_dir,
+            )
+            await store.update(
+                ticket_id, "complete",
+                f"Writer completed (retry): {result.num_turns} turns, ${result.cost_usd:.4f}",
+                agent="cli",
+            )
+            console.print(f"[green]✓ {ticket_id} completed[/green]")
+            console.print(f"  Turns: {result.num_turns} | Cost: ${result.cost_usd:.4f}")
+        except RuntimeError as e:
+            await store.update(ticket_id, "failed", f"Writer failed (retry): {e}", agent="cli")
+            console.print(f"[red]✗ {ticket_id} failed: {e}[/red]")
+            raise typer.Exit(1)
+        finally:
+            # Clean up worktree
+            try:
+                delete_worktree(wt_path, project_root)
+            except Exception:
+                pass
+
+    asyncio.run(_retry_async())
+
+
 @app.command(name="list-specs")
 def list_specs() -> None:
     """List all .md files in the project that look like specs."""
