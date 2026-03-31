@@ -40,7 +40,7 @@ from golem.events import (
 
 def test_event_registry_complete() -> None:
     """EVENT_TYPES contains all 41 event types (29 original + 12 orchestrator events)."""
-    assert len(EVENT_TYPES) == 41
+    assert len(EVENT_TYPES) == 44
     assert "agent_spawned" in EVENT_TYPES
     assert "agent_text" in EVENT_TYPES
     assert "session_complete" in EVENT_TYPES

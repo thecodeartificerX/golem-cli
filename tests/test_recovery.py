@@ -806,7 +806,7 @@ class TestEventRegistry:
     def test_total_event_count_is_23(self) -> None:
         from golem.events import EVENT_TYPES
 
-        assert len(EVENT_TYPES) == 41
+        assert len(EVENT_TYPES) == 44
 
     def test_agent_error_classified_roundtrip(self) -> None:
         from golem.events import AgentErrorClassified, GolemEvent
