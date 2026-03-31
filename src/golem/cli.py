@@ -512,6 +512,21 @@ def run(
 
         # Final summary
         all_tickets = await store.list_tickets()
+
+        # Check for escalation tickets that need operator attention
+        escalations = [t for t in all_tickets if t.type == "escalation" and t.status == "pending"]
+        if escalations:
+            console.print(f"\n[red][!] {len(escalations)} escalation(s) need operator attention:[/red]")
+            for esc in escalations:
+                console.print(f"  [red]{esc.id}[/red]: {esc.title}")
+
+        # Check for unresolved blockers
+        blockers = [t for t in all_tickets if t.type == "blocker" and t.status == "pending"]
+        if blockers:
+            console.print(f"\n[yellow][!] {len(blockers)} unresolved blocker(s):[/yellow]")
+            for blk in blockers:
+                console.print(f"  [yellow]{blk.id}[/yellow]: {blk.title}")
+
         if all_tickets:
             by_status: dict[str, int] = {}
             for t in all_tickets:

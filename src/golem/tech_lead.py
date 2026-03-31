@@ -20,7 +20,13 @@ from golem.progress import ProgressLogger
 from golem.supervisor import ContinuationResult, _build_agent_hooks, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
-from golem.worktree import delete_worktree, merge_group_branches
+from golem.worktree import (
+    check_main_divergence,
+    delete_worktree,
+    merge_group_branches,
+    rebase_onto_main,
+    run_post_merge_verification,
+)
 
 if TYPE_CHECKING:
     from golem.events import EventBus
@@ -38,13 +44,24 @@ class TechLeadResult:
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 
-async def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem") -> None:
-    """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
+async def _ensure_merged_to_main(
+    project_root: Path, branch_prefix: str = "golem", config: GolemConfig | None = None
+) -> None:
+    """Self-healing: merge any golem integration branches into main if the Tech Lead didn't.
+
+    Includes cross-edict conflict detection (rebase if main diverged) and
+    post-merge verification (revert if QA fails after merge).
+    """
+    if config is None:
+        config = GolemConfig()
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["git", *args], cwd=project_root, capture_output=True, text=True, encoding="utf-8"
         )
+
+    def _log(msg: str) -> None:
+        print(f"[TECH LEAD] {msg}", file=sys.stderr)
 
     # Find golem integration branches
     result = await asyncio.to_thread(_git, "branch", "--list", f"{branch_prefix}/*/integration")
@@ -58,7 +75,7 @@ async def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem
         # Fallback: try 'master' or detect default branch
         checkout_result = await asyncio.to_thread(_git, "checkout", "master")
         if checkout_result.returncode != 0:
-            print("[TECH LEAD] Warning: could not checkout main or master branch", file=sys.stderr)
+            _log("Warning: could not checkout main or master branch")
             return
 
     for branch in integration_branches:
@@ -70,10 +87,23 @@ async def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem
         # Skip branches with no actual changes (diff against HEAD which is now on main/master)
         diff_stat = await asyncio.to_thread(_git, "diff", "--stat", f"HEAD...{branch}")
         if not diff_stat.stdout.strip():
-            print(f"[TECH LEAD] Skipping {branch} -- no changes", file=sys.stderr)
+            _log(f"Skipping {branch} -- no changes")
             continue
 
-        print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
+        # Cross-edict conflict detection: check if main has diverged
+        await asyncio.to_thread(_git, "checkout", branch)
+        if await asyncio.to_thread(check_main_divergence, project_root, "main"):
+            _log(f"Main has diverged since {branch} was created.")
+            if config.merge_auto_rebase:
+                _log(f"Auto-rebasing {branch} onto main...")
+                if not await asyncio.to_thread(rebase_onto_main, project_root, "main"):
+                    _log(f"Rebase of {branch} onto main failed (conflicts). Skipping.")
+                    await asyncio.to_thread(_git, "checkout", "main")
+                    continue
+                _log(f"Rebase of {branch} onto main succeeded.")
+        await asyncio.to_thread(_git, "checkout", "main")
+
+        _log(f"Self-healing: merging {branch} into main")
         merge_result = await asyncio.to_thread(_git, "merge", branch, "--ff-only")
         if merge_result.returncode != 0:
             # ff-only failed, try regular merge
@@ -81,8 +111,15 @@ async def _ensure_merged_to_main(project_root: Path, branch_prefix: str = "golem
                 _git, "merge", "--no-ff", "-m", f"feat: merge {branch} (golem self-heal)", branch
             )
             if merge_result.returncode != 0:
-                print(f"[TECH LEAD] Warning: could not merge {branch} into main: {merge_result.stderr}", file=sys.stderr)
+                _log(f"Warning: could not merge {branch} into main: {merge_result.stderr}")
                 await asyncio.to_thread(_git, "merge", "--abort")
+                continue
+
+        # Post-merge verification: run QA on main, revert if it fails
+        merge_sha = (await asyncio.to_thread(_git, "rev-parse", "HEAD")).stdout.strip()
+        verification = await asyncio.to_thread(run_post_merge_verification, project_root, config, merge_sha)
+        if not verification.passed:
+            _log(f"Post-merge verification FAILED after merging {branch}. Merge reverted.")
 
 
 def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
@@ -371,7 +408,7 @@ async def run_tech_lead(
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
-    await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix)
+    await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix, config=config)
 
     # Promote debrief and gotchas to project-level memory
     await _promote_debrief_to_memory(golem_dir, project_root, edict_id)

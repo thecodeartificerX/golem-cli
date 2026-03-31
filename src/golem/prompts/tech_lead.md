@@ -208,6 +208,19 @@ Wait for all Junior Devs to complete before reviewing.
 
 === PHASE 4 COMPLETE when all dispatched Junior Devs have updated their tickets ===
 
+### Blocker Handling (check before each phase)
+
+Before starting each phase, call `mcp__golem__list_tickets` and check for:
+- Any ticket with `type=blocker` and `status=pending` -- this means a Writer hit its max rework cycles and escalated
+
+For blocker tickets:
+1. Read the blocker's context to understand what failed (the `blueprint` field contains the original ticket ID, failure reason, and context)
+2. Decide: revise the approach and create a new ticket, rework the original ticket differently, or escalate to the operator
+3. To escalate to operator: create a ticket with `type=escalation`, `assigned_to=operator`, describing what went wrong and what the operator should do
+4. After resolving the blocker, update it to `done`
+
+---
+
 ### Phase 5: Review Work  [ARTIFACT: all tickets at "approved" or "needs_work"]
 
 When a Junior Dev completes:
@@ -261,11 +274,13 @@ to verify the UI renders and has no console errors.
 
 The run is not complete until `main` contains all the new code.
 
-1. Call `mcp__golem__run_qa` one final time on the integration branch
-2. Run `git checkout main && git merge <integration-branch> --ff-only`
-3. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"`
-4. Verify main has the new commits: `git log --oneline -10`
-5. Create a PR with:
+1. Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch
+2. **Cross-edict conflict detection:** Before merging, check if main has advanced since the branch was created. Run `git merge-base HEAD main` and compare with `git rev-parse main`. If they differ, main has diverged — rebase the integration branch onto main first with `git rebase main`. If the rebase has conflicts, abort with `git rebase --abort` and report the conflict.
+3. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
+4. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
+5. **Post-merge verification:** After a successful merge, run the full QA suite on main via `mcp__golem__run_qa`. If any check fails, revert the merge with `git revert --no-edit <merge-sha>` and report the failure. Do NOT leave a broken main.
+6. Verify main has the new commits: `git log --oneline -3`
+7. Create a PR with:
    - Title: `golem: <spec title>`
    - Body: full run report with completed tickets, QA results, integration notes
    - Base branch: `main`

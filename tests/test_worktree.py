@@ -8,7 +8,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from golem.worktree import commit_task, create_pr, create_worktree, delete_worktree, detect_worktree_isolation, list_worktrees, merge_group_branches, verify_pr
+from golem.config import GolemConfig
+from golem.worktree import (
+    check_main_divergence,
+    commit_task,
+    create_pr,
+    create_worktree,
+    delete_worktree,
+    detect_worktree_isolation,
+    list_worktrees,
+    merge_group_branches,
+    rebase_onto_main,
+    run_post_merge_verification,
+    verify_pr,
+)
 
 
 def _init_git_repo(path: Path) -> None:
@@ -586,3 +599,173 @@ def test_build_writer_prompt_no_warning_when_path_is_none() -> None:
     prompt = build_writer_prompt(ticket, worktree_path=None)
     assert "ISOLATED WORKTREE" not in prompt
     assert "{worktree_isolation_warning}" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Unit 10: Post-merge verification + conflict detection tests
+# ---------------------------------------------------------------------------
+
+
+def test_check_main_divergence_no_divergence() -> None:
+    """check_main_divergence returns False when main has not advanced."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Create a feature branch from main — main hasn't moved
+        _git("checkout", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "feature commit")
+
+        # From the feature branch, main hasn't diverged
+        assert check_main_divergence(repo, base_branch="main") is False
+
+
+def test_check_main_divergence_with_divergence() -> None:
+    """check_main_divergence returns True when main has new commits."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+        # Create a feature branch
+        _git("checkout", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "feature commit")
+
+        # Go back to main and add a new commit
+        _git("checkout", "main")
+        (repo / "main_update.txt").write_text("main moved forward", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "main advanced")
+
+        # Switch back to feature — main has diverged
+        _git("checkout", "feature")
+        assert check_main_divergence(repo, base_branch="main") is True
+
+
+def test_rebase_onto_main_clean() -> None:
+    """rebase_onto_main succeeds on a clean rebase (no conflicts)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["git", *args], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8",
+            )
+
+        # Create a feature branch touching a different file
+        _git("checkout", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "feature commit")
+
+        # Advance main with a non-conflicting change
+        _git("checkout", "main")
+        (repo / "main_update.txt").write_text("main moved forward", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "main advanced")
+
+        # Switch to feature and rebase
+        _git("checkout", "feature")
+        assert rebase_onto_main(repo, base_branch="main") is True
+
+        # Verify rebase applied — feature.txt should still exist and main_update.txt accessible
+        log = _git("log", "--oneline").stdout
+        assert "feature commit" in log
+
+
+def test_rebase_onto_main_conflict() -> None:
+    """rebase_onto_main aborts and returns False when there are conflicts."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        def _git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["git", *args], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8",
+            )
+
+        # Create a feature branch that modifies README.md
+        _git("checkout", "-b", "feature")
+        (repo / "README.md").write_text("feature version", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "feature changes README")
+
+        # Advance main with a conflicting change to README.md
+        _git("checkout", "main")
+        (repo / "README.md").write_text("main version", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-m", "main changes README")
+
+        # Switch to feature and try rebase — should fail
+        _git("checkout", "feature")
+        assert rebase_onto_main(repo, base_branch="main") is False
+
+        # Verify rebase was aborted — we're still on feature branch, no rebase in progress
+        branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        assert branch == "feature"
+
+
+def test_run_post_merge_verification_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_post_merge_verification returns passed QAResult when QA passes."""
+    from golem.qa import QAResult as QAR
+
+    passing_result = QAR(passed=True, checks=[], summary="1/1 checks passed.")
+
+    monkeypatch.setattr("golem.worktree.run_qa", lambda worktree_path, checks, infrastructure_checks: passing_result)
+    monkeypatch.setattr("golem.worktree.detect_infrastructure_checks", lambda project_root: [])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        config = GolemConfig()
+        result = run_post_merge_verification(repo, config, "abc123")
+        assert result.passed is True
+
+
+def test_run_post_merge_verification_fails_and_reverts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_post_merge_verification reverts the merge commit when QA fails."""
+    from golem.qa import QAResult as QAR
+
+    failing_result = QAR(passed=False, checks=[], summary="0/1 checks passed.")
+
+    monkeypatch.setattr("golem.worktree.run_qa", lambda worktree_path, checks, infrastructure_checks: failing_result)
+    monkeypatch.setattr("golem.worktree.detect_infrastructure_checks", lambda project_root: [])
+
+    revert_calls: list[list[str]] = []
+    original_run = subprocess.run
+
+    def mock_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "git" and "revert" in cmd:
+            revert_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return original_run(cmd, **kwargs)
+
+    monkeypatch.setattr("golem.worktree.subprocess.run", mock_run)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = Path(tmpdir) / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        config = GolemConfig()
+        result = run_post_merge_verification(repo, config, "abc123def")
+        assert result.passed is False
+        # Verify git revert was called with the merge sha
+        assert len(revert_calls) == 1
+        assert "abc123def" in revert_calls[0]
