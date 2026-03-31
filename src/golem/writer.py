@@ -20,6 +20,7 @@ from claude_agent_sdk import (
 )
 
 from golem.config import GolemConfig, sdk_env
+from golem.reviewer import run_reviewer
 from golem.tickets import Ticket
 from golem.tools import create_writer_mcp_server
 
@@ -75,19 +76,15 @@ def build_writer_prompt(ticket: Ticket) -> str:
     return prompt
 
 
-async def spawn_writer_pair(
-    ticket: Ticket,
+async def _run_writer_session(
+    prompt: str,
     worktree_path: str,
     config: GolemConfig,
-    golem_dir: Path | None = None,
+    golem_dir: Path | None,
+    ticket_id: str,
 ) -> str:
-    """Spawn a writer SDK session for the given ticket in the worktree.
-
-    Returns the writer's result text.
-    """
-    prompt = build_writer_prompt(ticket)
+    """Run a single writer SDK session. Returns the writer's result text."""
     result_text = ""
-
     writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
 
     last_error: Exception | None = None
@@ -121,7 +118,7 @@ async def spawn_writer_pair(
             break  # Success
         except CLINotFoundError:
             raise RuntimeError(
-                f"Writer failed (ticket {ticket.id}): 'claude' CLI not found on PATH. Run 'claude login'."
+                f"Writer failed (ticket {ticket_id}): 'claude' CLI not found on PATH. Run 'claude login'."
             ) from None
         except (CLIConnectionError, ClaudeSDKError) as e:
             last_error = e
@@ -133,7 +130,72 @@ async def spawn_writer_pair(
                 await asyncio.sleep(_RETRY_DELAY_S)
             else:
                 raise RuntimeError(
-                    f"Writer failed (ticket {ticket.id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
+                    f"Writer failed (ticket {ticket_id}) after {_MAX_RETRIES + 1} attempts. Last error: {last_error}"
                 ) from None
 
+    return result_text
+
+
+async def spawn_writer_pair(
+    ticket: Ticket,
+    worktree_path: str,
+    config: GolemConfig,
+    golem_dir: Path | None = None,
+    project_root: Path | None = None,
+) -> str:
+    """Spawn a writer SDK session for the given ticket in the worktree.
+
+    After the writer finishes, runs a Reviewer sub-agent (unless skip_review is set).
+    If the reviewer blocks, feeds critical issues back for rework (one retry).
+    Returns the writer's result text.
+    """
+    prompt = build_writer_prompt(ticket)
+    result_text = await _run_writer_session(prompt, worktree_path, config, golem_dir, ticket.id)
+
+    # --- Reviewer gate (skip for trivial tickets) ---
+    if ticket.context.skip_review:
+        print(f"[WRITER] Skipping review for ticket {ticket.id} (skip_review=True)", file=sys.stderr)
+        return result_text
+
+    effective_root = project_root or Path(worktree_path)
+    plan_section = ""
+    if ticket.context.plan_file and Path(ticket.context.plan_file).exists():
+        plan_section = Path(ticket.context.plan_file).read_text(encoding="utf-8")
+
+    try:
+        verdict = await run_reviewer(
+            worktree_path=Path(worktree_path),
+            project_root=effective_root,
+            ticket_title=ticket.title,
+            plan_section=plan_section,
+            acceptance_criteria=ticket.context.acceptance,
+            config=config,
+        )
+    except Exception as review_err:
+        # Reviewer failure should not block the pipeline -- log and proceed
+        print(f"[REVIEWER] Error during review (proceeding to QA): {review_err}", file=sys.stderr)
+        return result_text
+
+    if verdict.decision == "approve":
+        print(f"[REVIEWER] Approved: {verdict.summary}", file=sys.stderr)
+        return result_text
+
+    if verdict.decision == "warning":
+        warnings_text = "; ".join(verdict.important_issues) if verdict.important_issues else verdict.summary
+        print(f"[REVIEWER] Warning (proceeding to QA): {warnings_text}", file=sys.stderr)
+        # Attach warnings to result so Tech Lead can see them
+        result_text += f"\n\n[REVIEWER WARNINGS] {warnings_text}"
+        return result_text
+
+    # decision == "block" -- feed critical issues back as rework context
+    issues_text = "\n".join(f"- {i}" for i in verdict.critical_issues)
+    print(f"[REVIEWER] Blocked -- requesting rework:\n{issues_text}", file=sys.stderr)
+
+    rework_prompt = (
+        f"The code reviewer has BLOCKED your changes. Fix these critical issues:\n\n"
+        f"{issues_text}\n\n"
+        f"After fixing, re-run QA checks.\n\n"
+        f"Original task context:\n{prompt}"
+    )
+    result_text = await _run_writer_session(rework_prompt, worktree_path, config, golem_dir, ticket.id)
     return result_text
