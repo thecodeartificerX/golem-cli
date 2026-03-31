@@ -204,6 +204,7 @@ Emit `=== JUNIOR DEV: RECOVERY PLAN WRITTEN ===` before touching any file.
 - `mcp__golem-junior-dev__get_build_progress()` -- check overall session progress
 - `mcp__golem-junior-dev__record_discovery(file_path, description, category)` -- record a codebase discovery
 - `mcp__golem-junior-dev__record_gotcha(gotcha, context)` -- record a pitfall for future sessions
+- `mcp__golem-junior-dev__create_blocker(original_ticket_id, reason, context)` -- escalate when stuck after max rework cycles
 
 These are Junior Dev tools (server: `golem-junior-dev`). Do not use `mcp__golem__*`
 tools -- those belong to the Tech Lead.

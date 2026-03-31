@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from golem.qa import QAResult, detect_infrastructure_checks, run_qa
+
 
 def _run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: int = 60) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check, timeout=timeout)
@@ -307,10 +309,9 @@ def run_post_merge_verification(
     project_root: Path,
     config: object,
     merge_commit_sha: str,
-) -> object:
+) -> QAResult:
     """Run full QA on main after a merge. Revert if it fails."""
     from golem.config import GolemConfig
-    from golem.qa import QAResult, detect_infrastructure_checks, run_qa
 
     cfg: GolemConfig = config  # type: ignore[assignment]
     infrastructure_checks = cfg.infrastructure_checks or detect_infrastructure_checks(project_root)

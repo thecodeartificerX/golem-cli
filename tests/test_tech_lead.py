@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from golem.config import GolemConfig
 from golem.tech_lead import (
     _check_integration_commits,
     _cleanup_golem_worktrees,

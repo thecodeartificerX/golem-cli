@@ -79,7 +79,7 @@ async def test_mcp_server_survives_full_lifecycle(tmp_path: Path) -> None:
     tools = await _list_mcp_tools(server)
     assert "create_ticket" in tools
     assert "update_ticket" in tools
-    assert len(tools) == 12  # updated: 8 original + 4 new memory/progress tools
+    assert len(tools) == 13  # updated: 8 original + 4 new memory/progress + create_blocker
 
     # Phase 2: create a ticket
     result = await _call_mcp_tool(server, "create_ticket", {

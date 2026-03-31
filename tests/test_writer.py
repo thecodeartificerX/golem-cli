@@ -369,7 +369,8 @@ async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
             yield
 
         with patch("golem.writer.create_junior_dev_mcp_server", side_effect=fake_create_writer_mcp), \
-             patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_gen)):
+             patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_gen)), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
             await spawn_junior_dev(ticket, tmpdir, config, golem_dir=None)
 
         assert len(captured_mcp_dir) == 1
@@ -548,8 +549,9 @@ async def test_harness_detects_missing_qa_and_forces_run() -> None:
 
         with patch("golem.writer.continuation_supervised_session", AsyncMock(return_value=session_result)), \
              patch("golem.writer.run_qa", return_value=passing_qa) as mock_qa, \
-             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}), \
-             patch("golem.writer.RecoveryCoordinator", _PassthroughCoordinator):
+             patch("golem.writer.run_reviewer", AsyncMock(return_value=None)), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": ""}), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert result.qa_called is False
@@ -575,8 +577,9 @@ async def test_harness_forced_qa_failure_triggers_rework() -> None:
 
         with patch("golem.writer.continuation_supervised_session", AsyncMock(return_value=session_result)), \
              patch("golem.writer.run_qa", return_value=failing_qa), \
-             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}), \
-             patch("golem.writer.RecoveryCoordinator", _PassthroughCoordinator):
+             patch("golem.writer.run_reviewer", AsyncMock(return_value=None)), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": ""}), \
+             patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             result = await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
         assert result.qa_called is False

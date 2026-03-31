@@ -213,7 +213,7 @@ async def test_mcp_junior_dev_tools_separate(client: AsyncClient, tmp_path: Path
     tl_tools = [t["name"] for t in resp.json()["result"]["tools"]]
     assert "create_ticket" in tl_tools
     assert "create_worktree" in tl_tools
-    assert len(tl_tools) == 12
+    assert len(tl_tools) == 13
 
     # Junior Dev tools (extended set with new helpers)
     resp = await client.post(f"/mcp/{session_id}-jd/message", content=json.dumps({
@@ -224,7 +224,7 @@ async def test_mcp_junior_dev_tools_separate(client: AsyncClient, tmp_path: Path
     expected_jd_tools = {
         "run_qa", "update_ticket", "read_ticket",
         "commit_worktree", "get_build_progress", "get_session_context",
-        "record_discovery", "record_gotcha",
+        "record_discovery", "record_gotcha", "create_blocker",
     }
     assert set(jd_tools) == expected_jd_tools
     assert "create_ticket" not in jd_tools
@@ -285,7 +285,7 @@ async def test_full_mcp_sse_lifecycle(client: AsyncClient, tmp_path: Path) -> No
         "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
     }))
     tool_names = [t["name"] for t in resp.json()["result"]["tools"]]
-    assert len(tool_names) == 12
+    assert len(tool_names) == 13
 
     # Create ticket
     resp = await client.post(f"/mcp/{session_id}/message", content=json.dumps({
