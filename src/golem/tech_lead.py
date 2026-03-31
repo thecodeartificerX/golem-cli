@@ -19,22 +19,40 @@ from claude_agent_sdk import (
     query,
 )
 
-from golem.config import GolemConfig, sdk_env
+from golem.config import GolemConfig, load_config, sdk_env
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
-from golem.worktree import delete_worktree, merge_group_branches
+from golem.worktree import (
+    check_main_divergence,
+    delete_worktree,
+    merge_group_branches,
+    rebase_onto_main,
+    run_post_merge_verification,
+)
 
 _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 
-def _ensure_merged_to_main(project_root: Path) -> None:
-    """Self-healing: merge any golem integration branches into main if the Tech Lead didn't."""
+def _ensure_merged_to_main(project_root: Path, config: GolemConfig | None = None) -> None:
+    """Self-healing: merge any golem integration branches into main if the Tech Lead didn't.
+
+    Includes cross-edict conflict detection (rebase if main diverged) and
+    post-merge verification (revert if QA fails after merge).
+    """
     import subprocess
+
+    if config is None:
+        # Load config from .golem dir if not provided
+        golem_dir = project_root / ".golem"
+        config = load_config(golem_dir) if golem_dir.exists() else GolemConfig()
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["git", *args], cwd=project_root, capture_output=True, text=True, encoding="utf-8"
         )
+
+    def _log(msg: str) -> None:
+        print(f"[TECH LEAD] {msg}", file=sys.stderr)
 
     # Find golem integration branches
     result = _git("branch", "--list", "golem/*/integration")
@@ -52,14 +70,35 @@ def _ensure_merged_to_main(project_root: Path) -> None:
         if merge_check.returncode == 0:
             continue  # Already merged
 
-        print(f"[TECH LEAD] Self-healing: merging {branch} into main", file=sys.stderr)
+        # Cross-edict conflict detection: check if main has diverged
+        # We check from the branch's perspective by switching to it temporarily
+        _git("checkout", branch)
+        if check_main_divergence(project_root, base_branch="main"):
+            _log(f"Main has diverged since {branch} was created.")
+            if config.merge_auto_rebase:
+                _log(f"Auto-rebasing {branch} onto main...")
+                if not rebase_onto_main(project_root, base_branch="main"):
+                    _log(f"Rebase of {branch} onto main failed (conflicts). Skipping.")
+                    _git("checkout", "main")
+                    continue
+                _log(f"Rebase of {branch} onto main succeeded.")
+        _git("checkout", "main")
+
+        _log(f"Self-healing: merging {branch} into main")
         merge_result = _git("merge", branch, "--ff-only")
         if merge_result.returncode != 0:
             # ff-only failed, try regular merge
             merge_result = _git("merge", "--no-ff", "-m", f"feat: merge {branch} (golem self-heal)", branch)
             if merge_result.returncode != 0:
-                print(f"[TECH LEAD] Warning: could not merge {branch} into main: {merge_result.stderr}", file=sys.stderr)
+                _log(f"Warning: could not merge {branch} into main: {merge_result.stderr}")
                 _git("merge", "--abort")
+                continue
+
+        # Post-merge verification: run QA on main, revert if it fails
+        merge_sha = _git("rev-parse", "HEAD").stdout.strip()
+        verification = run_post_merge_verification(project_root, config, merge_sha)
+        if not verification.passed:
+            _log(f"Post-merge verification FAILED after merging {branch}. Merge reverted.")
 
 
 def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
@@ -154,4 +193,4 @@ async def run_tech_lead(
                 ) from None
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
-    _ensure_merged_to_main(project_root)
+    _ensure_merged_to_main(project_root, config=config)

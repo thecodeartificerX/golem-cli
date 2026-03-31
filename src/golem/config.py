@@ -24,6 +24,7 @@ class GolemConfig:
     # Exclude "user" to prevent user-level plugin hooks (e.g. claude-mem SessionEnd)
     # from firing in headless SDK sessions and killing them.
     setting_sources: list[str] = field(default_factory=lambda: ["project"])
+    merge_auto_rebase: bool = True
     # Always-on deterministic checks (lint, syntax). Populated at runtime by auto-detection,
     # not persisted to config.json. Agents cannot skip these.
     infrastructure_checks: list[str] = field(default_factory=list)
