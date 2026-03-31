@@ -1479,3 +1479,87 @@ def test_self_critique_called_for_critical(tmp_path: Path, monkeypatch: pytest.M
 
     # _run_self_critique must have been called exactly once
     assert len(critique_calls) == 1
+
+
+def test_run_help_has_timeout() -> None:
+    """--timeout flag appears in run --help."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "--help"])
+    assert "timeout" in result.output.lower()
+    assert "minutes" in result.output.lower()
+
+
+def test_run_timeout_aborts_long_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run --timeout 1 prints timeout message when run exceeds limit."""
+    import asyncio
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task 1\n\nDo stuff.\n", encoding="utf-8")
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    # Mock wait_for to immediately raise TimeoutError
+    original_wait_for = asyncio.wait_for
+
+    async def mock_wait_for(coro: object, timeout: float) -> None:
+        # Close the coroutine to avoid warning
+        if hasattr(coro, "close"):
+            coro.close()  # type: ignore[union-attr]
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr("asyncio.wait_for", mock_wait_for)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--no-server", "--timeout", "5"])
+
+    assert "Timeout" in result.output
+    assert "5 minute" in result.output
+    assert result.exit_code == 1
+
+
+def test_run_timeout_zero_means_no_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run --timeout 0 (default) does not use asyncio.wait_for."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task 1\n\nDo stuff.\n", encoding="utf-8")
+
+    monkeypatch.setattr("golem.cli.find_server", lambda root: None)
+    monkeypatch.chdir(tmp_path)
+
+    # Track if wait_for was called
+    wait_for_called = []
+    original_wait_for = asyncio.wait_for
+
+    async def tracking_wait_for(coro: object, timeout: float) -> object:
+        wait_for_called.append(timeout)
+        return await original_wait_for(coro, timeout=timeout)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("asyncio.wait_for", tracking_wait_for)
+
+    # Mock planner to exit quickly
+    monkeypatch.setattr(
+        "golem.cli.run_planner",
+        AsyncMock(side_effect=RuntimeError("Planner not configured")),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--no-server", "--timeout", "0"])
+
+    # wait_for should NOT be called when timeout=0
+    assert len(wait_for_called) == 0
+    assert "Timeout" not in result.output

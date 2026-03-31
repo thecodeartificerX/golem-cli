@@ -218,7 +218,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Global `event_queue` is shared across all SSE clients. One client draining events means others miss them. Switch to per-client `asyncio.Queue` with a broadcast pattern.
 **Done when:** `uv run pytest` passes with test for two concurrent SSE clients.
 
-#### [ ] 152. `golem run` — Timeout for overall run
+#### [x] 152. `golem run` — Timeout for overall run (DONE)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Add `--timeout` flag (default: no limit) that kills the run after N minutes. Useful for CI and overnight loops.
 **Done when:** `uv run pytest` passes.

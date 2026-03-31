@@ -295,6 +295,7 @@ def run(
     no_server: bool = typer.Option(False, "--no-server", help="Run directly without server (current behavior)"),
     orchestrator: bool = typer.Option(False, "--orchestrator/--no-orchestrator",
                                       help="Use Python wave orchestrator instead of Tech Lead agent"),
+    timeout: int = typer.Option(0, "--timeout", help="Kill run after N minutes (0 = no limit)"),
 ) -> None:
     """Full autonomous run: plan, orchestrate writers, validate, create PR.
 
@@ -502,8 +503,18 @@ def run(
         ref_count = len(list(refs_dir.glob("*.md"))) if refs_dir.exists() else 0
         console.print(f"  Artifacts:  {plan_count} plans, {research_count} research, {ref_count} references")
 
+    async def _run_with_timeout() -> None:
+        if timeout > 0:
+            try:
+                await asyncio.wait_for(_run_async(), timeout=timeout * 60)
+            except asyncio.TimeoutError:
+                console.print(f"\n[red]Timeout: run exceeded {timeout} minute(s). Aborting.[/red]")
+                raise typer.Exit(1)
+        else:
+            await _run_async()
+
     try:
-        asyncio.run(_run_async())
+        asyncio.run(_run_with_timeout())
     except RuntimeError as e:
         console.print(f"\n[red]Error: {e}[/red]")
         raise typer.Exit(1)
