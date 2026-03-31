@@ -194,6 +194,17 @@ error details so the Tech Lead can assess.
 If `stage` is `infrastructure_failed`, only lint/type checks failed -- the
 test suite was skipped. Fix the lint errors first, then re-run QA.
 
+### Step 4.5: Verification Gate (MANDATORY)
+
+Before claiming your work is complete, you MUST:
+1. Run `mcp__golem-junior-dev__run_qa` with ALL spec checks
+2. Read the FULL output
+3. Verify every check shows PASS
+4. Only THEN call `mcp__golem-junior-dev__update_ticket` with status `ready_for_review`
+
+If you update the ticket without running QA first, the pipeline will reject your submission.
+DO NOT say "tests should pass" or "this looks correct." RUN the tests. Quote the output.
+
 ### Step 5: Update Ticket
 
 **MANDATORY:** Updating the ticket means calling `mcp__golem-junior-dev__update_ticket`
@@ -202,6 +213,7 @@ The Tech Lead polls the ticket store; if the status has not changed, your work i
 
 When QA passes (status: `qa_passed`):
 - Write a brief completion note describing what changed and how it was verified
+- Quote the QA output proving all checks passed
 - Call `mcp__golem-junior-dev__update_ticket` to set status to `ready_for_review`
   with your completion note
 
@@ -212,7 +224,7 @@ calling `mcp__golem-junior-dev__read_ticket` every 30 seconds.
 
 - If the Tech Lead sets status to `approved`: your work is done. Exit.
 - If the Tech Lead sets status to `needs_work`: read the specific feedback,
-  fix in-context, re-run QA, and re-update the ticket to `ready_for_review`
+  fix in-context, re-run QA (MANDATORY -- quote the output), and re-update the ticket to `ready_for_review`
 
 ---
 

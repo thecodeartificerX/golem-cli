@@ -40,6 +40,9 @@ class JuniorDevResult:
     cache_read_tokens: int = 0
     num_turns: int = 0
     duration_ms: int = 0
+    qa_called: bool = False
+    qa_forced: bool = False
+    qa_passed: bool | None = None
 
 
 # Backward-compatible alias
@@ -242,11 +245,16 @@ async def spawn_junior_dev(
 
     stall_cfg = stall_config_for_role("junior_dev", config.max_worker_turns)
 
+    qa_called = False
+
     def on_text(text: str) -> None:
         preview = text[:120].replace("\n", " ")
         print(f"[JUNIOR DEV] {preview}", file=sys.stderr)
 
     def on_tool(name: str) -> None:
+        nonlocal qa_called
+        if "run_qa" in name:
+            qa_called = True
         print(f"[JUNIOR DEV] tool: {name}", file=sys.stderr)
 
     session_result: ContinuationResult | None = None
@@ -475,6 +483,59 @@ async def spawn_junior_dev(
     else:
         print(f"[WRITER] Skipping review for ticket {ticket.id} (skip_review=True)", file=sys.stderr)
 
+    # --- Verification gate: enforce QA was actually run ---
+    if not qa_called:
+        from golem.qa import run_qa
+
+        print(f"[JUNIOR DEV] Verification gate: writer did not call run_qa for {ticket.id}, forcing QA run", file=sys.stderr)
+        qa_checks_list = ticket.context.qa_checks
+        infrastructure_checks_list: list[str] = []
+        qa_result = run_qa(
+            worktree_path=worktree_path,
+            checks=qa_checks_list,
+            infrastructure_checks=infrastructure_checks_list,
+        )
+
+        if qa_result.passed:
+            print(f"[JUNIOR DEV] Forced QA passed for {ticket.id}: {qa_result.summary}", file=sys.stderr)
+            return JuniorDevResult(
+                result_text=result_text,
+                cost_usd=cost_usd,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=0,
+                num_turns=num_turns,
+                duration_ms=duration_ms,
+                qa_called=False,
+                qa_forced=True,
+                qa_passed=True,
+            )
+
+        # QA failed — update ticket to needs_work to trigger rework
+        print(f"[JUNIOR DEV] Forced QA FAILED for {ticket.id}: {qa_result.summary}", file=sys.stderr)
+        from golem.tickets import TicketStore
+
+        effective_golem_dir = golem_dir if golem_dir else Path(worktree_path)
+        store = TicketStore(effective_golem_dir / "tickets")
+        await store.update(
+            ticket_id=ticket.id,
+            status="needs_work",
+            note=f"Harness verification gate: writer skipped QA. Forced QA failed: {qa_result.summary}",
+            agent="harness",
+        )
+        return JuniorDevResult(
+            result_text=result_text,
+            cost_usd=cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=0,
+            num_turns=num_turns,
+            duration_ms=duration_ms,
+            qa_called=False,
+            qa_forced=True,
+            qa_passed=False,
+        )
+
     return JuniorDevResult(
         result_text=result_text,
         cost_usd=cost_usd,
@@ -483,6 +544,7 @@ async def spawn_junior_dev(
         cache_read_tokens=0,
         num_turns=num_turns,
         duration_ms=duration_ms,
+        qa_called=True,
     )
 
 

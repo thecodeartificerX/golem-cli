@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from golem.config import GolemConfig
-from golem.tickets import Ticket, TicketContext, TicketEvent
+from golem.qa import QACheck, QAResult
+from golem.tickets import Ticket, TicketContext, TicketEvent, TicketStore
 from golem.writer import JuniorDevResult, WriterResult, build_writer_prompt, spawn_junior_dev, spawn_writer_pair
 
 
@@ -478,3 +479,100 @@ async def test_junior_dev_double_stall_fatal() -> None:
              patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
             with pytest.raises(RuntimeError, match="stall"):
                 await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
+
+
+# ---------------------------------------------------------------------------
+# Unit 11: Verification gate tests
+# ---------------------------------------------------------------------------
+
+import json
+from dataclasses import asdict
+
+from golem.qa import QACheck, QAResult
+from golem.tickets import TicketStore
+
+
+def _write_ticket_json(tickets_dir: Path, ticket: Ticket) -> None:
+    """Write a ticket JSON file for harness tests that need to read/update tickets."""
+    tickets_dir.mkdir(parents=True, exist_ok=True)
+    path = tickets_dir / f"{ticket.id}.json"
+    path.write_text(json.dumps(asdict(ticket), indent=2), encoding="utf-8")
+
+
+def test_verification_gate_text_in_junior_dev_prompt() -> None:
+    """The verification gate text must appear in the junior dev prompt template."""
+    prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "junior_dev.md"
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "Verification Gate (MANDATORY)" in content
+    assert "RUN the tests. Quote the output." in content
+    assert "pipeline will reject your submission" in content
+
+
+def test_verification_gate_rework_text_in_junior_dev_prompt() -> None:
+    """The rework path must also mandate re-running QA."""
+    prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "junior_dev.md"
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "re-run QA (MANDATORY" in content
+
+
+@pytest.mark.asyncio
+async def test_harness_detects_missing_qa_and_forces_run() -> None:
+    """When writer never calls run_qa, the harness forces a QA run."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        ticket = _make_ticket_with_context()
+        _write_ticket_json(golem_dir / "tickets", ticket)
+        config = GolemConfig()
+
+        # Mock continuation_supervised_session — returns a result where qa was never called
+        session_result = _ok_result()
+
+        passing_qa = QAResult(passed=True, checks=[
+            QACheck(type="acceptance", tool="python -m py_compile src/main.py", passed=True, stdout="", stderr=""),
+        ], summary="1/1 checks passed.")
+
+        with patch("golem.writer.continuation_supervised_session", AsyncMock(return_value=session_result)), \
+             patch("golem.writer.run_qa", return_value=passing_qa) as mock_qa, \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}), \
+             patch("golem.writer.RecoveryCoordinator", _PassthroughCoordinator):
+            result = await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert result.qa_called is False
+        assert result.qa_forced is True
+        assert result.qa_passed is True
+        mock_qa.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_harness_forced_qa_failure_triggers_rework() -> None:
+    """When forced QA fails, the harness updates the ticket to needs_work."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        ticket = _make_ticket_with_context()
+        _write_ticket_json(golem_dir / "tickets", ticket)
+        config = GolemConfig()
+
+        session_result = _ok_result()
+
+        failing_qa = QAResult(passed=False, checks=[
+            QACheck(type="acceptance", tool="python -m py_compile src/main.py", passed=False, stdout="", stderr="error"),
+        ], summary="0/1 checks passed. Failed: ['python -m py_compile src/main.py']")
+
+        with patch("golem.writer.continuation_supervised_session", AsyncMock(return_value=session_result)), \
+             patch("golem.writer.run_qa", return_value=failing_qa), \
+             patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}), \
+             patch("golem.writer.RecoveryCoordinator", _PassthroughCoordinator):
+            result = await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
+
+        assert result.qa_called is False
+        assert result.qa_forced is True
+        assert result.qa_passed is False
+
+        # Verify ticket was updated to needs_work
+        store = TicketStore(golem_dir / "tickets")
+        updated_ticket = await store.read(ticket.id)
+        assert updated_ticket.status == "needs_work"
+        # Check that the harness note is in the history
+        harness_events = [e for e in updated_ticket.history if e.agent == "harness"]
+        assert len(harness_events) == 1
+        assert "writer skipped QA" in harness_events[0].note
