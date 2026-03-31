@@ -12,8 +12,6 @@ from claude_agent_sdk import (
     ClaudeSDKError,
 )
 
-_MAX_RETRIES = 2
-
 from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
@@ -197,6 +195,9 @@ async def run_planner(
         skip_msg = ""
     original_prompt = original_prompt.replace("{skip_research_instruction}", skip_msg)
 
+    # Extract edict_id from golem_dir path convention: .golem/edicts/EDICT-001 → "EDICT-001"
+    edict_id = golem_dir.name if golem_dir.parent.name == "edicts" else ""
+
     progress = ProgressLogger(golem_dir)
     session_result: ContinuationResult | None = None
 
@@ -212,6 +213,7 @@ async def run_planner(
             role="planner",
             label="planner",
             golem_dir=golem_dir,
+            edict_id=edict_id,
             event_bus=event_bus,
         )
     except RecoveryExhausted as exc:
@@ -222,16 +224,27 @@ async def run_planner(
 
     stall_cfg = stall_config_for_role("planner", config.planner_max_turns, skip_research=config.skip_research)
 
-    # Handle stall: retry with escalated prompt
+    # Handle stall: retry with escalated prompt (wrapped in RecoveryCoordinator for consistent error handling)
     if session_result.stalled:
         progress.log_stall_detected("planner", session_result.turns, config.planner_max_turns, session_result.registry.action_call_count())
         progress.log_stall_retry("planner")
         escalated = build_escalated_prompt(
             "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
+        stall_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus, server_url=server_url)
-        except (CLIConnectionError, ClaudeSDKError) as e:
+            retry_result = await stall_coordinator.run_with_recovery(
+                session_fn=lambda: _run_planner_session(
+                    escalated, golem_dir, config, cwd,
+                    is_retry=True, event_bus=event_bus, server_url=server_url,
+                ),
+                role="planner",
+                label="planner-stall-retry",
+                golem_dir=golem_dir,
+                edict_id=edict_id,
+                event_bus=event_bus,
+            )
+        except RecoveryExhausted as e:
             raise RuntimeError(f"Planner retry failed: {e}") from None
 
         if retry_result.stalled:
@@ -263,9 +276,20 @@ async def run_planner(
         escalated = build_escalated_prompt(
             "planner", original_prompt, session_result.turns, stall_cfg.expected_actions
         )
+        verify_coordinator = RecoveryCoordinator(config)
         try:
-            retry_result = await _run_planner_session(escalated, golem_dir, config, cwd, is_retry=True, event_bus=event_bus, server_url=server_url)
-        except (CLIConnectionError, ClaudeSDKError) as e:
+            retry_result = await verify_coordinator.run_with_recovery(
+                session_fn=lambda: _run_planner_session(
+                    escalated, golem_dir, config, cwd,
+                    is_retry=True, event_bus=event_bus, server_url=server_url,
+                ),
+                role="planner",
+                label="planner-verify-retry",
+                golem_dir=golem_dir,
+                edict_id=edict_id,
+                event_bus=event_bus,
+            )
+        except RecoveryExhausted as e:
             raise RuntimeError(f"Planner verification-retry failed: {e}") from None
 
         if retry_result.stalled:
@@ -316,12 +340,13 @@ async def run_planner(
             history=[],
         )
         ticket_id = await store.create(ticket)
+        _cache_read = getattr(session_result, "cache_read_tokens", 0)
         progress.log_agent_cost(
             role="lead_architect",
             cost_usd=session_result.cost_usd,
             input_tokens=session_result.input_tokens,
             output_tokens=session_result.output_tokens,
-            cache_read=0,
+            cache_read=_cache_read,
             turns=session_result.turns,
             duration_s=int(session_result.duration_s),
         )
@@ -330,19 +355,20 @@ async def run_planner(
             cost_usd=session_result.cost_usd,
             input_tokens=session_result.input_tokens,
             output_tokens=session_result.output_tokens,
-            cache_read_tokens=0,
+            cache_read_tokens=_cache_read,
             num_turns=session_result.turns,
             duration_ms=int(session_result.duration_s * 1000),
         )
 
     # Return the last ticket created (by ID sort -- TICKET-001, TICKET-002, etc.)
     last_ticket = sorted(all_tickets, key=lambda t: t.id)[-1]
+    _cache_read = getattr(session_result, "cache_read_tokens", 0)
     progress.log_agent_cost(
         role="lead_architect",
         cost_usd=session_result.cost_usd,
         input_tokens=session_result.input_tokens,
         output_tokens=session_result.output_tokens,
-        cache_read=0,
+        cache_read=_cache_read,
         turns=session_result.turns,
         duration_s=int(session_result.duration_s),
     )
@@ -351,7 +377,7 @@ async def run_planner(
         cost_usd=session_result.cost_usd,
         input_tokens=session_result.input_tokens,
         output_tokens=session_result.output_tokens,
-        cache_read_tokens=0,
+        cache_read_tokens=_cache_read,
         num_turns=session_result.turns,
         duration_ms=int(session_result.duration_s * 1000),
     )
