@@ -343,6 +343,30 @@ class RateLimitBackoff(GolemEvent):
     rate_limited_count: int = 0
 
 
+# -- Edict pipeline events --
+
+
+@dataclass
+class EdictCreated(GolemEvent):
+    edict_id: str = ""
+    title: str = ""
+    repo_path: str = ""
+
+
+@dataclass
+class EdictUpdated(GolemEvent):
+    edict_id: str = ""
+    old_status: str = ""
+    new_status: str = ""
+
+
+@dataclass
+class EdictNeedsAttention(GolemEvent):
+    edict_id: str = ""
+    reason: str = ""
+    ticket_id: str = ""
+
+
 # -- Parallel executor events --
 
 
@@ -385,7 +409,7 @@ EVENT_TYPES: dict[str, type[GolemEvent]] = {}
 
 
 def _register_events() -> None:
-    """Populate EVENT_TYPES from all GolemEvent subclasses (42 event types)."""
+    """Populate EVENT_TYPES from all GolemEvent subclasses (44 event types)."""
     for klass in [
         AgentSpawned, AgentText, AgentToolCall, AgentToolResult,
         AgentTurnComplete, AgentComplete, AgentStallWarning, AgentStallKill,
@@ -398,6 +422,7 @@ def _register_events() -> None:
         OrchestratorStarted, OrchestratorComplete, OrchestratorAborted,
         WaveStarted, WaveCompleted, WaveFailed, WaveSkipped,
         TicketQueued, MergeStarted, MergeCompleted, MergeConflictPredicted, RateLimitBackoff,
+        EdictCreated, EdictUpdated, EdictNeedsAttention,
     ]:
         name = klass.__name__
         snake = "".join(f"_{c.lower()}" if c.isupper() else c for c in name).lstrip("_")
@@ -448,11 +473,15 @@ class FileBackend:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._lock = asyncio.Lock()
 
     async def emit(self, event: GolemEvent) -> None:
         line = json.dumps(event.to_dict(), default=str) + "\n"
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(line)
+        async with self._lock:
+            def _write() -> None:
+                with open(self.path, "a", encoding="utf-8") as f:
+                    f.write(line)
+            await asyncio.to_thread(_write)
 
 
 class FanoutBackend:
@@ -463,7 +492,10 @@ class FanoutBackend:
 
     async def emit(self, event: GolemEvent) -> None:
         for backend in self.backends:
-            await backend.emit(event)
+            try:
+                await backend.emit(event)
+            except Exception:
+                pass  # Never let one backend failure starve others
 
 
 # -- EventBus --

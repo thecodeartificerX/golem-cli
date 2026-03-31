@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golem Dashboard</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --panel: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e1e4ed;
+  --text-dim: #8b8fa3;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --success: #22c55e;
+  --warning: #eab308;
+  --danger: #ef4444;
+  --stage-planner: #a78bfa;
+  --stage-tech-lead: #f97316;
+  --stage-junior-dev: #3b82f6;
+  --stage-qa: #eab308;
+  --stage-done: #22c55e;
+  --stage-failed: #ef4444;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+#top-bar { display: flex; align-items: center; padding: 0 16px; height: 48px; background: var(--panel); border-bottom: 1px solid var(--border); gap: 12px; }
+#brand { font-weight: 700; letter-spacing: 4px; color: var(--accent); font-size: 14px; }
+#repo-tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+.repo-tab { padding: 6px 16px; border-radius: 6px 6px 0 0; background: transparent; border: 1px solid transparent; border-bottom: none; color: var(--text-dim); cursor: pointer; font-size: 13px; white-space: nowrap; }
+.repo-tab:hover { background: rgba(99,102,241,0.1); }
+.repo-tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+#add-repo-btn { padding: 4px 12px; background: transparent; border: 1px dashed var(--border); color: var(--text-dim); border-radius: 4px; cursor: pointer; font-size: 12px; }
+#aggregate-cost { color: var(--success); font-weight: 600; font-size: 14px; margin-left: auto; }
+
+#body { display: flex; flex: 1; overflow: hidden; }
+
+#sidebar { width: 260px; min-width: 260px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+#new-edict-btn { margin: 12px; padding: 10px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+#new-edict-btn:hover { background: var(--accent-hover); }
+
+.edict-group { margin-bottom: 4px; }
+.edict-group-header { padding: 8px 12px; font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; cursor: pointer; user-select: none; }
+.edict-group-header:hover { color: var(--text); }
+.collapse-arrow { display: inline-block; width: 16px; font-size: 10px; }
+.edict-group-body.collapsed { display: none; }
+
+.edict-card { padding: 10px 12px; margin: 2px 8px; border-radius: 6px; cursor: pointer; border-left: 3px solid transparent; }
+.edict-card:hover { background: rgba(99,102,241,0.08); }
+.edict-card.selected { background: rgba(99,102,241,0.15); border-left-color: var(--accent); }
+.edict-card .edict-card-id { font-size: 11px; color: var(--text-dim); font-weight: 600; }
+.edict-card .edict-card-title { font-size: 13px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.edict-card .edict-card-meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.edict-card.needs-attention { border-left-color: var(--warning); }
+
+#main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); font-size: 16px; }
+
+#edict-header { display: flex; align-items: center; padding: 12px 16px; gap: 12px; border-bottom: 1px solid var(--border); }
+#edict-title { font-weight: 700; font-size: 16px; }
+#edict-status-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+#edict-actions { margin-left: auto; display: flex; gap: 8px; }
+#edict-actions button { padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; font-size: 12px; }
+#btn-kill { border-color: var(--danger); color: var(--danger); }
+
+#tab-bar { display: flex; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.tab-btn { padding: 8px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); cursor: pointer; font-size: 13px; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-pane { display: none; flex: 1; overflow-y: auto; padding: 16px; }
+.tab-pane.active { display: block; }
+
+#board-wrapper { position: relative; }
+#pipeline-board { display: flex; gap: 12px; min-height: 400px; }
+#dependency-arrows { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#dependency-toggle { margin-bottom: 8px; padding: 4px 12px; background: transparent; border: 1px solid var(--border); color: var(--text-dim); border-radius: 4px; cursor: pointer; font-size: 11px; }
+#dependency-toggle.active { border-color: var(--accent); color: var(--accent); }
+.board-col { flex: 1; min-width: 180px; background: var(--panel); border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; }
+.board-col-header { padding: 10px 12px; font-weight: 700; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.board-col-header .col-count { background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 10px; font-size: 11px; }
+.board-col-cards { padding: 8px; flex: 1; overflow-y: auto; }
+
+.board-card { padding: 10px; margin-bottom: 8px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border); cursor: pointer; transition: transform 0.3s ease, opacity 0.3s ease; }
+.board-card:hover { border-color: var(--accent); }
+.board-card .card-id { font-size: 11px; color: var(--text-dim); font-weight: 600; }
+.board-card .card-title { font-size: 12px; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.board-card .card-agent { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+.board-card .card-status { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-top: 4px; }
+
+.planner-indicator { text-align: center; padding: 20px; color: var(--text-dim); font-size: 13px; }
+.planner-indicator.active { color: var(--stage-planner); }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--stage-planner); animation: pulse 1.5s infinite; margin-right: 6px; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; width: 500px; max-height: 80vh; overflow-y: auto; }
+.modal-wide { width: 700px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 700; }
+.modal-header button { background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; }
+.modal-body { padding: 16px; }
+.modal-body label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+.modal-body input, .modal-body textarea { width: 100%; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 13px; font-family: inherit; }
+.modal-body textarea { resize: vertical; }
+#post-edict-btn { margin-top: 16px; width: 100%; padding: 10px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+
+.plan-content { white-space: pre-wrap; font-family: monospace; font-size: 13px; line-height: 1.5; }
+.diff-content { white-space: pre-wrap; font-family: monospace; font-size: 12px; line-height: 1.4; }
+.diff-add { color: var(--success); }
+.diff-del { color: var(--danger); }
+.diff-hunk { color: var(--accent); }
+.cost-table { width: 100%; border-collapse: collapse; }
+.cost-table th, .cost-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+.cost-table th { color: var(--text-dim); font-weight: 600; }
+.log-container { height: calc(100vh - 240px); overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; }
+.log-entry { padding: 2px 0; }
+.log-timestamp { color: var(--text-dim); }
+#guidance-bar { display: flex; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+#guidance-input { flex: 1; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 13px; }
+#guidance-send { padding: 6px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+#status-bar { padding: 4px 16px; font-size: 11px; color: var(--text-dim); border-top: 1px solid var(--border); background: var(--panel); }
+
+.status-pending { background: rgba(139,143,163,0.2); color: var(--text-dim); }
+.status-planning { background: rgba(167,139,250,0.2); color: var(--stage-planner); }
+.status-running, .status-in_progress { background: rgba(59,130,246,0.2); color: var(--stage-junior-dev); }
+.status-needs_attention { background: rgba(234,179,8,0.2); color: var(--warning); }
+.status-done { background: rgba(34,197,94,0.2); color: var(--success); }
+.status-failed { background: rgba(239,68,68,0.2); color: var(--danger); }
+.status-paused { background: rgba(234,179,8,0.2); color: var(--warning); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top-bar">
+    <span id="brand">G O L E M</span>
+    <div id="repo-tabs"></div>
+    <button id="add-repo-btn" title="Add Repository">+ Add Repo</button>
+    <span id="aggregate-cost">$0.00</span>
+  </div>
+
+  <div id="body">
+    <div id="sidebar">
+      <button id="new-edict-btn">+ NEW EDICT</button>
+      <div id="edict-list">
+        <div class="edict-group" id="group-todo">
+          <div class="edict-group-header" onclick="toggleGroup('todo')">
+            <span class="collapse-arrow" id="arrow-todo">v</span>
+            TO DO (<span id="count-todo">0</span>)
+          </div>
+          <div class="edict-group-body" id="body-todo"></div>
+        </div>
+        <div class="edict-group" id="group-inprogress">
+          <div class="edict-group-header" onclick="toggleGroup('inprogress')">
+            <span class="collapse-arrow" id="arrow-inprogress">v</span>
+            IN PROGRESS (<span id="count-inprogress">0</span>)
+          </div>
+          <div class="edict-group-body" id="body-inprogress"></div>
+        </div>
+        <div class="edict-group" id="group-completed">
+          <div class="edict-group-header" onclick="toggleGroup('completed')">
+            <span class="collapse-arrow" id="arrow-completed">&gt;</span>
+            COMPLETED (<span id="count-completed">0</span>)
+          </div>
+          <div class="edict-group-body collapsed" id="body-completed"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="main-content">
+      <div id="empty-state">Select an edict or create a new one</div>
+      <div id="edict-detail" style="display:none;">
+        <div id="edict-header">
+          <span id="edict-title"></span>
+          <span id="edict-status-badge"></span>
+          <div id="edict-actions">
+            <button id="btn-pause" onclick="pauseEdict()">Pause</button>
+            <button id="btn-kill" onclick="killEdict()">Kill</button>
+          </div>
+        </div>
+        <div id="tab-bar">
+          <button class="tab-btn active" onclick="switchTab('board')">Board</button>
+          <button class="tab-btn" onclick="switchTab('plan')">Plan</button>
+          <button class="tab-btn" onclick="switchTab('diff')">Diff</button>
+          <button class="tab-btn" onclick="switchTab('cost')">Cost</button>
+          <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+        </div>
+        <div id="tab-content">
+          <div id="pane-board" class="tab-pane active"></div>
+          <div id="pane-plan" class="tab-pane"></div>
+          <div id="pane-diff" class="tab-pane"></div>
+          <div id="pane-cost" class="tab-pane"></div>
+          <div id="pane-logs" class="tab-pane"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span id="server-status">Connecting...</span>
+  </div>
+</div>
+
+<div id="new-edict-modal" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span>New Edict</span>
+      <button onclick="closeNewEdictModal()">x</button>
+    </div>
+    <div class="modal-body">
+      <label>Title</label>
+      <input type="text" id="edict-title-input" placeholder="What needs to be done?">
+      <label>Description</label>
+      <textarea id="edict-body-input" rows="8" placeholder="Paste spec, write a bug report, whatever..."></textarea>
+      <button id="post-edict-btn" onclick="postEdict()">POST EDICT</button>
+    </div>
+  </div>
+</div>
+
+<div id="card-detail-modal" class="modal-overlay" style="display:none;">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span id="card-modal-title"></span>
+      <button onclick="closeCardModal()">x</button>
+    </div>
+    <div class="modal-body">
+      <div id="card-meta"></div>
+      <div id="card-instructions"></div>
+      <div id="card-acceptance"></div>
+      <div id="card-qa-checks"></div>
+      <div id="card-activity">
+        <h4>Live Agent Activity</h4>
+        <div id="card-activity-log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var selectedRepoId = null;
+var selectedEdictId = null;
+var repos = [];
+var edicts = [];
+var pollTimer = null;
+var boardPollTimer = null;
+var sseSource = null;
+var collapsedGroups = { completed: true };
+
+function init() {
+    fetchServerStatus();
+    fetchRepos();
+    setInterval(fetchServerStatus, 10000);
+}
+
+function fetchServerStatus() {
+    fetch('/api/server/status')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            document.getElementById('server-status').textContent =
+                'Server running | PID ' + data.pid + ' | Repos: ' + (data.repo_count || 0);
+        })
+        .catch(function() {
+            document.getElementById('server-status').textContent = 'Server disconnected';
+        });
+}
+
+function fetchRepos() {
+    fetch('/api/repos')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            repos = data;
+            renderRepoTabs();
+            if (repos.length > 0 && !selectedRepoId) {
+                selectRepo(repos[0].id);
+            }
+        });
+}
+
+function renderRepoTabs() {
+    var container = document.getElementById('repo-tabs');
+    container.innerHTML = '';
+    repos.forEach(function(repo) {
+        var tab = document.createElement('button');
+        tab.className = 'repo-tab' + (repo.id === selectedRepoId ? ' active' : '');
+        tab.textContent = repo.name || repo.id;
+        tab.onclick = function() { selectRepo(repo.id); };
+        tab.oncontextmenu = function(e) {
+            e.preventDefault();
+            if (confirm('Remove repo "' + repo.id + '" from Golem?')) {
+                fetch('/api/repos/' + repo.id, { method: 'DELETE' }).then(fetchRepos);
+            }
+        };
+        container.appendChild(tab);
+    });
+}
+
+function selectRepo(repoId) {
+    if (boardPollTimer) { clearInterval(boardPollTimer); boardPollTimer = null; }
+    if (sseSource) { sseSource.close(); sseSource = null; }
+    selectedRepoId = repoId;
+    selectedEdictId = null;
+    renderRepoTabs();
+    document.getElementById('edict-detail').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'flex';
+    fetchEdicts();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(fetchEdicts, 3000);
+}
+
+function addRepo() {
+    fetch('/api/browse/folder')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.path) {
+                fetch('/api/repos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: data.path })
+                }).then(fetchRepos);
+            }
+        })
+        .catch(function() {
+            var path = prompt('Enter repository path:');
+            if (path) {
+                fetch('/api/repos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: path })
+                }).then(fetchRepos);
+            }
+        });
+}
+document.getElementById('add-repo-btn').onclick = addRepo;
+
+function fetchEdicts() {
+    if (!selectedRepoId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            edicts = data;
+            renderEdictSidebar();
+            updateAggregateCost();
+        });
+}
+
+function renderEdictSidebar() {
+    var todo = [], inprog = [], completed = [];
+    edicts.forEach(function(e) {
+        if (e.status === 'pending') todo.push(e);
+        else if (e.status === 'done' || e.status === 'failed') completed.push(e);
+        else inprog.push(e);
+    });
+    renderEdictGroup('todo', todo);
+    renderEdictGroup('inprogress', inprog);
+    renderEdictGroup('completed', completed);
+}
+
+function renderEdictGroup(groupId, items) {
+    document.getElementById('count-' + groupId).textContent = items.length;
+    var body = document.getElementById('body-' + groupId);
+    body.innerHTML = '';
+    items.forEach(function(e) {
+        var card = document.createElement('div');
+        card.className = 'edict-card' + (e.id === selectedEdictId ? ' selected' : '') +
+            (e.status === 'needs_attention' ? ' needs-attention' : '');
+        card.innerHTML = '<div class="edict-card-id">' + e.id + '</div>' +
+            '<div class="edict-card-title">' + escapeHtml(e.title) + '</div>' +
+            '<div class="edict-card-meta">' + e.status + ' | $' + (e.cost_usd || 0).toFixed(2) + '</div>';
+        card.onclick = function() { selectEdict(e.id); };
+        body.appendChild(card);
+    });
+}
+
+function toggleGroup(groupId) {
+    var body = document.getElementById('body-' + groupId);
+    var arrow = document.getElementById('arrow-' + groupId);
+    if (body.classList.contains('collapsed')) {
+        body.classList.remove('collapsed');
+        arrow.textContent = 'v';
+        collapsedGroups[groupId] = false;
+    } else {
+        body.classList.add('collapsed');
+        arrow.textContent = '>';
+        collapsedGroups[groupId] = true;
+    }
+}
+
+function updateAggregateCost() {
+    var total = 0;
+    edicts.forEach(function(e) { total += e.cost_usd || 0; });
+    document.getElementById('aggregate-cost').textContent = '$' + total.toFixed(2);
+}
+
+function selectEdict(edictId) {
+    selectedEdictId = edictId;
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('edict-detail').style.display = 'flex';
+    document.getElementById('edict-detail').style.flexDirection = 'column';
+    document.getElementById('edict-detail').style.flex = '1';
+    renderEdictSidebar();
+
+    var edict = null;
+    edicts.forEach(function(e) { if (e.id === edictId) edict = e; });
+    if (!edict) return;
+
+    document.getElementById('edict-title').textContent = edict.id + ': ' + edict.title;
+    var badge = document.getElementById('edict-status-badge');
+    badge.textContent = edict.status;
+    badge.className = 'status-' + edict.status;
+
+    var canPause = (edict.status === 'planning' || edict.status === 'in_progress' || edict.status === 'running');
+    var canKill = (edict.status !== 'done' && edict.status !== 'failed');
+    document.getElementById('btn-pause').style.display = canPause ? '' : 'none';
+    document.getElementById('btn-kill').style.display = canKill ? '' : 'none';
+
+    switchTab('board');
+    fetchBoard();
+    if (boardPollTimer) clearInterval(boardPollTimer);
+    boardPollTimer = setInterval(fetchBoard, 3000);
+}
+
+function fetchBoard() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/board')
+        .then(function(r) { return r.json(); })
+        .then(renderBoard);
+}
+
+var showDependencyArrows = false;
+var lastDependencyData = null;
+
+function renderBoard(data) {
+    var pane = document.getElementById('pane-board');
+    var stageColors = {
+        planner: 'var(--stage-planner)',
+        tech_lead: 'var(--stage-tech-lead)',
+        junior_dev: 'var(--stage-junior-dev)',
+        qa: 'var(--stage-qa)',
+        done: 'var(--stage-done)',
+        failed: 'var(--stage-failed)'
+    };
+    var stageNames = {
+        planner: 'Planner',
+        tech_lead: 'Tech Lead',
+        junior_dev: 'Junior Devs',
+        qa: 'QA',
+        done: 'Done',
+        failed: 'Failed'
+    };
+
+    var toggleLabel = showDependencyArrows ? 'Hide Dependencies' : 'Show Dependencies';
+    var toggleClass = showDependencyArrows ? 'active' : '';
+    var html = '<button id="dependency-toggle" class="' + toggleClass + '" onclick="toggleDependencyArrows()">' + toggleLabel + '</button>';
+    html += '<div id="board-wrapper">';
+    html += '<svg id="dependency-arrows" style="display:' + (showDependencyArrows ? 'block' : 'none') + ';"><defs><marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="rgba(255,255,255,0.4)"/></marker></defs></svg>';
+    html += '<div id="pipeline-board">';
+    (data.column_order || []).forEach(function(colName) {
+        var col = data.columns[colName] || {};
+        var color = stageColors[colName] || 'var(--text-dim)';
+        var name = stageNames[colName] || colName;
+
+        html += '<div class="board-col">';
+        html += '<div class="board-col-header" style="border-left: 3px solid ' + color + ';">';
+        html += name + ' <span class="col-count">' + (col.count || 0) + '</span>';
+        html += '</div>';
+        html += '<div class="board-col-cards">';
+
+        if (colName === 'planner') {
+            if (col.active) {
+                html += '<div class="planner-indicator active"><span class="pulse"></span>Researching...</div>';
+            } else if (col.count === 0) {
+                html += '<div class="planner-indicator">--</div>';
+            }
+        }
+
+        (col.tickets || []).forEach(function(t) {
+            html += '<div class="board-card" data-ticket-id="' + t.id + '" onclick="openCardModal(\'' + t.id + '\')">';
+            html += '<div class="card-id">' + t.id + '</div>';
+            html += '<div class="card-title">' + escapeHtml(t.title) + '</div>';
+            if (t.agent_id) html += '<div class="card-agent">' + t.agent_id + '</div>';
+            html += '<div class="card-status" style="background:' + color + '22;color:' + color + ';">' + t.status + '</div>';
+            html += '</div>';
+        });
+
+        html += '</div></div>';
+    });
+    html += '</div></div>';
+    pane.innerHTML = html;
+
+    // Fetch and draw dependency arrows if enabled
+    if (showDependencyArrows) {
+        fetchAndDrawArrows();
+    }
+}
+
+function toggleDependencyArrows() {
+    showDependencyArrows = !showDependencyArrows;
+    var btn = document.getElementById('dependency-toggle');
+    var svg = document.getElementById('dependency-arrows');
+    if (btn) {
+        btn.textContent = showDependencyArrows ? 'Hide Dependencies' : 'Show Dependencies';
+        btn.className = 'dependency-toggle' + (showDependencyArrows ? ' active' : '');
+    }
+    if (svg) {
+        svg.style.display = showDependencyArrows ? 'block' : 'none';
+    }
+    if (showDependencyArrows) {
+        fetchAndDrawArrows();
+    }
+}
+
+function fetchAndDrawArrows() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/dependencies')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            lastDependencyData = data;
+            drawDependencyArrows(data);
+        })
+        .catch(function() { /* ignore errors — arrows are optional */ });
+}
+
+function drawDependencyArrows(depData) {
+    var svg = document.getElementById('dependency-arrows');
+    if (!svg || !depData || !depData.graph) return;
+
+    var wrapper = document.getElementById('board-wrapper');
+    if (!wrapper) return;
+    var wrapperRect = wrapper.getBoundingClientRect();
+
+    svg.innerHTML = '<defs><marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="rgba(255,255,255,0.4)"/></marker></defs>';
+
+    var graph = depData.graph;
+    for (var ticketId in graph) {
+        var deps = graph[ticketId];
+        if (!deps || deps.length === 0) continue;
+
+        var toCard = document.querySelector('[data-ticket-id="' + ticketId + '"]');
+        if (!toCard) continue;
+
+        for (var i = 0; i < deps.length; i++) {
+            var depId = deps[i];
+            var fromCard = document.querySelector('[data-ticket-id="' + depId + '"]');
+            if (!fromCard) continue;
+
+            var fromRect = fromCard.getBoundingClientRect();
+            var toRect = toCard.getBoundingClientRect();
+
+            // Coordinates relative to wrapper
+            var x1 = fromRect.left - wrapperRect.left + fromRect.width / 2;
+            var y1 = fromRect.top - wrapperRect.top + fromRect.height / 2;
+            var x2 = toRect.left - wrapperRect.left + toRect.width / 2;
+            var y2 = toRect.top - wrapperRect.top + toRect.height / 2;
+
+            // Slight offset if cards are in the same column to avoid overlapping lines
+            if (Math.abs(x1 - x2) < 20) {
+                x1 += 8;
+                x2 -= 8;
+            }
+
+            var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', x1);
+            line.setAttribute('y1', y1);
+            line.setAttribute('x2', x2);
+            line.setAttribute('y2', y2);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.2)');
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('marker-end', 'url(#arrowhead)');
+            svg.appendChild(line);
+        }
+    }
+}
+
+function switchTab(tabName) {
+    var btns = document.querySelectorAll('.tab-btn');
+    for (var i = 0; i < btns.length; i++) {
+        btns[i].className = 'tab-btn' + (btns[i].textContent.toLowerCase() === tabName ? ' active' : '');
+    }
+    var panes = document.querySelectorAll('.tab-pane');
+    for (var j = 0; j < panes.length; j++) {
+        panes[j].className = 'tab-pane' + (panes[j].id === 'pane-' + tabName ? ' active' : '');
+    }
+
+    if (tabName === 'plan') fetchPlan();
+    else if (tabName === 'diff') fetchDiff();
+    else if (tabName === 'cost') fetchCost();
+    else if (tabName === 'logs') setupLogs();
+}
+
+function fetchPlan() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/plan')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var pane = document.getElementById('pane-plan');
+            if (data.plan) {
+                pane.innerHTML = '<pre class="plan-content">' + escapeHtml(data.plan) + '</pre>';
+            } else {
+                pane.innerHTML = '<div style="color:var(--text-dim);padding:20px;">Planning in progress...</div>';
+            }
+        });
+}
+
+function fetchDiff() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/diff')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var pane = document.getElementById('pane-diff');
+            if (data.diff) {
+                var lines = data.diff.split('\n');
+                var html = '<pre class="diff-content">';
+                lines.forEach(function(line) {
+                    if (line.indexOf('+') === 0 && line.indexOf('+++') !== 0) {
+                        html += '<span class="diff-add">' + escapeHtml(line) + '</span>\n';
+                    } else if (line.indexOf('-') === 0 && line.indexOf('---') !== 0) {
+                        html += '<span class="diff-del">' + escapeHtml(line) + '</span>\n';
+                    } else if (line.indexOf('@@') === 0) {
+                        html += '<span class="diff-hunk">' + escapeHtml(line) + '</span>\n';
+                    } else {
+                        html += escapeHtml(line) + '\n';
+                    }
+                });
+                html += '</pre>';
+                pane.innerHTML = html;
+            } else {
+                pane.innerHTML = '<div style="color:var(--text-dim);padding:20px;">No changes yet</div>';
+            }
+        });
+}
+
+function fetchCost() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/cost')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var pane = document.getElementById('pane-cost');
+            var html = '<table class="cost-table"><thead><tr><th>Role</th><th>Cost</th></tr></thead><tbody>';
+            (data.breakdown || []).forEach(function(item) {
+                html += '<tr><td>' + item.role + '</td><td>$' + (item.cost_usd || 0).toFixed(4) + '</td></tr>';
+            });
+            html += '</tbody><tfoot><tr><th>Total</th><th>$' + (data.total_cost_usd || 0).toFixed(4) + '</th></tr></tfoot></table>';
+            pane.innerHTML = html;
+        });
+}
+
+function setupLogs() {
+    var pane = document.getElementById('pane-logs');
+    pane.innerHTML = '<div class="log-container" id="log-entries"></div>' +
+        '<div id="guidance-bar"><input id="guidance-input" placeholder="Send guidance..."><button id="guidance-send" onclick="sendGuidance()">Send</button></div>';
+
+    if (sseSource) { sseSource.close(); sseSource = null; }
+    if (!selectedRepoId || !selectedEdictId) return;
+
+    sseSource = new EventSource('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/logs');
+    sseSource.addEventListener('log', function(event) {
+        var container = document.getElementById('log-entries');
+        if (!container) return;
+        var entry = document.createElement('div');
+        entry.className = 'log-entry';
+        try {
+            var parsed = JSON.parse(event.data);
+            entry.textContent = parsed.message || parsed.raw || event.data;
+        } catch (e) {
+            entry.textContent = event.data;
+        }
+        container.appendChild(entry);
+        container.scrollTop = container.scrollHeight;
+    });
+}
+
+function sendGuidance() {
+    var input = document.getElementById('guidance-input');
+    if (!input || !input.value.trim()) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/guidance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: input.value })
+    });
+    input.value = '';
+}
+
+function openNewEdictModal() {
+    document.getElementById('new-edict-modal').style.display = 'flex';
+    document.getElementById('edict-title-input').value = '';
+    document.getElementById('edict-body-input').value = '';
+    document.getElementById('edict-title-input').focus();
+}
+function closeNewEdictModal() {
+    document.getElementById('new-edict-modal').style.display = 'none';
+}
+document.getElementById('new-edict-btn').onclick = openNewEdictModal;
+
+function postEdict() {
+    var title = document.getElementById('edict-title-input').value.trim();
+    var body = document.getElementById('edict-body-input').value.trim();
+    if (!title) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title, body: body })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        closeNewEdictModal();
+        var newEdictId = data.id;
+        fetch('/api/repos/' + selectedRepoId + '/edicts')
+            .then(function(r) { return r.json(); })
+            .then(function(list) {
+                edicts = list;
+                renderEdictSidebar();
+                updateAggregateCost();
+                selectEdict(newEdictId);
+            });
+    });
+}
+
+function openCardModal(ticketId) {
+    document.getElementById('card-detail-modal').style.display = 'flex';
+    document.getElementById('card-modal-title').textContent = ticketId;
+    document.getElementById('card-meta').innerHTML = 'Loading...';
+    document.getElementById('card-instructions').innerHTML = '';
+    document.getElementById('card-acceptance').innerHTML = '';
+    document.getElementById('card-qa-checks').innerHTML = '';
+    document.getElementById('card-activity-log').innerHTML = '';
+
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/tickets/' + ticketId)
+        .then(function(r) { return r.json(); })
+        .then(function(t) {
+            document.getElementById('card-modal-title').textContent = t.id + ': ' + (t.title || '');
+            var meta = '<div><b>Status:</b> ' + (t.status || '') + '</div>' +
+                '<div><b>Stage:</b> ' + (t.pipeline_stage || '') + '</div>' +
+                '<div><b>Agent:</b> ' + (t.agent_id || 'unassigned') + '</div>';
+            document.getElementById('card-meta').innerHTML = meta;
+
+            var ctx = t.context || {};
+            if (ctx.blueprint) {
+                document.getElementById('card-instructions').innerHTML = '<h4>Instructions</h4><pre style="white-space:pre-wrap;">' + escapeHtml(ctx.blueprint) + '</pre>';
+            }
+            if (ctx.acceptance && ctx.acceptance.length) {
+                var accHtml = '<h4>Acceptance Criteria</h4>';
+                ctx.acceptance.forEach(function(a) {
+                    accHtml += '<div><input type="checkbox" disabled> ' + escapeHtml(a) + '</div>';
+                });
+                document.getElementById('card-acceptance').innerHTML = accHtml;
+            }
+            if (ctx.qa_checks && ctx.qa_checks.length) {
+                var qaHtml = '<h4>QA Checks</h4>';
+                ctx.qa_checks.forEach(function(q) {
+                    qaHtml += '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(q) + '</div>';
+                });
+                document.getElementById('card-qa-checks').innerHTML = qaHtml;
+            }
+        });
+}
+function closeCardModal() {
+    document.getElementById('card-detail-modal').style.display = 'none';
+}
+
+function pauseEdict() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/pause', { method: 'POST' })
+        .then(fetchEdicts);
+}
+
+function killEdict() {
+    if (!selectedRepoId || !selectedEdictId) return;
+    if (!confirm('Kill edict ' + selectedEdictId + '?')) return;
+    fetch('/api/repos/' + selectedRepoId + '/edicts/' + selectedEdictId + '/kill', { method: 'POST' })
+        .then(fetchEdicts);
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
