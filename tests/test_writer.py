@@ -112,6 +112,72 @@ def test_build_writer_prompt_reads_plan_file_from_disk() -> None:
         assert "Widget class" in prompt
 
 
+def test_build_writer_prompt_injects_reference_content(tmp_path: Path) -> None:
+    """When golem_dir is provided, reference file content is injected inline."""
+    ref_file = tmp_path / "references" / "api.md"
+    ref_file.parent.mkdir(parents=True)
+    ref_file.write_text("# API Reference\nGET /users returns a list.", encoding="utf-8")
+
+    ticket = _make_ticket_with_context()
+    ticket.context.references = ["references/api.md"]
+    prompt = build_writer_prompt(ticket, golem_dir=tmp_path)
+
+    assert "### references/api.md" in prompt
+    assert "# API Reference" in prompt
+    assert "GET /users returns a list." in prompt
+
+
+def test_build_writer_prompt_reference_per_file_cap(tmp_path: Path) -> None:
+    """Reference content is truncated at 5,000 chars per file."""
+    ref_file = tmp_path / "big.md"
+    ref_file.write_text("X" * 10_000, encoding="utf-8")
+
+    ticket = _make_ticket_with_context()
+    ticket.context.references = ["big.md"]
+    prompt = build_writer_prompt(ticket, golem_dir=tmp_path)
+
+    # Content is capped at 5000 chars
+    assert "### big.md" in prompt
+    # The injected content should be exactly 5000 X's, not 10000
+    section_start = prompt.index("### big.md\n") + len("### big.md\n")
+    # Find the end of the section (next ### or end of references area)
+    x_count = 0
+    for ch in prompt[section_start:]:
+        if ch == "X":
+            x_count += 1
+        else:
+            break
+    assert x_count == 5_000
+
+
+def test_build_writer_prompt_reference_total_cap(tmp_path: Path) -> None:
+    """Once total reference content exceeds 20,000 chars, remaining files show omitted message."""
+    # Create 5 files, each 5000 chars — total would be 25000, exceeding 20000 cap
+    for i in range(5):
+        ref_file = tmp_path / f"ref{i}.md"
+        ref_file.write_text(f"{'A' * 5_000}", encoding="utf-8")
+
+    ticket = _make_ticket_with_context()
+    ticket.context.references = [f"ref{i}.md" for i in range(5)]
+    prompt = build_writer_prompt(ticket, golem_dir=tmp_path)
+
+    # First 4 files fit (4 * 5000 = 20000), 5th should be omitted
+    for i in range(4):
+        assert f"### ref{i}.md" in prompt
+    assert "### ref4.md" in prompt
+    assert "(content omitted -- read if needed)" in prompt
+
+
+def test_build_writer_prompt_reference_missing_file(tmp_path: Path) -> None:
+    """Missing reference files get a (file not found) placeholder."""
+    ticket = _make_ticket_with_context()
+    ticket.context.references = ["does_not_exist.md"]
+    prompt = build_writer_prompt(ticket, golem_dir=tmp_path)
+
+    assert "### does_not_exist.md" in prompt
+    assert "(file not found)" in prompt
+
+
 @pytest.mark.asyncio
 async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:

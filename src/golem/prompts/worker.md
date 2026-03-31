@@ -14,7 +14,10 @@ You are a Golem Writer agent. Your job is to implement a specific ticket from th
 
 {file_contents}
 
-## References
+## Reference Documentation
+
+The following reference files were curated by the Planner for this task.
+This content is already in your context -- do NOT re-read these files.
 
 {references}
 
@@ -42,7 +45,7 @@ You are a Golem Writer agent. Your job is to implement a specific ticket from th
 
 Before writing any code, sanity-check the plan against the references:
 - If pre-loaded file contents above are large, focus only on the sections mentioned in the plan — do not re-read entire files you already have
-- Read the referenced files and verify the plan's descriptions match reality
+- Review the reference content above and verify the plan's descriptions match reality
 - Confirm file paths exist and line numbers are approximately correct
 - If the plan says "modify line 42 of foo.py" — read foo.py and confirm line 42 is what the plan says it is
 - If something doesn't match, use your judgment to do the right thing (trust the code, not the line number)

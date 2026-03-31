@@ -31,7 +31,7 @@ def _strip_section(template: str, key: str) -> str:
     return template.replace("{" + key + "}", "")
 
 
-def build_writer_prompt(ticket: Ticket) -> str:
+def build_writer_prompt(ticket: Ticket, golem_dir: Path | None = None) -> str:
     """Build writer prompt from ticket context, stripping empty sections."""
     template = _WRITER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     ctx = ticket.context
@@ -50,7 +50,27 @@ def build_writer_prompt(ticket: Ticket) -> str:
             parts.append(f"### {filename}\n```\n{contents}\n```")
         file_contents = "\n\n".join(parts)
 
-    references = "\n".join(ctx.references) if ctx.references else ""
+    # Inject reference file content inline (with caps to avoid prompt bloat)
+    _MAX_PER_REF = 5_000
+    _MAX_TOTAL_REF = 20_000
+    if ctx.references:
+        reference_sections: list[str] = []
+        total_chars = 0
+        for ref_path in ctx.references:
+            ref_full_path = golem_dir / ref_path if golem_dir and not Path(ref_path).is_absolute() else Path(ref_path)
+            if ref_full_path.exists():
+                content = ref_full_path.read_text(encoding="utf-8")[:_MAX_PER_REF]
+                if total_chars + len(content) > _MAX_TOTAL_REF:
+                    reference_sections.append(f"### {ref_path}\n(content omitted -- read if needed)")
+                    continue
+                reference_sections.append(f"### {ref_path}\n{content}")
+                total_chars += len(content)
+            else:
+                reference_sections.append(f"### {ref_path}\n(file not found)")
+        references = "\n\n".join(reference_sections) if reference_sections else "(no references)"
+    else:
+        references = ""
+
     blueprint = ctx.blueprint
     acceptance = "\n".join(f"- {a}" for a in ctx.acceptance) if ctx.acceptance else ""
     qa_checks = "\n".join(f"- `{q}`" for q in ctx.qa_checks) if ctx.qa_checks else ""
@@ -85,7 +105,7 @@ async def spawn_writer_pair(
 
     Returns the writer's result text.
     """
-    prompt = build_writer_prompt(ticket)
+    prompt = build_writer_prompt(ticket, golem_dir=golem_dir)
     result_text = ""
 
     writer_server = create_writer_mcp_server(golem_dir) if golem_dir else create_writer_mcp_server(Path(worktree_path))
