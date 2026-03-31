@@ -622,8 +622,8 @@ Tasks are organized by theme. Each task should be:
 **What:** Add `timeout=120` to `subprocess.run` in `run_qa`. A hung check blocks the entire pipeline.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 228. QA — Custom check patterns from config
-**Size:** Small | **Files:** `src/golem/config.py`, `src/golem/qa.py`
+#### [x] 228. QA — Custom check patterns from config (DONE: b06d9b9)
+**Size:** Small | **Files:** `src/golem/config.py`, `src/golem/orchestrator.py`
 **What:** Add `extra_qa_checks: list[str] = []` to config. These always run in addition to spec-specified and infra-detected checks.
 **Done when:** `uv run pytest` passes.
 
