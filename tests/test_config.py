@@ -187,3 +187,33 @@ def test_load_config_ignores_unknown_fields() -> None:
         loaded = load_config(golem_dir)
         assert loaded.max_parallel == 2
         assert not hasattr(loaded, "unknown_future_field")
+
+
+def test_max_writer_retries_default() -> None:
+    """GolemConfig should have a max_writer_retries field defaulting to 3."""
+    config = GolemConfig()
+    assert config.max_writer_retries == 3
+
+
+def test_max_writer_retries_validates() -> None:
+    """max_writer_retries < 1 should produce a validation warning."""
+    config = GolemConfig(max_writer_retries=0)
+    warnings = config.validate()
+    assert any("max_writer_retries" in w for w in warnings)
+
+
+def test_max_writer_retries_valid_no_warning() -> None:
+    """max_writer_retries >= 1 should not produce a warning."""
+    config = GolemConfig(max_writer_retries=5)
+    warnings = config.validate()
+    assert not any("max_writer_retries" in w for w in warnings)
+
+
+def test_max_writer_retries_roundtrip() -> None:
+    """max_writer_retries should survive save -> load roundtrip."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir)
+        config = GolemConfig(max_writer_retries=5)
+        save_config(config, golem_dir)
+        loaded = load_config(golem_dir)
+        assert loaded.max_writer_retries == 5

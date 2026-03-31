@@ -19,7 +19,7 @@ from golem.worktree import commit_task, create_worktree, merge_group_branches
 _CREATE_TICKET_INPUT_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test"},
+        "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test|blocker|escalation"},
         "title": {"type": "string", "description": "Short descriptive title"},
         "assigned_to": {"type": "string", "description": "Agent role to assign this ticket to"},
         "priority": {"type": "string", "description": "Priority: low|medium|high", "default": "medium"},
@@ -44,7 +44,7 @@ _UPDATE_TICKET_INPUT_SCHEMA: dict[str, object] = {
         "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
         "status": {
             "type": "string",
-            "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done",
+            "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done|blocked",
         },
         "note": {"type": "string", "description": "Note to append to history"},
         "agent": {"type": "string", "description": "Agent performing the update", "default": "system"},
@@ -117,6 +117,16 @@ _COMMIT_WORKTREE_INPUT_SCHEMA: dict[str, object] = {
         "description": {"type": "string", "description": "Description for commit message"},
     },
     "required": ["worktree_path", "task_id", "description"],
+}
+
+_CREATE_BLOCKER_INPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "original_ticket_id": {"type": "string", "description": "Ticket ID that is blocked, e.g. TICKET-001"},
+        "reason": {"type": "string", "description": "Why the writer is stuck — what failed after max rework cycles"},
+        "context": {"type": "string", "description": "Additional context: error messages, QA output, what was tried"},
+    },
+    "required": ["original_ticket_id", "reason"],
 }
 
 
@@ -228,6 +238,45 @@ async def _handle_commit_worktree(args: dict[str, object]) -> dict[str, object]:
     return {"content": [{"type": "text", "text": json.dumps({"committed": committed})}]}
 
 
+async def _handle_create_blocker(store: TicketStore, args: dict[str, object]) -> dict[str, object]:
+    """Writer creates a blocker when stuck after max rework cycles.
+
+    Creates a blocker ticket assigned to tech_lead and sets the original ticket to 'blocked'.
+    """
+    original_ticket_id = str(args["original_ticket_id"])
+    reason = str(args["reason"])
+    context_text = str(args.get("context") or "")
+
+    # Read the original ticket to get its title
+    original_ticket = await store.read(original_ticket_id)
+
+    # Create blocker ticket assigned to tech_lead
+    blocker = Ticket(
+        id="",
+        type="blocker",
+        title=f"Blocked: {original_ticket.title}",
+        status="pending",
+        priority="high",
+        created_by="writer",
+        assigned_to="tech_lead",
+        context=TicketContext(
+            blueprint=f"Original ticket: {original_ticket_id}\nReason: {reason}\n\n{context_text}",
+            references=[original_ticket_id],
+        ),
+    )
+    blocker_id = await store.create(blocker)
+
+    # Set the original ticket to blocked
+    await store.update(
+        ticket_id=original_ticket_id,
+        status="blocked",
+        note=f"Blocked after max rework cycles. Blocker ticket: {blocker_id}. Reason: {reason}",
+        agent="writer",
+    )
+
+    return {"content": [{"type": "text", "text": json.dumps({"blocker_id": blocker_id, "status": "created"})}]}
+
+
 # ---------------------------------------------------------------------------
 # Tool builder — creates SdkMcpTool instances bound to runtime state
 # ---------------------------------------------------------------------------
@@ -285,6 +334,12 @@ def _build_tools(golem_dir: Path, config: GolemConfig, project_root: Path) -> li
             input_schema=_COMMIT_WORKTREE_INPUT_SCHEMA,
             handler=_handle_commit_worktree,
         ),
+        SdkMcpTool(
+            name="create_blocker",
+            description="Writer creates a blocker when stuck after max rework cycles. Creates a blocker ticket for Tech Lead and marks the original ticket as blocked.",
+            input_schema=_CREATE_BLOCKER_INPUT_SCHEMA,
+            handler=partial(_handle_create_blocker, store),
+        ),
     ]
 
 
@@ -316,7 +371,7 @@ def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG
 
 
 def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
-    """Create an MCP server for writers with run_qa + update_ticket tools."""
+    """Create an MCP server for writers with run_qa + update_ticket + create_blocker tools."""
     store = TicketStore(golem_dir / "tickets")
     tools = [
         SdkMcpTool(
@@ -330,6 +385,12 @@ def create_writer_mcp_server(golem_dir: Path) -> McpSdkServerConfig:
             description="Update a ticket's status and append a history event.",
             input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
             handler=partial(_handle_update_ticket, store),
+        ),
+        SdkMcpTool(
+            name="create_blocker",
+            description="Create a blocker when stuck after max rework cycles. Escalates to Tech Lead.",
+            input_schema=_CREATE_BLOCKER_INPUT_SCHEMA,
+            handler=partial(_handle_create_blocker, store),
         ),
     ]
     return create_sdk_mcp_server("golem-writer", tools=tools)
