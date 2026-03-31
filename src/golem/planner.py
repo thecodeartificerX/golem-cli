@@ -63,6 +63,7 @@ async def run_planner(
     (golem_dir / "research").mkdir(parents=True, exist_ok=True)
     (golem_dir / "plans").mkdir(parents=True, exist_ok=True)
     (golem_dir / "references").mkdir(parents=True, exist_ok=True)
+    (golem_dir / "handoffs").mkdir(parents=True, exist_ok=True)
 
     template = _PLANNER_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     prompt = template.replace("{spec_content}", spec_content)

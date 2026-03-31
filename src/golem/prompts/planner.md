@@ -107,13 +107,40 @@ For each task identified in the spec, write a detailed `{golem_dir}/plans/task-N
 
 ---
 
-## Step 8: Curate `references/*.md`
+## Step 8: Write Handoff Document
+
+Write `{golem_dir}/handoffs/planner-to-tech-lead.md` with:
+
+### Context
+- Spec summary (1-2 sentences)
+- Repo assessment (brownfield/greenfield, stack, key patterns)
+
+### Findings
+- What the explorers discovered
+- Non-obvious architectural constraints
+- Framework-specific gotchas
+
+### Ticket Summary
+- List each ticket ID, title, and dependency group
+- Call out which tickets are parallelizable
+
+### Open Questions
+- Ambiguities in the spec that the Tech Lead should resolve
+- Areas where the plan may need adjustment
+
+### Recommendations
+- Suggested parallel grouping
+- Risk areas to watch during implementation
+
+---
+
+## Step 9: Curate `references/*.md`
 
 Write `{golem_dir}/references/<topic>.md` files for any external docs, API references, or important context that writers will need. These are curated from the research findings — only include what's directly useful for implementation.
 
 ---
 
-## Step 9: Create Tech Lead Ticket
+## Step 10: Create Tech Lead Ticket
 
 **CRITICAL:** You MUST call the MCP tool `mcp__golem__create_ticket` to hand off to the Tech Lead. This is NOT optional — the pipeline stops without it.
 
@@ -146,6 +173,7 @@ By the time you finish, these files MUST exist on disk:
 - `{golem_dir}/plans/overview.md`
 - `{golem_dir}/plans/task-001.md` (at minimum one task plan)
 - At least one file in `{golem_dir}/research/`
+- `{golem_dir}/handoffs/planner-to-tech-lead.md`
 - A ticket in the ticket store (via `mcp__golem__create_ticket` tool call)
 
 Do not write a summary. Write the files and call the tool. That is your output.

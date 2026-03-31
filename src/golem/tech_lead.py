@@ -97,10 +97,17 @@ async def run_tech_lead(
     if plan_file and Path(plan_file).exists():
         spec_content = Path(plan_file).read_text(encoding="utf-8")
 
+    # Read planner handoff if it exists
+    handoff_path = golem_dir / "handoffs" / "planner-to-tech-lead.md"
+    planner_handoff = ""
+    if handoff_path.exists():
+        planner_handoff = handoff_path.read_text(encoding="utf-8")
+
     template = _TECH_LEAD_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     prompt = template.replace("{golem_dir}", str(golem_dir))
     prompt = prompt.replace("{spec_content}", spec_content)
     prompt = prompt.replace("{project_root}", str(project_root))
+    prompt = prompt.replace("{planner_handoff}", planner_handoff)
 
     # Build in-process MCP server with all orchestration tools registered
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root)

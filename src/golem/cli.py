@@ -82,7 +82,7 @@ def _get_project_root() -> Path:
 
 
 def _create_golem_dirs(golem_dir: Path) -> None:
-    for subdir in ("tickets", "research", "plans", "references", "reports", "worktrees"):
+    for subdir in ("tickets", "research", "plans", "references", "reports", "worktrees", "handoffs"):
         (golem_dir / subdir).mkdir(parents=True, exist_ok=True)
 
 
