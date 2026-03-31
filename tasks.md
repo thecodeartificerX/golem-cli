@@ -518,7 +518,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Add `--verbose` flag that sets `GOLEM_DEBUG=1` and enables more detailed stderr output.
 **Done when:** `uv run pytest` passes.
 
-#### [ ] 208. `golem run` — Accept spec from stdin
+#### [x] 208. `golem run` — Accept spec from stdin (DONE: already implemented)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Allow `cat spec.md | golem run -` to read spec from stdin. Write to a temp file before proceeding.
 **Done when:** `uv run pytest` passes.
