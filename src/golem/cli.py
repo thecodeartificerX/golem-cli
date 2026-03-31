@@ -313,6 +313,23 @@ def run(
 
     spec = specs[0]
 
+    # Support reading spec from stdin via "-"
+    if str(spec) == "-":
+        import sys
+        import tempfile
+
+        stdin_content = sys.stdin.read()
+        if not stdin_content.strip():
+            console.print("[red]No spec content received from stdin.[/red]")
+            raise typer.Exit(1)
+
+        # Write to temp file
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        tmp.write(stdin_content)
+        tmp.close()
+        spec = Path(tmp.name)
+        console.print(f"[dim]Read spec from stdin ({len(stdin_content)} chars) → {spec}[/dim]")
+
     if not no_server:
         _validate_spec(spec)
         project_root = _get_project_root()
