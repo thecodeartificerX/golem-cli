@@ -184,6 +184,7 @@ async def run_planner(
     original_prompt = template.replace("{spec_content}", spec_content)
     original_prompt = original_prompt.replace("{project_context}", project_context or "(none)")
     original_prompt = original_prompt.replace("{golem_dir}", str(golem_dir))
+    original_prompt = original_prompt.replace("{project_root}", str(cwd))
     infra_checks_str = "\n".join(f"- `{c}`" for c in config.infrastructure_checks) if config.infrastructure_checks else "(none detected)"
     original_prompt = original_prompt.replace("{infrastructure_checks}", infra_checks_str)
     if config.skip_research:

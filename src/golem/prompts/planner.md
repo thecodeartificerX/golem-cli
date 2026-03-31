@@ -22,6 +22,8 @@ Running them would destroy your own runtime state.
 
 **Golem Directory:** `{golem_dir}`
 
+**Project Root:** `{project_root}`
+
 ---
 
 ## Filesystem Boundary

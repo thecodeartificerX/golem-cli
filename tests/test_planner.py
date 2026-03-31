@@ -184,6 +184,47 @@ async def test_run_planner_injects_project_context() -> None:
         assert "This is the project context" in captured_prompts[0]
 
 
+@pytest.mark.asyncio
+async def test_run_planner_substitutes_project_root() -> None:
+    """Rendered planner prompt must not contain the literal {project_root} placeholder."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        spec_path = Path(tmpdir) / "spec.md"
+        spec_path.write_text("# Test Spec\n\nBuild something.\n", encoding="utf-8")
+        golem_dir = Path(tmpdir) / ".golem"
+        config = GolemConfig()
+
+        captured_prompts: list[str] = []
+
+        async def _capturing_query(*args, **kwargs):
+            prompt = kwargs.get("prompt") or (args[0] if args else "")
+            captured_prompts.append(prompt)
+            import re
+            match = re.search(r"\*\*Golem Directory:\*\*\s+`([^`]+)`", prompt)
+            if match:
+                gd = Path(match.group(1))
+                (gd / "plans").mkdir(parents=True, exist_ok=True)
+                (gd / "plans" / "overview.md").write_text("# Overview\n", encoding="utf-8")
+                from golem.tickets import Ticket, TicketContext, TicketStore
+                store = TicketStore(gd / "tickets")
+                ticket = Ticket(
+                    id="", type="task", title="TL", status="pending",
+                    priority="medium", created_by="planner", assigned_to="tech_lead",
+                    context=TicketContext(plan_file=str(gd / "plans" / "overview.md")),
+                )
+                await store.create(ticket)
+            return
+            yield
+
+        with patch("golem.planner.query", side_effect=_capturing_query):
+            await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
+
+        assert len(captured_prompts) == 1
+        # The literal placeholder must not survive rendering
+        assert "{project_root}" not in captured_prompts[0]
+        # The actual path must appear in the prompt
+        assert tmpdir in captured_prompts[0]
+
+
 async def _run_planner_helper(
     spec_path: Path,
     golem_dir: Path,
