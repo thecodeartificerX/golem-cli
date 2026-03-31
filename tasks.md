@@ -528,7 +528,7 @@ Tasks are organized by theme. Each task should be:
 **What:** Use rich markup for ticket statuses: green=done/approved, yellow=in_progress, red=needs_work, blue=pending.
 **Done when:** Visual inspection confirms colors.
 
-#### [ ] 210. CLI — `golem run` shows spinner while planner works
+#### [x] 210. CLI — `golem run` shows spinner while planner works (DONE: 10808ad)
 **Size:** Small | **Files:** `src/golem/cli.py`
 **What:** Use rich Progress/Spinner to show activity during the planner phase instead of just streaming to stderr.
 **Done when:** Visual inspection confirms spinner.
