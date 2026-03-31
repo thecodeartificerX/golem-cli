@@ -487,9 +487,24 @@ async def test_junior_dev_double_stall_fatal() -> None:
 
 import json
 from dataclasses import asdict
+from typing import Any
 
 from golem.qa import QACheck, QAResult
 from golem.tickets import TicketStore
+
+
+class _PassthroughCoordinator:
+    """Test double for RecoveryCoordinator that calls session_fn() directly."""
+
+    def __init__(self, config: GolemConfig) -> None:
+        pass
+
+    async def run_with_recovery(
+        self,
+        session_fn: Any,
+        **kwargs: Any,
+    ) -> Any:
+        return await session_fn()
 
 
 def _write_ticket_json(tickets_dir: Path, ticket: Ticket) -> None:
