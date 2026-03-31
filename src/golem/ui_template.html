@@ -169,6 +169,37 @@
       font-weight: 700;
     }
 
+    /* Theme toggle button */
+    #theme-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--muted-light);
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+    }
+
+    #theme-toggle:hover {
+      border-color: var(--border-bright);
+      color: var(--label);
+    }
+
+    .theme-icon-light {
+      display: none;
+    }
+
+    :root.light-theme .theme-icon-dark {
+      display: none;
+    }
+
+    :root.light-theme .theme-icon-light {
+      display: inline;
+    }
+
     /* connection indicator */
     #conn-indicator {
       display: flex;
@@ -1850,6 +1881,11 @@
       </div>
     </div>
     <div id="total-cost">total: <span class="cost-val" id="stat-total-cost">$0.00</span></div>
+    <div class="bar-sep"></div>
+    <button id="theme-toggle" title="Toggle light/dark theme (T)">
+      <span class="theme-icon-dark">&#9790;</span>
+      <span class="theme-icon-light">&#9728;</span>
+    </button>
     <div class="bar-sep"></div>
     <div id="conn-indicator">
       <div id="conn-dot"></div>
@@ -3690,6 +3726,39 @@
   }
 
   // -----------------------------------------------------------------------
+  // Theme Toggle
+  // -----------------------------------------------------------------------
+
+  var themeToggleBtn = document.getElementById('theme-toggle');
+  var THEME_KEY = 'golem-theme';
+
+  function setTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-theme');
+      localStorage.setItem(THEME_KEY, 'light');
+    } else {
+      document.documentElement.classList.remove('light-theme');
+      localStorage.setItem(THEME_KEY, 'dark');
+    }
+  }
+
+  function toggleTheme() {
+    var isLight = document.documentElement.classList.contains('light-theme');
+    setTheme(isLight ? 'dark' : 'light');
+    showToast('Theme: ' + (isLight ? 'Dark' : 'Light'), 'info', 1500);
+  }
+
+  // Initialize theme from localStorage
+  (function initTheme() {
+    var saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light') {
+      setTheme('light');
+    }
+  })();
+
+  themeToggleBtn.addEventListener('click', toggleTheme);
+
+  // -----------------------------------------------------------------------
   // Keyboard Shortcuts
   // -----------------------------------------------------------------------
 
@@ -3766,6 +3835,13 @@
     if (key === 'n' && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       newSessionBtn.click();
+      return;
+    }
+
+    // T: toggle theme
+    if (key === 't' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      toggleTheme();
       return;
     }
   });
