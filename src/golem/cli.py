@@ -424,10 +424,10 @@ def run(
         event_bus = EventBus(FileBackend(events_path), session_id=config.session_id)
 
         progress.log_classification(classification.complexity, classification.reasoning)
-        console.print("[bold cyan]Golem[/bold cyan] -- Planning...")
         progress.log_planner_start()
         t_plan = time.monotonic()
-        planner_result = await run_planner(spec, golem_dir, config, project_root, event_bus=event_bus)
+        with console.status("[bold cyan]Planning...[/bold cyan] Lead Architect analyzing spec", spinner="dots"):
+            planner_result = await run_planner(spec, golem_dir, config, project_root, event_bus=event_bus)
         ticket_id = planner_result.ticket_id
         plan_elapsed = time.monotonic() - t_plan
         plan_m, plan_s = divmod(int(plan_elapsed), 60)
