@@ -734,3 +734,155 @@ async def test_kill_cancels_running_stage(
 
     assert result.status == EDICT_FAILED
     assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
+# Spec 6.1: _can_dispatch dependency enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_can_dispatch_no_dependencies(tmp_path: Path) -> None:
+    """_can_dispatch returns True for tickets with no dependencies."""
+    from golem.pipeline import _can_dispatch
+
+    tickets_dir = tmp_path / "tickets"
+    tickets_dir.mkdir()
+    store = TicketStore(tickets_dir)
+
+    ticket = Ticket(
+        id="", type="task", title="No deps", status="pending",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(), depends_on=[],
+    )
+    await store.create(ticket)
+
+    ticket_loaded = await store.read("TICKET-001")
+    assert await _can_dispatch(ticket_loaded, store) is True
+
+
+@pytest.mark.asyncio
+async def test_can_dispatch_all_deps_done(tmp_path: Path) -> None:
+    """_can_dispatch returns True when all dependencies are done."""
+    from golem.pipeline import _can_dispatch
+
+    tickets_dir = tmp_path / "tickets"
+    tickets_dir.mkdir()
+    store = TicketStore(tickets_dir)
+
+    dep1 = Ticket(
+        id="", type="task", title="Dep 1", status="done",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(),
+    )
+    dep2 = Ticket(
+        id="", type="task", title="Dep 2", status="approved",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(),
+    )
+    dep1_id = await store.create(dep1)
+    dep2_id = await store.create(dep2)
+
+    ticket = Ticket(
+        id="", type="task", title="Has deps", status="pending",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(), depends_on=[dep1_id, dep2_id],
+    )
+    ticket_id = await store.create(ticket)
+
+    ticket_loaded = await store.read(ticket_id)
+    assert await _can_dispatch(ticket_loaded, store) is True
+
+
+@pytest.mark.asyncio
+async def test_can_dispatch_blocks_on_pending_dep(tmp_path: Path) -> None:
+    """_can_dispatch returns False when a dependency is still pending."""
+    from golem.pipeline import _can_dispatch
+
+    tickets_dir = tmp_path / "tickets"
+    tickets_dir.mkdir()
+    store = TicketStore(tickets_dir)
+
+    dep = Ticket(
+        id="", type="task", title="Pending dep", status="pending",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(),
+    )
+    dep_id = await store.create(dep)
+
+    ticket = Ticket(
+        id="", type="task", title="Blocked", status="pending",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(), depends_on=[dep_id],
+    )
+    ticket_id = await store.create(ticket)
+
+    ticket_loaded = await store.read(ticket_id)
+    assert await _can_dispatch(ticket_loaded, store) is False
+
+
+@pytest.mark.asyncio
+async def test_can_dispatch_blocks_on_missing_dep(tmp_path: Path) -> None:
+    """_can_dispatch returns False when a dependency does not exist."""
+    from golem.pipeline import _can_dispatch
+
+    tickets_dir = tmp_path / "tickets"
+    tickets_dir.mkdir()
+    store = TicketStore(tickets_dir)
+
+    ticket = Ticket(
+        id="", type="task", title="Missing dep", status="pending",
+        priority="medium", created_by="planner", assigned_to="",
+        context=TicketContext(), depends_on=["TICKET-999"],
+    )
+    ticket_id = await store.create(ticket)
+
+    ticket_loaded = await store.read(ticket_id)
+    assert await _can_dispatch(ticket_loaded, store) is False
+
+
+# ---------------------------------------------------------------------------
+# Spec 6.1: WaveExecutor fallback to Tech Lead on failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pipeline_wave_executor_fallback_to_tech_lead(
+    tmp_path: Path, edict_env: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When WaveExecutor raises, pipeline falls back to Tech Lead and completes successfully."""
+    edicts_dir, tickets_dir, golem_dir = edict_env
+    edict = _make_edict()
+    edict_store = EdictStore(edicts_dir)
+    ticket_store = TicketStore(tickets_dir)
+
+    edict_id = await edict_store.create(edict)
+
+    # Pre-create handoff ticket
+    handoff = _make_ticket(edict_id, status="pending", title="Planner handoff ticket")
+    await ticket_store.create(handoff)
+
+    # Force orchestrator_enabled=True (already the default, but be explicit)
+    config = GolemConfig(orchestrator_enabled=True)
+    # Ensure classify returns STANDARD so orchestrator_enabled stays True after profile apply
+    monkeypatch.setattr("golem.conductor.classify_spec", MagicMock(return_value=MagicMock(complexity="STANDARD")))
+
+    # Make WaveExecutor.run() raise to trigger fallback
+    async def _failing_wave_run(*args: object, **kwargs: object) -> None:
+        raise ValueError("DAG cycle detected")
+
+    monkeypatch.setattr("golem.orchestrator.WaveExecutor.run", _failing_wave_run)
+
+    coord = PipelineCoordinator(
+        edict=edict,
+        edict_store=edict_store,
+        ticket_store=ticket_store,
+        config=config,
+        project_root=tmp_path,
+        golem_dir=tmp_path / ".golem",
+    )
+    result = await coord.run()
+
+    # Pipeline should complete via Tech Lead fallback
+    assert result.status == EDICT_DONE
+    assert result.error is None

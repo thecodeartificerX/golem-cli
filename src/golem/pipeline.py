@@ -19,10 +19,26 @@ from golem.edict import (
     Edict,
     EdictStore,
 )
-from golem.tickets import TicketStore
+from golem.tickets import Ticket, TicketStore
 
 if TYPE_CHECKING:
     from golem.events import EventBus
+
+
+async def _can_dispatch(ticket: Ticket, store: TicketStore) -> bool:
+    """Check if all dependencies are completed.
+
+    Returns True when every ticket in ticket.depends_on has status
+    'done' or 'approved', meaning this ticket is safe to dispatch.
+    """
+    for dep_id in ticket.depends_on:
+        try:
+            dep = await store.read(dep_id)
+        except (FileNotFoundError, ValueError):
+            return False
+        if dep.status not in ("done", "approved"):
+            return False
+    return True
 
 
 @dataclass
@@ -231,70 +247,106 @@ class PipelineCoordinator:
                     pass
                 return result
 
-            if not self._config.skip_tech_lead:
-                _log(f"[PIPELINE] Dispatching Tech Lead for {ticket_id}")
+            # -- Dispatch execution: WaveExecutor, Tech Lead, or direct Junior Dev --
+            wave_executor_succeeded = False
+
+            if self._config.orchestrator_enabled:
+                _log("[PIPELINE] orchestrator_enabled=True, attempting WaveExecutor dispatch")
                 try:
-                    await self._ticket_store.update(
-                        ticket_id,
-                        status="in_progress",
-                        note="Tech Lead picked up handoff ticket",
-                        pipeline_stage="tech_lead",
+                    from golem.orchestrator import WaveExecutor
+
+                    wave_executor = WaveExecutor(
+                        golem_dir=edict_dir,
+                        project_root=self._project_root,
+                        config=self._config,
+                        event_bus=self._event_bus,
                     )
-                except (ValueError, OSError, FileNotFoundError):
-                    pass
-                progress.log_tech_lead_start(ticket_id)
-                try:
-                    self._current_task = asyncio.create_task(run_tech_lead(
-                        ticket_id, edict_dir, self._config, self._project_root,
-                        event_bus=self._event_bus, server_url=self._server_url,
-                    ))
-                    tl_result = await self._current_task
-                finally:
-                    self._current_task = None
-                self._cost_usd += tl_result.cost_usd
-                elapsed = time.monotonic() - start_time
-                progress.log_tech_lead_complete(elapsed_s=elapsed)
-                try:
-                    await self._ticket_store.update(
-                        ticket_id,
-                        status="done",
-                        note="Tech Lead completed all work",
-                        pipeline_stage="done",
+                    all_ticket_ids = [t.id for t in planner_tickets if t.type != "review"]
+                    self._current_task = asyncio.create_task(
+                        wave_executor.run(ticket_ids=all_ticket_ids, base_branch=self._config.pr_target)
                     )
-                except (ValueError, OSError, FileNotFoundError):
-                    pass
-            else:
-                _log(f"[PIPELINE] TRIVIAL tier: skip_tech_lead=True, spawning Junior Dev directly for {ticket_id}")
-                ticket = await self._ticket_store.read(ticket_id)
-                _log(f"[PIPELINE] Junior Dev ticket loaded: {ticket.id} - {ticket.title}")
-                try:
-                    await self._ticket_store.update(
-                        ticket_id,
-                        status="in_progress",
-                        note="Junior Dev picked up handoff ticket (TRIVIAL tier)",
-                        pipeline_stage="junior_dev",
+                    try:
+                        orch_result = await self._current_task
+                    finally:
+                        self._current_task = None
+                    self._cost_usd += orch_result.total_cost_usd
+                    elapsed = time.monotonic() - start_time
+                    _log(
+                        f"[PIPELINE] WaveExecutor complete: "
+                        f"waves={orch_result.waves_completed}/{orch_result.waves_total}, "
+                        f"passed={orch_result.tickets_passed}, failed={orch_result.tickets_failed}, "
+                        f"cost=${orch_result.total_cost_usd:.4f}, elapsed={elapsed:.1f}s"
                     )
-                except (ValueError, OSError, FileNotFoundError):
-                    pass
-                try:
-                    self._current_task = asyncio.create_task(spawn_junior_dev(
-                        ticket, str(self._project_root), self._config, edict_dir,
-                        event_bus=self._event_bus, server_url=self._server_url,
-                    ))
-                    jr_result = await self._current_task
-                finally:
-                    self._current_task = None
-                self._cost_usd += jr_result.cost_usd
-                _log(f"[PIPELINE] Junior Dev complete: cost=${jr_result.cost_usd:.4f}")
-                try:
-                    await self._ticket_store.update(
-                        ticket_id,
-                        status="done",
-                        note="Junior Dev completed handoff ticket (TRIVIAL tier)",
-                        pipeline_stage="done",
-                    )
-                except (ValueError, OSError, FileNotFoundError):
-                    pass
+                    wave_executor_succeeded = True
+                except Exception as exc:
+                    _log(f"[PIPELINE] WaveExecutor failed ({exc}), falling back to Tech Lead agent")
+                    wave_executor_succeeded = False
+
+            if not wave_executor_succeeded:
+                if not self._config.skip_tech_lead:
+                    _log(f"[PIPELINE] Dispatching Tech Lead for {ticket_id}")
+                    try:
+                        await self._ticket_store.update(
+                            ticket_id,
+                            status="in_progress",
+                            note="Tech Lead picked up handoff ticket",
+                            pipeline_stage="tech_lead",
+                        )
+                    except (ValueError, OSError, FileNotFoundError):
+                        pass
+                    progress.log_tech_lead_start(ticket_id)
+                    try:
+                        self._current_task = asyncio.create_task(run_tech_lead(
+                            ticket_id, edict_dir, self._config, self._project_root,
+                            event_bus=self._event_bus, server_url=self._server_url,
+                        ))
+                        tl_result = await self._current_task
+                    finally:
+                        self._current_task = None
+                    self._cost_usd += tl_result.cost_usd
+                    elapsed = time.monotonic() - start_time
+                    progress.log_tech_lead_complete(elapsed_s=elapsed)
+                    try:
+                        await self._ticket_store.update(
+                            ticket_id,
+                            status="done",
+                            note="Tech Lead completed all work",
+                            pipeline_stage="done",
+                        )
+                    except (ValueError, OSError, FileNotFoundError):
+                        pass
+                else:
+                    _log(f"[PIPELINE] TRIVIAL tier: skip_tech_lead=True, spawning Junior Dev directly for {ticket_id}")
+                    ticket = await self._ticket_store.read(ticket_id)
+                    _log(f"[PIPELINE] Junior Dev ticket loaded: {ticket.id} - {ticket.title}")
+                    try:
+                        await self._ticket_store.update(
+                            ticket_id,
+                            status="in_progress",
+                            note="Junior Dev picked up handoff ticket (TRIVIAL tier)",
+                            pipeline_stage="junior_dev",
+                        )
+                    except (ValueError, OSError, FileNotFoundError):
+                        pass
+                    try:
+                        self._current_task = asyncio.create_task(spawn_junior_dev(
+                            ticket, str(self._project_root), self._config, edict_dir,
+                            event_bus=self._event_bus, server_url=self._server_url,
+                        ))
+                        jr_result = await self._current_task
+                    finally:
+                        self._current_task = None
+                    self._cost_usd += jr_result.cost_usd
+                    _log(f"[PIPELINE] Junior Dev complete: cost=${jr_result.cost_usd:.4f}")
+                    try:
+                        await self._ticket_store.update(
+                            ticket_id,
+                            status="done",
+                            note="Junior Dev completed handoff ticket (TRIVIAL tier)",
+                            pipeline_stage="done",
+                        )
+                    except (ValueError, OSError, FileNotFoundError):
+                        pass
 
             # -- Completion phase --
             tickets = await self._ticket_store.list_tickets()

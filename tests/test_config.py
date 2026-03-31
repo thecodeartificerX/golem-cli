@@ -635,3 +635,37 @@ def test_extra_qa_checks_empty_roundtrip(tmp_path: Path) -> None:
     save_config(config, tmp_path)
     loaded = load_config(tmp_path)
     assert loaded.extra_qa_checks == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 6.1: WaveExecutor enabled by default
+# ---------------------------------------------------------------------------
+
+
+def test_orchestrator_enabled_default_true() -> None:
+    """Default GolemConfig must have orchestrator_enabled=True."""
+    config = GolemConfig()
+    assert config.orchestrator_enabled is True
+
+
+def test_orchestrator_enabled_critical_false() -> None:
+    """CRITICAL tier keeps orchestrator_enabled=False for maximum Tech Lead flexibility."""
+    config = GolemConfig()
+    config.apply_complexity_profile("CRITICAL")
+    assert config.orchestrator_enabled is False
+
+
+def test_orchestrator_enabled_trivial_simple_standard_true() -> None:
+    """TRIVIAL, SIMPLE, and STANDARD tiers all have orchestrator_enabled=True."""
+    for tier in ("TRIVIAL", "SIMPLE", "STANDARD"):
+        config = GolemConfig()
+        config.apply_complexity_profile(tier)
+        assert config.orchestrator_enabled is True, f"{tier} should have orchestrator_enabled=True"
+
+
+def test_orchestrator_enabled_roundtrip(tmp_path: Path) -> None:
+    """orchestrator_enabled survives a full save -> load round-trip."""
+    config = GolemConfig(orchestrator_enabled=False)
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.orchestrator_enabled is False
