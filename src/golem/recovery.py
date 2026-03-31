@@ -381,6 +381,7 @@ class RecoveryCoordinator:
         label: str,
         golem_dir: Path | None = None,
         event_bus: EventBus | None = None,
+        edict_id: str = "",
     ) -> ContinuationResult | SupervisedResult:
         """Run session_fn with classification-aware retry.
 
