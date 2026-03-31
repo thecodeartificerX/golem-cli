@@ -1,0 +1,45 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: G O L E M
+    - button "golem-cli" [ref=e6] [cursor=pointer]
+    - button "+ Add Repo" [ref=e7] [cursor=pointer]
+    - generic [ref=e8]: $0.00
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - button "+ NEW EDICT" [ref=e11] [cursor=pointer]
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - generic [ref=e14] [cursor=pointer]:
+            - generic [ref=e15]: v
+            - text: TO DO (1)
+          - generic [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: EDICT-001
+            - generic [ref=e69]: Add dark mode to settings
+            - generic [ref=e70]: pending | $0.00
+        - generic [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: v
+          - text: IN PROGRESS (0)
+        - generic [ref=e20] [cursor=pointer]:
+          - generic [ref=e21]: ">"
+          - text: COMPLETED (0)
+    - generic [ref=e41]:
+      - generic [ref=e44]:
+        - button "Pause" [ref=e45] [cursor=pointer]
+        - button "Kill" [ref=e46] [cursor=pointer]
+      - generic [ref=e47]:
+        - button "Board" [ref=e48] [cursor=pointer]
+        - button "Plan" [ref=e49] [cursor=pointer]
+        - button "Diff" [ref=e50] [cursor=pointer]
+        - button "Cost" [active] [ref=e51] [cursor=pointer]
+        - button "Logs" [ref=e52] [cursor=pointer]
+      - table [ref=e72]:
+        - rowgroup [ref=e73]:
+          - row "Role Cost" [ref=e74]:
+            - columnheader "Role" [ref=e75]
+            - columnheader "Cost" [ref=e76]
+        - rowgroup
+        - rowgroup [ref=e77]:
+          - row "Total $0.0000" [ref=e78]:
+            - columnheader "Total" [ref=e79]
+            - columnheader "$0.0000" [ref=e80]
+  - generic [ref=e24]: "Server running | PID 474320 | Repos: 1"

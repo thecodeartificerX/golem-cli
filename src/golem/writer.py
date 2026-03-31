@@ -211,7 +211,7 @@ async def spawn_junior_dev(
         setting_sources=sources,
         max_turns=config.max_worker_turns,
         permission_mode="bypassPermissions",
-        env=sdk_env(),
+        env=sdk_env(session_id=config.session_id, golem_dir=str(_golem_dir)),
     )
 
     stall_cfg = stall_config_for_role("junior_dev", config.max_worker_turns)
@@ -281,8 +281,9 @@ async def spawn_junior_dev(
                 event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
-            from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
+            from golem.parallel import RateLimitError
+            from golem.recovery import is_rate_limit_exception
+            if is_rate_limit_exception(e):
                 raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev retry failed (ticket {ticket.id}): {e}"
@@ -346,8 +347,9 @@ async def spawn_junior_dev(
                 event_bus=event_bus,
             )
         except (CLIConnectionError, ClaudeSDKError) as e:
-            from golem.parallel import RateLimitError, _is_rate_limit_error
-            if _is_rate_limit_error(e):
+            from golem.parallel import RateLimitError
+            from golem.recovery import is_rate_limit_exception
+            if is_rate_limit_exception(e):
                 raise RateLimitError(str(e)) from e
             raise RuntimeError(
                 f"Junior Dev no-diff retry failed (ticket {ticket.id}): {e}"

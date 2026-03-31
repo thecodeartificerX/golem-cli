@@ -1,0 +1,32 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: G O L E M
+      - button "golem-cli" [ref=e6] [cursor=pointer]
+      - button "+ Add Repo" [ref=e7] [cursor=pointer]
+      - generic [ref=e8]: $0.00
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - button "+ NEW EDICT" [ref=e11] [cursor=pointer]
+        - generic [ref=e12]:
+          - generic [ref=e14] [cursor=pointer]:
+            - generic [ref=e15]: v
+            - text: TO DO (0)
+          - generic [ref=e17] [cursor=pointer]:
+            - generic [ref=e18]: v
+            - text: IN PROGRESS (0)
+          - generic [ref=e20] [cursor=pointer]:
+            - generic [ref=e21]: ">"
+            - text: COMPLETED (0)
+      - generic [ref=e23]: Select an edict or create a new one
+    - generic [ref=e24]: "Server running | PID 474320 | Repos: 1"
+  - generic [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]: New Edict
+      - button "x" [ref=e29] [cursor=pointer]
+    - generic [ref=e30]:
+      - generic [ref=e31]: Title
+      - textbox "What needs to be done?" [active] [ref=e32]
+      - generic [ref=e33]: Description
+      - textbox "Paste spec, write a bug report, whatever..." [ref=e34]
+      - button "POST EDICT" [ref=e35] [cursor=pointer]

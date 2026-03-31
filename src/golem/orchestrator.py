@@ -27,9 +27,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from golem.config import GolemConfig
-from golem.parallel import _create_batches
 from golem.progress import ProgressLogger
-from golem.recovery import is_rate_limit_error
+from golem.recovery import create_batches, is_rate_limit_error
 from golem.tickets import Ticket, TicketStore
 from golem.worktree import commit_task, create_worktree, delete_worktree, merge_group_branches
 from golem.writer import JuniorDevResult, spawn_junior_dev
@@ -629,7 +628,7 @@ class WaveExecutor:
         results: list[TicketExecutionResult] = []
         rate_limited_count = 0
 
-        batches = _create_batches(tickets, max_parallel)
+        batches = create_batches(tickets, max_parallel)
 
         for batch in batches:
             if self._abort.is_set():

@@ -8,7 +8,7 @@ import pytest
 
 from golem.config import GolemConfig
 from golem.supervisor import ToolCallRegistry
-from golem.tools import create_golem_mcp_server, create_junior_dev_mcp_server, create_qa_mcp_server, create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
+from golem.tools import create_golem_mcp_server, create_junior_dev_mcp_server, create_writer_mcp_server, get_tech_lead_tools, handle_tool_call
 
 _EXPECTED_TOOL_NAMES = {
     "create_ticket",

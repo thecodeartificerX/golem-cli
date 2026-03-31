@@ -1,0 +1,20 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: G O L E M
+    - button "+ Add Repo" [ref=e5] [cursor=pointer]
+    - generic [ref=e6]: $0.00
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - button "+ NEW EDICT" [ref=e9] [cursor=pointer]
+      - generic [ref=e10]:
+        - generic [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: v
+          - text: TO DO (0)
+        - generic [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: v
+          - text: IN PROGRESS (0)
+        - generic [ref=e18] [cursor=pointer]:
+          - generic [ref=e19]: ">"
+          - text: COMPLETED (0)
+    - generic [ref=e21]: Select an edict or create a new one
+  - generic [ref=e22]: "Server running | PID 474320 | Repos: 0"

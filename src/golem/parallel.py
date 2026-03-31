@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from golem.recovery import is_rate_limit_error
+from golem.recovery import create_batches, is_rate_limit_exception
 
 if TYPE_CHECKING:
     from golem.events import EventBus
@@ -52,9 +52,8 @@ class RateLimitError(RuntimeError):
     """Raised when the Claude API returns a 429 or rate limit message."""
 
 
-def _is_rate_limit_error(exc: Exception) -> bool:
-    """Detect rate limit from exception.  Delegates to golem.recovery.is_rate_limit_error."""
-    return is_rate_limit_error(str(exc))
+# Backwards-compatibility alias for is_rate_limit_exception (renamed to avoid underscore prefix)
+_is_rate_limit_error = is_rate_limit_exception
 
 
 # -- Result types --
@@ -83,16 +82,8 @@ class BatchResult(Generic[T]):
 
 # -- Helper functions --
 
-_ItemT = TypeVar("_ItemT")
-
-
-def _create_batches(items: list[_ItemT], batch_size: int) -> list[list[_ItemT]]:
-    """Split items into non-overlapping sequential windows of batch_size.
-
-    Generic: works for list[str], list[Ticket], or any other item type.
-    Imported by golem.orchestrator to avoid duplication.
-    """
-    return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+# Backwards-compatibility alias for create_batches (renamed to remove underscore prefix)
+_create_batches = create_batches
 
 
 async def _interruptible_sleep(delay_s: float, cancel_event: asyncio.Event) -> None:

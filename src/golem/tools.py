@@ -913,51 +913,6 @@ def create_golem_planner_mcp_server(
     return create_sdk_mcp_server("golem", tools=tools)
 
 
-def create_golem_mcp_sse_config(
-    session_id: str,
-    server_url: str,
-    name: str = "golem",
-) -> dict[str, str]:
-    """Return an SSE MCP server config pointing at the Golem server.
-
-    Used when the Golem server is running — SDK connects to MCP tools
-    over HTTP/SSE instead of in-process pipes.
-    """
-    return {"type": "sse", "url": f"{server_url}/mcp/{session_id}/sse"}
-
-
-def create_qa_mcp_server(project_root: Path) -> McpSdkServerConfig:  # noqa: ARG001
-    """Create a minimal in-process MCP server with only the run_qa tool (for writers)."""
-    qa_tool = SdkMcpTool(
-        name="run_qa",
-        description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "worktree_path": {"type": "string", "description": "Absolute path to the worktree"},
-                "checks": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Spec-defined check commands",
-                },
-                "infrastructure_checks": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Infrastructure checks (run first)",
-                },
-                "qa_depth": {
-                    "type": "string",
-                    "description": "QA depth: minimal (infra only) | standard (infra+spec) | strict (infra+spec+recheck loop)",
-                    "default": "standard",
-                },
-            },
-            "required": ["worktree_path", "checks"],
-        },
-        handler=_handle_run_qa,
-    )
-    return create_sdk_mcp_server("golem-qa", tools=[qa_tool])
-
-
 def create_junior_dev_mcp_server(
     golem_dir: Path,
     registry: ToolCallRegistry | None = None,

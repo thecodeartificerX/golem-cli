@@ -7,6 +7,8 @@ wraps supervised_session() calls with classification-aware retry logic.
 
 Module-level helpers shared across golem.parallel and golem.orchestrator:
     is_rate_limit_error(text) -> bool
+    is_rate_limit_exception(exc) -> bool
+    create_batches(items, batch_size) -> list[list]
 """
 
 from __future__ import annotations
@@ -43,6 +45,33 @@ def is_rate_limit_error(text: str) -> bool:
     """
     lower = text.lower()
     return "429" in lower or "rate limit" in lower or "too many requests" in lower
+
+
+def is_rate_limit_exception(exc: BaseException) -> bool:
+    """Detect rate limit from exception by checking str(exc).
+
+    Convenience wrapper for is_rate_limit_error() when you have an exception object.
+    Used by golem.parallel, golem.writer, and golem.junior_dev.
+    """
+    return is_rate_limit_error(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# 0b. Shared batch utility
+# ---------------------------------------------------------------------------
+
+from typing import TypeVar
+
+_ItemT = TypeVar("_ItemT")
+
+
+def create_batches(items: list[_ItemT], batch_size: int) -> list[list[_ItemT]]:
+    """Split items into non-overlapping sequential windows of batch_size.
+
+    Generic: works for list[str], list[Ticket], or any other item type.
+    Used by golem.parallel and golem.orchestrator for batch processing.
+    """
+    return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 
 
 # ---------------------------------------------------------------------------

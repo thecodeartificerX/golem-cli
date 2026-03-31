@@ -75,7 +75,6 @@ class GolemConfig:
     max_concurrency: int = 3            # max simultaneous subagent sessions
     stagger_delay_s: float = 1.0        # seconds between launches in a batch
     rate_limit_base_delay_s: float = 30.0   # base for exponential backoff (seconds)
-    subagent_max_steps: int = 100       # step budget per subagent (passed as max_turns)
 
     # Insight extraction settings
     insight_extraction_enabled: bool = True
@@ -293,8 +292,6 @@ class GolemConfig:
             warnings.append(f"stagger_delay_s must be >= 0, got {self.stagger_delay_s}")
         if self.rate_limit_base_delay_s < 1:
             warnings.append(f"rate_limit_base_delay_s must be >= 1, got {self.rate_limit_base_delay_s}")
-        if self.subagent_max_steps < 1:
-            warnings.append(f"subagent_max_steps must be >= 1, got {self.subagent_max_steps}")
 
         return warnings
 

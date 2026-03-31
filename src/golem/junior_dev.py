@@ -207,7 +207,7 @@ async def spawn_junior_dev(
         setting_sources=sources,
         max_turns=config.max_worker_turns,
         permission_mode="bypassPermissions",
-        env=sdk_env(),
+        env=sdk_env(session_id=config.session_id, golem_dir=str(_golem_dir)),
         max_budget_usd=config.worker_budget_usd,
         fallback_model=config.fallback_model,
         hooks=_build_agent_hooks(),
