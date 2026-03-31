@@ -612,8 +612,8 @@ Tasks are organized by theme. Each task should be:
 **What:** Add a step before implementation: "Verify all files listed in your ticket context actually exist in the worktree. If not, create them."
 **Done when:** Prompt updated, tests pass.
 
-#### [ ] 226. QA — Parallel check execution
-**Size:** Medium | **Files:** `src/golem/qa.py`
+#### [x] 226. QA — Parallel check execution (DONE: c00cbe9)
+**Size:** Medium | **Files:** `src/golem/qa.py`, `tests/test_qa.py`
 **What:** Currently checks run sequentially. Use `asyncio.gather` or `subprocess` parallelism for independent checks.
 **Done when:** `uv run pytest` passes.
 
