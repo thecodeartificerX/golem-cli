@@ -27,6 +27,8 @@ class GolemConfig:
     # Always-on deterministic checks (lint, syntax). Populated at runtime by auto-detection,
     # not persisted to config.json. Agents cannot skip these.
     infrastructure_checks: list[str] = field(default_factory=list)
+    # Playwright UI testing — opt-in, default off. When True, Playwright config detection is skipped.
+    skip_playwright: bool = True
 
     def validate(self) -> list[str]:
         """Validate config values. Returns list of warning messages (empty = all good)."""
