@@ -540,3 +540,55 @@ async def test_junior_dev_mcp_server_accepts_event_bus(tmp_path: Path) -> None:
     server = create_junior_dev_mcp_server(golem_dir, event_bus=bus)
     assert server is not None
     assert server["name"] == "golem-junior-dev"
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_call_create_ticket_with_dependencies() -> None:
+    """create_ticket correctly persists depends_on, edict_id, and pipeline_stage fields."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        config = GolemConfig()
+
+        # Create first ticket (no deps)
+        result1_str = await handle_tool_call(
+            "create_ticket",
+            {
+                "type": "task",
+                "title": "Task 1",
+                "assigned_to": "writer",
+                "edict_id": "EDICT-001",
+                "pipeline_stage": "planner",
+            },
+            golem_dir,
+            config,
+            Path(tmpdir),
+        )
+        ticket1_id = json.loads(result1_str)["ticket_id"]
+
+        # Create second ticket depending on first
+        result2_str = await handle_tool_call(
+            "create_ticket",
+            {
+                "type": "task",
+                "title": "Task 2",
+                "assigned_to": "writer",
+                "depends_on": [ticket1_id],
+                "edict_id": "EDICT-001",
+                "pipeline_stage": "tech_lead",
+            },
+            golem_dir,
+            config,
+            Path(tmpdir),
+        )
+        ticket2_id = json.loads(result2_str)["ticket_id"]
+
+        # Read back and verify
+        read_str = await handle_tool_call(
+            "read_ticket",
+            {"ticket_id": ticket2_id},
+            golem_dir, config, Path(tmpdir),
+        )
+        data = json.loads(read_str)
+        assert data["depends_on"] == [ticket1_id]
+        assert data["edict_id"] == "EDICT-001"
+        assert data["pipeline_stage"] == "tech_lead"

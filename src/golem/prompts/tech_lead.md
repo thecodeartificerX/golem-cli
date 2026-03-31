@@ -167,30 +167,31 @@ using `mcp__golem__create_worktree`:
 
 === PHASE 2 COMPLETE when mcp__golem__create_worktree has been called for each group ===
 
-### Phase 3: Create Junior Dev Tickets  [ARTIFACT: tickets in ticket store]
+### Phase 3: Enrich Tickets & Create Worktrees  [ARTIFACT: enriched tickets ready for dispatch]
 
-**MANDATORY:** Creating a ticket means calling `mcp__golem__create_ticket`. Describing
-what the ticket would contain does NOT count. Junior Devs cannot start work until their
-tickets exist in the ticket store.
+Skeleton tickets already exist from the planner (type "task", pipeline_stage "tech_lead").
+Your job is to ENRICH them with file contents so Junior Devs can start coding immediately.
 
-For each task, create a ticket using `mcp__golem__create_ticket`:
-- `type`: "task"
-- `title`: task title from plans
-- `assigned_to`: "writer"
-- `context.plan_file`: path to the task's plan file
-- `context.files`: dict of filename→contents for files Junior Dev will edit
-- `context.patterns_from`: list of existing files to use as style references
-  (from the task plan's `patterns_from` field). Pre-load their contents into
-  the ticket the same way as `context.files`.
-- `context.references`: list of reference file paths
-- `context.blueprint`: the blueprint excerpt relevant to this task
-- `context.acceptance`: acceptance criteria for this task
-- `context.qa_checks`: QA check commands for this task
-- `context.parallelism_hints`: sub-task hints if the task can be parallelized
+For each task ticket (call `mcp__golem__list_tickets` to see them):
+
+1. Read the ticket via `mcp__golem__read_ticket`
+2. Read the plan file from `ticket.context.plan_file`
+3. Read all files that the Junior Dev will need to edit
+4. Pre-load file contents into `context.files` via `mcp__golem__update_ticket`:
+   - `context.files`: dict of filename to contents for files Junior Dev will edit
+   - Include style reference files from the task plan's `patterns_from` field
+5. Update ticket: status="in_progress", pipeline_stage="junior_dev"
+6. Create the worktree for the task's parallel group if not already created
+
+**You MAY:**
+- Split a ticket into sub-tickets if the task is too large
+- Merge tickets if they're trivially small
+- Create NEW tickets for work the planner missed
+- Mark a ticket as "failed" with a note if the plan is wrong
 
 Pre-loading file contents into the ticket spares Junior Devs redundant reads.
 
-=== PHASE 3 COMPLETE when every task has a ticket with status "pending" ===
+=== PHASE 3 COMPLETE when every task ticket has enriched context and status "in_progress" ===
 
 ### Phase 4: Dispatch Junior Devs  [ARTIFACT: Junior Dev sessions running]
 

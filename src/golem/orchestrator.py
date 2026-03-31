@@ -24,7 +24,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from golem.config import GolemConfig
 from golem.parallel import _create_batches
@@ -290,6 +290,7 @@ class WaveExecutor:
         project_root: Path,
         config: GolemConfig,
         event_bus: EventBus | None = None,
+        on_ticket_complete: "Callable[[str, str, int, int], None] | None" = None,
     ) -> None:
         self._golem_dir = golem_dir
         self._project_root = project_root
@@ -298,6 +299,9 @@ class WaveExecutor:
         self._store = TicketStore(golem_dir / "tickets")
         self._progress = ProgressLogger(golem_dir)
         self._abort = asyncio.Event()
+        self._on_ticket_complete = on_ticket_complete  # callback(ticket_id, outcome, completed, total)
+        self._total_tickets = 0
+        self._completed_tickets = 0
 
     async def run(
         self,
@@ -326,6 +330,10 @@ class WaveExecutor:
                 tickets_passed=0, tickets_failed=0, tickets_skipped=0,
                 total_cost_usd=0.0, total_duration_s=0.0,
             )
+
+        # Set progress tracking counters
+        self._total_tickets = len(pending)
+        self._completed_tickets = 0
 
         # 2. Build DAG and assign waves
         try:
@@ -371,6 +379,7 @@ class WaveExecutor:
                     tid, status="skipped",
                     note="Skipped: dependency failed", agent="orchestrator",
                 )
+                await self._notify_ticket_complete(tid, "skipped", 0.0)
 
             if not runnable:
                 if self._event_bus:
@@ -467,6 +476,31 @@ class WaveExecutor:
         if self._event_bus:
             from golem.events import OrchestratorAborted
             await self._event_bus.emit(OrchestratorAborted(reason=reason))
+
+    async def _notify_ticket_complete(
+        self,
+        ticket_id: str,
+        outcome: str,
+        duration_s: float = 0.0,
+    ) -> None:
+        """Notify that a ticket completed (for progress tracking)."""
+        self._completed_tickets += 1
+
+        if self._event_bus:
+            from golem.events import TicketCompleted
+            await self._event_bus.emit(TicketCompleted(
+                ticket_id=ticket_id,
+                outcome=outcome,
+                completed_count=self._completed_tickets,
+                total_count=self._total_tickets,
+                duration_s=duration_s,
+            ))
+
+        if self._on_ticket_complete:
+            self._on_ticket_complete(
+                ticket_id, outcome,
+                self._completed_tickets, self._total_tickets,
+            )
 
     # -- Wave execution --
 
@@ -638,6 +672,13 @@ class WaveExecutor:
                     results.append(outcome)
                     if outcome.outcome == TicketOutcome.RATE_LIMITED:
                         rate_limited_count += 1
+                    else:
+                        # Notify progress for non-rate-limited completions
+                        await self._notify_ticket_complete(
+                            outcome.ticket_id,
+                            outcome.outcome.value,
+                            outcome.duration_s,
+                        )
                 else:
                     # asyncio.gather with return_exceptions=True — unexpected exception object
                     err_msg = str(outcome)

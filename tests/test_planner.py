@@ -338,8 +338,9 @@ async def test_planner_fallback_ticket_logs_warning() -> None:
 def test_planner_result_dataclass() -> None:
     """PlannerResult has expected fields with correct defaults."""
     from golem.planner import PlannerResult
-    r = PlannerResult(ticket_id="TICKET-001")
-    assert r.ticket_id == "TICKET-001"
+    r = PlannerResult(ticket_ids=["TICKET-001", "TICKET-002"])
+    assert r.ticket_ids == ["TICKET-001", "TICKET-002"]
+    assert r.ticket_id == "TICKET-002"  # backward-compat: returns last ID
     assert r.cost_usd == 0.0
     assert r.input_tokens == 0
     assert r.output_tokens == 0

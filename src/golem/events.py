@@ -314,6 +314,15 @@ class TicketQueued(GolemEvent):
 
 
 @dataclass
+class TicketCompleted(GolemEvent):
+    ticket_id: str = ""
+    outcome: str = ""  # "passed", "failed", "skipped"
+    completed_count: int = 0
+    total_count: int = 0
+    duration_s: float = 0.0
+
+
+@dataclass
 class MergeStarted(GolemEvent):
     wave_number: int = 0
     source_branches: list[str] = field(default_factory=list)
@@ -421,7 +430,7 @@ def _register_events() -> None:
         SubtaskStarted, SubtaskCompleted, SubtaskFailed, SubtaskBatchRateLimited,
         OrchestratorStarted, OrchestratorComplete, OrchestratorAborted,
         WaveStarted, WaveCompleted, WaveFailed, WaveSkipped,
-        TicketQueued, MergeStarted, MergeCompleted, MergeConflictPredicted, RateLimitBackoff,
+        TicketQueued, TicketCompleted, MergeStarted, MergeCompleted, MergeConflictPredicted, RateLimitBackoff,
         EdictCreated, EdictUpdated, EdictNeedsAttention,
     ]:
         name = klass.__name__

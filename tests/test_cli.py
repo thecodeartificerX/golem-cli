@@ -1459,7 +1459,7 @@ def test_self_critique_called_for_critical(tmp_path: Path, monkeypatch: pytest.M
                 context=TicketContext(plan_file=str(golem_dir / "plans" / "overview.md")),
             )
         )
-        return PlannerResult(ticket_id="TICKET-001")
+        return PlannerResult(ticket_ids=["TICKET-001"])
 
     # Force CRITICAL classification so self_critique_enabled is set True
     monkeypatch.setattr(

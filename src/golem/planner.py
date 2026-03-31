@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -26,13 +26,18 @@ if TYPE_CHECKING:
 
 @dataclass
 class PlannerResult:
-    ticket_id: str
+    ticket_ids: list[str] = field(default_factory=list)
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
     num_turns: int = 0
     duration_ms: int = 0
+
+    @property
+    def ticket_id(self) -> str:
+        """Backward-compat property: returns the last ticket ID (summary/integration ticket)."""
+        return self.ticket_ids[-1] if self.ticket_ids else ""
 
 _PLANNER_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "planner.md"
 
@@ -200,6 +205,7 @@ async def run_planner(
 
     # Extract edict_id from golem_dir path convention: .golem/edicts/EDICT-001 → "EDICT-001"
     edict_id = golem_dir.name if golem_dir.parent.name == "edicts" else ""
+    original_prompt = original_prompt.replace("{edict_id}", edict_id)
 
     progress = ProgressLogger(golem_dir)
     session_result: ContinuationResult | None = None
@@ -354,7 +360,7 @@ async def run_planner(
             duration_s=int(session_result.duration_s),
         )
         return PlannerResult(
-            ticket_id=ticket_id,
+            ticket_ids=[ticket_id],
             cost_usd=session_result.cost_usd,
             input_tokens=session_result.input_tokens,
             output_tokens=session_result.output_tokens,
@@ -363,8 +369,8 @@ async def run_planner(
             duration_ms=int(session_result.duration_s * 1000),
         )
 
-    # Return the last ticket created (by ID sort -- TICKET-001, TICKET-002, etc.)
-    last_ticket = sorted(all_tickets, key=lambda t: t.id)[-1]
+    # Return all tickets created (sorted by ID -- TICKET-001, TICKET-002, etc.)
+    sorted_tickets = sorted(all_tickets, key=lambda t: t.id)
     _cache_read = getattr(session_result, "cache_read_tokens", 0)
     progress.log_agent_cost(
         role="lead_architect",
@@ -376,7 +382,7 @@ async def run_planner(
         duration_s=int(session_result.duration_s),
     )
     return PlannerResult(
-        ticket_id=last_ticket.id,
+        ticket_ids=[t.id for t in sorted_tickets],
         cost_usd=session_result.cost_usd,
         input_tokens=session_result.input_tokens,
         output_tokens=session_result.output_tokens,

@@ -94,6 +94,7 @@ async def _handle_create_ticket(
     acc_raw = args.get("acceptance") or []
     qa_raw = args.get("qa_checks") or []
     hints_raw = args.get("parallelism_hints") or []
+    depends_on_raw = args.get("depends_on") or []
     context = TicketContext(
         plan_file=str(args.get("plan_file") or ""),
         files={str(k): str(v) for k, v in (args.get("files") or {}).items()},  # type: ignore[union-attr]
@@ -112,6 +113,9 @@ async def _handle_create_ticket(
         created_by=str(args.get("created_by") or "planner"),
         assigned_to=str(args["assigned_to"]),
         context=context,
+        depends_on=[str(d) for d in depends_on_raw],  # type: ignore[union-attr]
+        edict_id=str(args.get("edict_id") or ""),
+        pipeline_stage=str(args.get("pipeline_stage") or "planner"),
     )
     ticket_id = await store.create(ticket)
     if event_bus:
@@ -543,6 +547,17 @@ def build_tool_registry(
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Hints for parallel sub-tasks",
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Ticket IDs this ticket depends on (for dependency ordering)",
+                    },
+                    "edict_id": {"type": "string", "description": "Parent edict ID (e.g., EDICT-001)"},
+                    "pipeline_stage": {
+                        "type": "string",
+                        "description": "Board column: planner|tech_lead|junior_dev|qa|done|failed",
+                        "default": "planner",
                     },
                 },
                 "required": ["type", "title", "assigned_to"],

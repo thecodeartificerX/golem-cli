@@ -175,25 +175,43 @@ references, or important context that Junior Devs will need.
 === STEP 6 COMPLETE when at least one reference file exists (or step is explicitly skipped
 for minimal specs) ===
 
-### Step 7: Create Tech Lead Ticket  [ARTIFACT: ticket in ticket store]
+### Step 7: Create Skeleton Tickets  [ARTIFACT: tickets in ticket store]
 
-Call `mcp__golem__create_ticket` to hand off to the Tech Lead:
+Create ONE ticket per task plan file using `mcp__golem__create_ticket`.
+Create tickets in dependency order so you can reference earlier ticket IDs in `depends_on`.
+
+For each `task-NNN.md` you wrote:
 - `type`: "task"
-- `title`: "Tech Lead: Execute {golem_dir}/plans/overview.md"
-- `assigned_to`: "tech_lead"
-- `plan_file`: "{golem_dir}/plans/overview.md"
-- `references`: list of all task plan file paths
-- `blueprint`: the blueprint from overview.md (first 500 chars)
-- `acceptance`: ["All tasks completed", "All QA checks pass", "PR created"]
+- `title`: the task title from the plan file
+- `assigned_to`: "tech_lead" (Tech Lead will enrich and dispatch to writers)
+- `plan_file`: path to the task-NNN.md file
+- `references`: [paths to relevant reference files]
+- `blueprint`: relevant excerpt from overview.md for this task
+- `acceptance`: acceptance criteria from the task plan
+- `qa_checks`: QA validation commands from the task plan
+- `depends_on`: [ticket IDs this task depends on] (use IDs from previously created tickets)
+- `pipeline_stage`: "planner"
+- `edict_id`: "{edict_id}"
 
-This ticket is the handoff. Without it, the pipeline has no ticket to act on.
+After creating all task tickets, create ONE summary ticket:
+- `type`: "review"
+- `title`: "Integration: merge all branches, run QA, create PR"
+- `assigned_to`: "tech_lead"
+- `depends_on`: [all task ticket IDs]
+- `pipeline_stage`: "planner"
+- `edict_id`: "{edict_id}"
+
+This summary ticket is what the pipeline uses to track overall completion.
+The Tech Lead will read each skeleton ticket, enrich it with file contents,
+create worktrees, and dispatch writers.
+
 If `mcp__golem__create_ticket` returns an error, retry once. If it still
 fails, log the error to stderr and continue — the pipeline has a fallback.
 
-**You MUST call `mcp__golem__create_ticket` now.** Describing the ticket does NOT count.
-The pipeline has no ticket to act on until this tool call completes successfully.
+**You MUST call `mcp__golem__create_ticket` for each task now.** Describing tickets does NOT count.
+The pipeline has no tickets to act on until these tool calls complete successfully.
 
-=== STEP 7 COMPLETE when `mcp__golem__create_ticket` returns a ticket ID ===
+=== STEP 7 COMPLETE when `mcp__golem__create_ticket` returns a ticket ID for every task + the summary ===
 
 ---
 
