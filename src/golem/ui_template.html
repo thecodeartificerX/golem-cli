@@ -30,6 +30,27 @@
       --scanline-opacity: 0.025;
     }
 
+    /* Light theme */
+    :root.light-theme {
+      --bg:            #f5f5f7;
+      --panel:         #ffffff;
+      --panel-hover:   #f0f0f2;
+      --border:        #e0e0e5;
+      --border-bright: #d0d0d8;
+      --muted:         #999;
+      --muted-light:   #777;
+      --label:         #7c3aed;
+      --body-text:     #374151;
+      --dim-text:      #9ca3af;
+      --success:       #16a34a;
+      --warning:       #ca8a04;
+      --error:         #dc2626;
+      --info:          #2563eb;
+      --accent-start:  #7c3aed;
+      --accent-end:    #a855f7;
+      --scanline-opacity: 0;
+    }
+
     /* -----------------------------------------------------------------------
        Reset & Base
     ----------------------------------------------------------------------- */
@@ -1620,6 +1641,190 @@
 
     /* Utility */
     .hidden { display: none !important; }
+
+    /* -----------------------------------------------------------------------
+       Toast Notifications
+    ----------------------------------------------------------------------- */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--body-text);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      pointer-events: auto;
+      animation: toastSlideIn 0.25s ease-out;
+      max-width: 360px;
+    }
+
+    .toast.toast-error {
+      border-color: rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .toast.toast-error .toast-icon {
+      color: var(--error);
+    }
+
+    .toast.toast-warning {
+      border-color: rgba(234, 179, 8, 0.4);
+      background: rgba(234, 179, 8, 0.1);
+    }
+
+    .toast.toast-warning .toast-icon {
+      color: var(--warning);
+    }
+
+    .toast.toast-success {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.1);
+    }
+
+    .toast.toast-success .toast-icon {
+      color: var(--success);
+    }
+
+    .toast.toast-info {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: rgba(59, 130, 246, 0.1);
+    }
+
+    .toast.toast-info .toast-icon {
+      color: var(--info);
+    }
+
+    .toast-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .toast-message {
+      flex: 1;
+      line-height: 1.4;
+    }
+
+    .toast-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0;
+      margin-left: 8px;
+      opacity: 0.6;
+      transition: opacity 0.15s;
+    }
+
+    .toast-close:hover {
+      opacity: 1;
+    }
+
+    .toast.toast-exit {
+      animation: toastSlideOut 0.2s ease-in forwards;
+    }
+
+    @keyframes toastSlideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes toastSlideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+
+    /* -----------------------------------------------------------------------
+       Keyboard shortcuts help overlay
+    ----------------------------------------------------------------------- */
+    #shortcuts-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #shortcuts-overlay.visible {
+      display: flex;
+    }
+
+    #shortcuts-panel {
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      padding: 24px;
+      min-width: 320px;
+      max-width: 400px;
+    }
+
+    #shortcuts-panel h3 {
+      color: var(--label);
+      font-size: 14px;
+      margin-bottom: 16px;
+      letter-spacing: 0.05em;
+    }
+
+    .shortcut-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .shortcut-row:last-child {
+      border-bottom: none;
+    }
+
+    .shortcut-key {
+      display: inline-block;
+      background: var(--bg);
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: var(--label);
+      font-weight: 600;
+      min-width: 28px;
+      text-align: center;
+    }
+
+    .shortcut-desc {
+      color: var(--body-text);
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -1890,6 +2095,44 @@
     <div class="modal-actions">
       <button id="modal-cancel-btn">Cancel</button>
       <button id="modal-launch-btn">LAUNCH</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================
+     Toast notification container
+===================================================================== -->
+<div id="toast-container"></div>
+
+<!-- ====================================================================
+     Keyboard shortcuts overlay
+===================================================================== -->
+<div id="shortcuts-overlay">
+  <div id="shortcuts-panel">
+    <h3>KEYBOARD SHORTCUTS</h3>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">Start/Resume session</span>
+      <span class="shortcut-key">R</span>
+    </div>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">Pause session</span>
+      <span class="shortcut-key">P</span>
+    </div>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">Kill session</span>
+      <span class="shortcut-key">K</span>
+    </div>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">New session</span>
+      <span class="shortcut-key">N</span>
+    </div>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">Show shortcuts</span>
+      <span class="shortcut-key">?</span>
+    </div>
+    <div class="shortcut-row">
+      <span class="shortcut-desc">Close panel/modal</span>
+      <span class="shortcut-key">Esc</span>
     </div>
   </div>
 </div>
@@ -3382,6 +3625,184 @@
         modalError.style.display = 'block';
       });
   });
+
+  // -----------------------------------------------------------------------
+  // Toast Notifications
+  // -----------------------------------------------------------------------
+
+  var toastContainer = document.getElementById('toast-container');
+  var toastCounter = 0;
+
+  /**
+   * Show a toast notification.
+   * @param {string} message - The message to display
+   * @param {string} type - 'error'|'warning'|'success'|'info' (default: 'info')
+   * @param {number} duration - Auto-dismiss after ms (default: 5000, 0 = no auto-dismiss)
+   */
+  function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration !== undefined ? duration : 5000;
+
+    var id = 'toast-' + (++toastCounter);
+    var icons = {
+      error: '\u2716',    // X
+      warning: '\u26A0',  // Warning triangle
+      success: '\u2714',  // Checkmark
+      info: '\u2139'      // Info circle
+    };
+
+    var toast = document.createElement('div');
+    toast.id = id;
+    toast.className = 'toast toast-' + type;
+    toast.innerHTML =
+      '<span class="toast-icon">' + (icons[type] || icons.info) + '</span>' +
+      '<span class="toast-message">' + escapeHtml(message) + '</span>' +
+      '<button class="toast-close">\u00D7</button>';
+
+    toastContainer.appendChild(toast);
+
+    // Close button handler
+    toast.querySelector('.toast-close').addEventListener('click', function () {
+      dismissToast(id);
+    });
+
+    // Auto-dismiss
+    if (duration > 0) {
+      setTimeout(function () { dismissToast(id); }, duration);
+    }
+
+    return id;
+  }
+
+  function dismissToast(id) {
+    var toast = document.getElementById(id);
+    if (!toast) return;
+    toast.classList.add('toast-exit');
+    setTimeout(function () {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 200);
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // -----------------------------------------------------------------------
+  // Keyboard Shortcuts
+  // -----------------------------------------------------------------------
+
+  var shortcutsOverlay = document.getElementById('shortcuts-overlay');
+
+  document.addEventListener('keydown', function (e) {
+    // Ignore if typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    var key = e.key.toLowerCase();
+
+    // Escape: close any open panel/modal
+    if (key === 'escape') {
+      if (shortcutsOverlay.classList.contains('visible')) {
+        shortcutsOverlay.classList.remove('visible');
+        return;
+      }
+      if (modalOverlay.classList.contains('visible')) {
+        modalOverlay.classList.remove('visible');
+        return;
+      }
+      // Could close other panels here
+      return;
+    }
+
+    // ?: show shortcuts help
+    if (e.key === '?' || (e.shiftKey && key === '/')) {
+      e.preventDefault();
+      shortcutsOverlay.classList.toggle('visible');
+      return;
+    }
+
+    // Don't trigger shortcuts if a modal is open
+    if (modalOverlay.classList.contains('visible')) return;
+    if (shortcutsOverlay.classList.contains('visible')) return;
+
+    // R: run/resume session
+    if (key === 'r' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      if (selectedSessionId) {
+        btnStart.click();
+        showToast('Starting session...', 'info', 2000);
+      } else {
+        showToast('No session selected', 'warning', 2000);
+      }
+      return;
+    }
+
+    // P: pause session
+    if (key === 'p' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      if (selectedSessionId) {
+        btnPause.click();
+        showToast('Pausing session...', 'info', 2000);
+      } else {
+        showToast('No session selected', 'warning', 2000);
+      }
+      return;
+    }
+
+    // K: kill session
+    if (key === 'k' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      if (selectedSessionId) {
+        btnKill.click();
+        showToast('Killing session...', 'warning', 2000);
+      } else {
+        showToast('No session selected', 'warning', 2000);
+      }
+      return;
+    }
+
+    // N: new session
+    if (key === 'n' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      newSessionBtn.click();
+      return;
+    }
+  });
+
+  // Click outside shortcuts overlay to close
+  shortcutsOverlay.addEventListener('click', function (e) {
+    if (e.target === shortcutsOverlay) {
+      shortcutsOverlay.classList.remove('visible');
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // SSE Error Handling - Show toasts for errors
+  // -----------------------------------------------------------------------
+
+  // Patch connectSessionSSE to show toasts on errors
+  var originalConnectSessionSSE = connectSessionSSE;
+  connectSessionSSE = function (sessionId) {
+    originalConnectSessionSSE(sessionId);
+
+    // Add error handler to show toast
+    if (sessionEventSource) {
+      sessionEventSource.addEventListener('error', function (e) {
+        showToast('Connection to session lost. Reconnecting...', 'warning', 3000);
+      });
+
+      // Listen for session errors
+      sessionEventSource.addEventListener('session_error', function (e) {
+        try {
+          var data = JSON.parse(e.data);
+          showToast(data.message || 'Session error occurred', 'error', 5000);
+        } catch (err) {
+          showToast('Session error occurred', 'error', 5000);
+        }
+      });
+    }
+  };
 
   // -----------------------------------------------------------------------
   // Startup: begin polling
