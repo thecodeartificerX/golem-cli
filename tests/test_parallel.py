@@ -423,6 +423,102 @@ async def test_backoff_exponent_cap_below_threshold(monkeypatch: pytest.MonkeyPa
 
 
 # ---------------------------------------------------------------------------
+# 10.4b Precise backoff from rate_limit_resets_at
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_backoff_uses_resets_at_timestamp_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When a task result has rate_limit_resets_at set, the executor uses that
+    timestamp for backoff instead of the geometric formula."""
+    from dataclasses import dataclass
+
+    slept: list[float] = []
+
+    async def fake_sleep(s: float, _: asyncio.Event) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("golem.parallel._interruptible_sleep", fake_sleep)
+
+    # Freeze time.time() so the precise delay is deterministic.
+    frozen_now = 1_000_000.0
+    monkeypatch.setattr("golem.parallel.time.time", lambda: frozen_now)
+
+    @dataclass
+    class FakeResult:
+        rate_limit_resets_at: float | None
+
+    # Runner returns a result with resets_at set 120s from "now".
+    async def runner(sid: str) -> FakeResult:
+        if sid == "a":
+            # Return a successful result that carries the timestamp.
+            return FakeResult(rate_limit_resets_at=frozen_now + 120.0)
+        return FakeResult(rate_limit_resets_at=None)
+
+    # Mark task "a" as rate-limited by raising RateLimitError so rl_count > 0,
+    # but we also need a result that carries the timestamp.
+    # Since RateLimitError is an exception path (no result), test via a runner that
+    # returns a successful result with rate_limit_resets_at while a *sibling* task
+    # raises RateLimitError to trigger rl_count > 0.
+
+    slept.clear()
+
+    call_order: list[str] = []
+
+    async def mixed_runner(sid: str) -> FakeResult:
+        call_order.append(sid)
+        if sid == "rl":
+            raise RateLimitError("429")
+        # "carrier" task returns result with resets_at so executor can read it
+        return FakeResult(rate_limit_resets_at=frozen_now + 120.0)
+
+    executor: ParallelExecutor[FakeResult] = ParallelExecutor(
+        max_concurrency=2,
+        stagger_delay_s=0,
+        rate_limit_base_delay_s=30.0,
+        rate_limit_max_delay_s=9999.0,
+    )
+    await executor.run_batch(["rl", "carrier"], mixed_runner)
+
+    # Precise delay = max(0, (frozen_now+120) - frozen_now) = 120.0
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(120.0)
+
+
+@pytest.mark.asyncio
+async def test_backoff_uses_geometric_when_resets_at_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When rate_limit_resets_at is None on all results, geometric backoff is used."""
+    from dataclasses import dataclass
+
+    slept: list[float] = []
+
+    async def fake_sleep(s: float, _: asyncio.Event) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("golem.parallel._interruptible_sleep", fake_sleep)
+
+    @dataclass
+    class FakeResult:
+        rate_limit_resets_at: float | None
+
+    # All tasks raise RateLimitError (no result carrying resets_at).
+    async def always_rate_limit(sid: str) -> FakeResult:
+        raise RateLimitError("429")
+
+    executor: ParallelExecutor[FakeResult] = ParallelExecutor(
+        max_concurrency=3,
+        stagger_delay_s=0,
+        rate_limit_base_delay_s=30.0,
+        rate_limit_max_delay_s=9999.0,
+    )
+    # 3 rate-limited tasks → exponent = min(3, 5) = 3 → 30 * 8 = 240s
+    await executor.run_batch(["a", "b", "c"], always_rate_limit)
+
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(240.0)
+
+
+# ---------------------------------------------------------------------------
 # 10.5 Cancellation
 # ---------------------------------------------------------------------------
 

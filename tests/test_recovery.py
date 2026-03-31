@@ -571,6 +571,70 @@ class TestRecoveryCoordinator:
         assert sleep_mock.call_count == 1
         assert sleep_mock.call_args_list[0].args[0] == pytest.approx(300.0)
 
+    async def test_rate_limit_stall_uses_resets_at_for_precise_sleep(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When a stalled result carries rate_limit_resets_at, run_with_recovery uses
+        that timestamp for sleep duration instead of the fixed rate_limit_cooldown_s."""
+        sleep_mock = AsyncMock(return_value=None)
+        monkeypatch.setattr("golem.recovery.asyncio.sleep", sleep_mock)
+
+        # Freeze time so the expected delay is deterministic.
+        frozen_now = 1_000_000.0
+        monkeypatch.setattr("golem.recovery.time.time", lambda: frozen_now)
+
+        # rate_limit_cooldown_s is intentionally different (300s) to confirm it is NOT used.
+        config = _default_config(rate_limit_cooldown_s=300, max_retries=3, retry_delay=1)
+        coord = RecoveryCoordinator(config)
+
+        call_count = 0
+        clean = _clean_result()
+
+        def _stall_with_resets_at(resets_at: float) -> SupervisedResult:
+            return SupervisedResult(
+                result_text="rate limit",
+                cost_usd=0.0,
+                input_tokens=0,
+                output_tokens=0,
+                turns=5,
+                duration_s=1.0,
+                stalled=True,
+                stall_turn=5,
+                registry=ToolCallRegistry(),
+                rate_limit_resets_at=resets_at,
+            )
+
+        async def stall_with_resets_then_ok() -> SupervisedResult:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Return a stalled result whose text triggers rate_limit classification
+                # and carries a precise resets_at timestamp 180s from now.
+                return SupervisedResult(
+                    result_text="rate limit exceeded for this session",
+                    cost_usd=0.0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    turns=5,
+                    duration_s=1.0,
+                    stalled=True,
+                    stall_turn=5,
+                    registry=ToolCallRegistry(),
+                    rate_limit_resets_at=frozen_now + 180.0,
+                )
+            return clean
+
+        result = await coord.run_with_recovery(
+            session_fn=stall_with_resets_then_ok,
+            role="planner",
+            label="planner",
+        )
+
+        assert result is clean
+        assert sleep_mock.call_count == 1
+        # Precise delay = max(1.0, (frozen_now+180) - frozen_now) = 180.0, NOT 300.0
+        assert sleep_mock.call_args_list[0].args[0] == pytest.approx(180.0)
+
     async def test_circular_fix_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         sleep_mock = AsyncMock(return_value=None)
         monkeypatch.setattr("golem.recovery.asyncio.sleep", sleep_mock)

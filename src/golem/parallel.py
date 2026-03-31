@@ -6,6 +6,7 @@ concurrently with:
   - Per-call failure isolation (asyncio.gather with return_exceptions=True)
   - Stagger delay before semaphore acquire (1s default, prevents burst 429s)
   - Exponential backoff after rate-limit detection (30s base, 300s cap, exponent capped at 5)
+  - Precise backoff from rate_limit_resets_at timestamp when available (supersedes geometric formula)
   - Work-stealing: all tasks launched at once, semaphore gates concurrency naturally
   - EventBus events: SubtaskStarted, SubtaskCompleted, SubtaskFailed, SubtaskBatchRateLimited
   - Cooperative cancellation via asyncio.Event
@@ -21,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic, TypeVar
@@ -195,14 +197,32 @@ class ParallelExecutor(Generic[T]):
             else:
                 all_results.append(outcome)
 
-        # Apply rate limit backoff once, after all tasks complete
+        # Apply rate limit backoff once, after all tasks complete.
+        # If any result carries a rate_limit_resets_at timestamp (from RateLimitEvent
+        # via SupervisedResult/ContinuationResult), use it for precise sleep duration.
+        # Fall back to geometric backoff when the timestamp is absent.
         rl_count = sum(1 for r in all_results if r.rate_limited)
         if rl_count > 0 and not self._cancel_event.is_set():
-            exponent = min(rl_count, _RATE_LIMIT_EXPONENT_CAP)
-            backoff_s = min(
-                self._rate_limit_base_s * (2 ** exponent),
-                self._rate_limit_max_s,
-            )
+            # Scan all results for a rate_limit_resets_at timestamp on the T value.
+            # Use the latest timestamp found (guards against multiple rate-limited tasks
+            # with different window resets).  getattr is safe for generic T.
+            precise_resets_at: float | None = None
+            for r in all_results:
+                if r.result is not None:
+                    candidate = getattr(r.result, "rate_limit_resets_at", None)
+                    if candidate is not None:
+                        ts = float(candidate)
+                        if precise_resets_at is None or ts > precise_resets_at:
+                            precise_resets_at = ts
+
+            if precise_resets_at is not None:
+                backoff_s = max(0.0, precise_resets_at - time.time())
+            else:
+                exponent = min(rl_count, _RATE_LIMIT_EXPONENT_CAP)
+                backoff_s = min(
+                    self._rate_limit_base_s * (2 ** exponent),
+                    self._rate_limit_max_s,
+                )
             await self._emit_rate_limited(backoff_s)
             await _interruptible_sleep(backoff_s, self._cancel_event)
 

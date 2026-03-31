@@ -471,7 +471,13 @@ class RecoveryCoordinator:
                     # or raise. This preserves existing stall-escalation logic in callers.
                     return result
 
-                delay = recovery_delay(failure_type, attempt, self._config)
+                # Use precise resets_at timestamp when available (set by RateLimitEvent
+                # in supervised_session). Falls back to fixed cooldown from config.
+                resets_at = getattr(result, "rate_limit_resets_at", None)
+                if resets_at is not None and failure_type == FailureType.rate_limit:
+                    delay = max(1.0, float(resets_at) - time.time())
+                else:
+                    delay = recovery_delay(failure_type, attempt, self._config)
                 await self._emit_recovery_started(
                     event_bus, role, label, failure_type, attempt, delay
                 )
