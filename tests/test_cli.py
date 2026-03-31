@@ -504,7 +504,7 @@ def test_create_golem_dirs_all_subdirs(tmp_path: Path) -> None:
     golem_dir = tmp_path / ".golem"
     _create_golem_dirs(golem_dir)
 
-    expected = {"tickets", "research", "plans", "references", "reports", "worktrees"}
+    expected = {"tickets", "research", "plans", "references", "reports", "worktrees", "handoffs"}
     actual = {d.name for d in golem_dir.iterdir() if d.is_dir()}
     assert actual == expected
 
