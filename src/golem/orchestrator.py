@@ -821,7 +821,11 @@ class WaveExecutor:
     async def _run_qa(self, ticket: Ticket, worktree_path: Path) -> bool:
         """Run QA checks for a ticket in its worktree.  Returns True if QA passed."""
         from golem.qa import run_qa
-        checks = list(ticket.context.qa_checks) + list(self._config.infrastructure_checks)
+        checks = (
+            list(ticket.context.qa_checks)
+            + list(self._config.extra_qa_checks)
+            + list(self._config.infrastructure_checks)
+        )
         if not checks:
             return True
         result = run_qa(str(worktree_path), checks)

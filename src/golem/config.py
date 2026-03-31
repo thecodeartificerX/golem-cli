@@ -82,6 +82,8 @@ class GolemConfig:
 
     # Per-run QA depth: "minimal" | "standard" | "strict"
     qa_depth: str = "standard"
+    # Extra QA checks always run in addition to spec-specified and infrastructure checks
+    extra_qa_checks: list[str] = field(default_factory=list)
     # Maximum rework cycles a Junior Dev can be sent back for (per ticket)
     max_writer_retries: int = 3
     # Skip Explorer+Researcher sub-agent spawning inside the planner

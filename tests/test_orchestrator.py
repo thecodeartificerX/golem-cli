@@ -891,6 +891,57 @@ def test_integration_branch_name_without_session(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_wave_executor_extra_qa_checks_included(tmp_path, make_ticket, monkeypatch):
+    """extra_qa_checks from config are included in QA check list."""
+    golem_dir = tmp_path / ".golem"
+    golem_dir.mkdir()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    # Config with extra_qa_checks
+    config = GolemConfig(
+        max_parallel_per_wave=1,
+        extra_qa_checks=["make lint", "cargo clippy"],
+        infrastructure_checks=["ruff check ."],
+    )
+
+    # Ticket with its own qa_checks
+    store = TicketStore(golem_dir / "tickets")
+    t1 = make_ticket(id="TICKET-001")
+    t1.context.qa_checks = ["pytest tests/"]
+    await store.create(t1)
+
+    from golem.writer import JuniorDevResult
+
+    async def mock_writer(ticket, worktree_path, config, golem_dir, event_bus=None, **kw):
+        return JuniorDevResult(result_text="done", cost_usd=0.01)
+
+    # Capture what checks are passed to run_qa
+    captured_checks: list[str] = []
+
+    def mock_run_qa(worktree_path, checks, **kw):
+        from golem.qa import QAResult
+        captured_checks.extend(checks)
+        return QAResult(passed=True, checks=[], summary="ok", cannot_validate=False, stage="complete")
+
+    monkeypatch.setattr("golem.orchestrator.spawn_junior_dev", mock_writer)
+    monkeypatch.setattr("golem.orchestrator.create_worktree", lambda *a, **kw: None)
+    monkeypatch.setattr("golem.orchestrator.delete_worktree", lambda *a, **kw: None)
+    monkeypatch.setattr("golem.orchestrator.commit_task", lambda *a, **kw: True)
+    monkeypatch.setattr("golem.orchestrator.merge_group_branches", lambda *a, **kw: (True, ""))
+    monkeypatch.setattr("golem.qa.run_qa", mock_run_qa)
+
+    executor = WaveExecutor(golem_dir=golem_dir, project_root=project_root, config=config)
+    result = await executor.run()
+
+    # Verify all checks are included: ticket checks + extra_qa_checks + infrastructure_checks
+    assert "pytest tests/" in captured_checks, "Ticket qa_checks should be included"
+    assert "make lint" in captured_checks, "extra_qa_checks should be included"
+    assert "cargo clippy" in captured_checks, "extra_qa_checks should be included"
+    assert "ruff check ." in captured_checks, "infrastructure_checks should be included"
+
+
 def test_progress_log_wave_start(tmp_path):
     from golem.progress import ProgressLogger
 

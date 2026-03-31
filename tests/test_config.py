@@ -608,3 +608,30 @@ def test_sdk_env_without_optional_args() -> None:
     env = sdk_env()
     assert "GOLEM_SESSION_ID" not in env
     assert "GOLEM_DIR" not in env
+
+
+# ---------------------------------------------------------------------------
+# Task 228: extra_qa_checks
+# ---------------------------------------------------------------------------
+
+
+def test_extra_qa_checks_default_empty() -> None:
+    """extra_qa_checks must default to an empty list."""
+    config = GolemConfig()
+    assert config.extra_qa_checks == []
+
+
+def test_extra_qa_checks_roundtrip(tmp_path: Path) -> None:
+    """extra_qa_checks survives a full save -> load round-trip."""
+    config = GolemConfig(extra_qa_checks=["make lint", "cargo clippy"])
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.extra_qa_checks == ["make lint", "cargo clippy"]
+
+
+def test_extra_qa_checks_empty_roundtrip(tmp_path: Path) -> None:
+    """Empty extra_qa_checks survives round-trip."""
+    config = GolemConfig(extra_qa_checks=[])
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.extra_qa_checks == []
