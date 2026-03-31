@@ -278,6 +278,45 @@ async def _handle_commit_worktree(args: dict[str, object]) -> dict[str, object]:
     return {"content": [{"type": "text", "text": json.dumps({"committed": committed})}]}
 
 
+async def _handle_create_blocker(store: TicketStore, args: dict[str, object]) -> dict[str, object]:
+    """Writer creates a blocker when stuck after max rework cycles.
+
+    Creates a blocker ticket assigned to tech_lead and sets the original ticket to 'blocked'.
+    """
+    original_ticket_id = str(args["original_ticket_id"])
+    reason = str(args["reason"])
+    context_text = str(args.get("context") or "")
+
+    # Read the original ticket to get its title
+    original_ticket = await store.read(original_ticket_id)
+
+    # Create blocker ticket assigned to tech_lead
+    blocker = Ticket(
+        id="",
+        type="blocker",
+        title=f"Blocked: {original_ticket.title}",
+        status="pending",
+        priority="high",
+        created_by="writer",
+        assigned_to="tech_lead",
+        context=TicketContext(
+            blueprint=f"Original ticket: {original_ticket_id}\nReason: {reason}\n\n{context_text}",
+            references=[original_ticket_id],
+        ),
+    )
+    blocker_id = await store.create(blocker)
+
+    # Set the original ticket to blocked
+    await store.update(
+        ticket_id=original_ticket_id,
+        status="blocked",
+        note=f"Blocked after max rework cycles. Blocker ticket: {blocker_id}. Reason: {reason}",
+        agent="writer",
+    )
+
+    return {"content": [{"type": "text", "text": json.dumps({"blocker_id": blocker_id, "status": "created"})}]}
+
+
 async def _handle_get_build_progress(
     store: TicketStore,
     session_id: str,
@@ -642,7 +681,7 @@ def build_tool_registry(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test"},
+                    "type": {"type": "string", "description": "Ticket type: task|review|merge|qa|ux-test|blocker|escalation"},
                     "title": {"type": "string", "description": "Short descriptive title"},
                     "assigned_to": {"type": "string", "description": "Agent role to assign this ticket to"},
                     "priority": {"type": "string", "description": "Priority: low|medium|high", "default": "medium"},
@@ -687,7 +726,7 @@ def build_tool_registry(
                     "ticket_id": {"type": "string", "description": "Ticket ID, e.g. TICKET-001"},
                     "status": {
                         "type": "string",
-                        "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done",
+                        "description": "New status: pending|in_progress|qa_passed|ready_for_review|needs_work|approved|done|blocked",
                     },
                     "note": {"type": "string", "description": "Note to append to history"},
                     "agent": {"type": "string", "description": "Agent performing the update", "default": "system"},
@@ -932,6 +971,37 @@ def build_tool_registry(
             ),
         )
 
+    def _make_create_blocker(_ctx: ToolContext) -> SdkMcpTool:
+        return SdkMcpTool(
+            name="create_blocker",
+            description=(
+                "Writer creates a blocker when stuck after max rework cycles. "
+                "Creates a blocker ticket for Tech Lead and marks the original ticket as blocked."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "original_ticket_id": {
+                        "type": "string",
+                        "description": "Ticket ID that is blocked, e.g. TICKET-001",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the writer is stuck — what failed after max rework cycles",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context: error messages, QA output, what was tried",
+                    },
+                },
+                "required": ["original_ticket_id", "reason"],
+            },
+            handler=_wrap_handler(
+                "create_blocker",
+                partial(_handle_create_blocker, store),
+            ),
+        )
+
     # --- register all tools ---
     tool_reg = ToolRegistry()
     for name, factory in [
@@ -943,6 +1013,7 @@ def build_tool_registry(
         ("create_worktree", _make_create_worktree),
         ("merge_branches", _make_merge_branches),
         ("commit_worktree", _make_commit_worktree),
+        ("create_blocker", _make_create_blocker),
         ("get_build_progress", _make_get_build_progress),
         ("record_discovery", _make_record_discovery),
         ("record_gotcha", _make_record_gotcha),

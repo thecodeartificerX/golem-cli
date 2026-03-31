@@ -53,6 +53,8 @@ WRITER_TOOLS: frozenset[str] = frozenset({
     "get_session_context",
     # Commit their worktree changes (scoped to their worktree)
     "commit_worktree",
+    # Escalation — writer creates a blocker when stuck after max rework cycles
+    "create_blocker",
     # Progress awareness — writers may check overall status
     "get_build_progress",
 })
@@ -69,6 +71,8 @@ TECH_LEAD_TOOLS: frozenset[str] = frozenset({
     "create_worktree",
     "merge_branches",
     "commit_worktree",
+    # Escalation — tech lead can also create blockers
+    "create_blocker",
     # Session memory
     "record_discovery",
     "record_gotcha",
