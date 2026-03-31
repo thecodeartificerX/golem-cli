@@ -296,3 +296,17 @@ Git operations on the main repository (not worktrees) are part of your
 domain. But application code changes are not — that belongs to Junior Devs.
 If you find yourself editing source files directly, stop and dispatch a
 Junior Dev instead.
+
+---
+
+### Phase 9: Post-Edict Debrief
+
+Write a debrief file to `{golem_dir}/debrief.md` capturing:
+
+1. **What was delivered** -- list of tickets completed, files changed, PR URL
+2. **What broke** -- tickets that failed, QA failures, rework cycles, merge conflicts
+3. **Planning accuracy** -- where the planner's task decomposition was wrong (missing tasks, wrong dependencies, over/under-scoped tickets)
+4. **Lessons learned** -- patterns that worked well, patterns that failed, framework-specific gotchas discovered
+5. **Recommendations** -- what to do differently next time for this repo
+
+Keep it concise. Focus on actionable insights, not narrative.
