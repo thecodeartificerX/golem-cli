@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +11,50 @@ import pytest
 from golem.config import GolemConfig
 from golem.tickets import Ticket, TicketContext, TicketEvent
 from golem.writer import JuniorDevResult, WriterResult, build_writer_prompt, spawn_junior_dev, spawn_writer_pair
+
+
+# ---------------------------------------------------------------------------
+# ClaudeSDKClient mock helper (mirrors test_supervisor.py)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_sdk_client(
+    fake_gen_fn: Callable[..., AsyncGenerator[Any, None]],
+    captured_cwd: list[str] | None = None,
+) -> type:
+    """Return a mock ClaudeSDKClient class whose receive_response() drives fake_gen_fn.
+
+    If captured_cwd is provided, options.cwd will be appended to it on construction
+    so tests can verify the cwd passed to the session.
+    """
+
+    class _MockClient:
+        def __init__(self, options: Any = None, **kwargs: Any) -> None:
+            self._prompt: str = ""
+            self._gen: AsyncGenerator[Any, None] | None = None
+            if captured_cwd is not None and options is not None:
+                captured_cwd.append(options.cwd)
+
+        async def __aenter__(self) -> "_MockClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            self._prompt = prompt
+            self._gen = fake_gen_fn(prompt)
+
+        async def receive_response(self) -> AsyncGenerator[Any, None]:  # type: ignore[override]
+            if self._gen is None:
+                self._gen = fake_gen_fn()
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            pass
+
+    return _MockClient
 
 
 def _make_ticket_with_context() -> Ticket:
@@ -121,13 +167,11 @@ async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
         config = GolemConfig()
         captured_cwd: list[str] = []
 
-        async def fake_query(prompt, options=None, **kwargs):
-            if options:
-                captured_cwd.append(options.cwd)
+        async def fake_gen(prompt: str = "") -> AsyncGenerator[Any, None]:
             return
             yield
 
-        with patch("golem.supervisor.query", side_effect=fake_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_gen, captured_cwd=captured_cwd)), \
              patch.dict(__import__("os").environ, {"GOLEM_TEST_MODE": "1"}):
             await spawn_junior_dev(ticket, tmpdir, config, golem_dir=golem_dir)
 
@@ -202,14 +246,14 @@ async def test_jitter_skip_in_test_mode() -> None:
     async def fake_sleep(n: float) -> None:
         slept_durations.append(n)
 
-    async def fake_query(*args, **kwargs):  # type: ignore[misc]
+    async def fake_gen(prompt: str = "") -> AsyncGenerator[Any, None]:
         return
         yield
 
     ticket = _make_ticket_with_context()
     config = GolemConfig(dispatch_jitter_max=10.0)
 
-    with patch("golem.supervisor.query", side_effect=fake_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_gen)), \
          patch("asyncio.sleep", side_effect=fake_sleep), \
          patch.dict(os.environ, {"GOLEM_TEST_MODE": "1"}):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -239,12 +283,12 @@ async def test_spawn_writer_pair_golem_dir_none_fallback() -> None:
             from unittest.mock import MagicMock
             return {"name": "golem-junior-dev", "type": "sdk", "instance": MagicMock()}
 
-        async def fake_query(prompt, options=None, **kwargs):
+        async def fake_gen(prompt: str = "") -> AsyncGenerator[Any, None]:
             return
             yield
 
         with patch("golem.writer.create_junior_dev_mcp_server", side_effect=fake_create_writer_mcp), \
-             patch("golem.supervisor.query", side_effect=fake_query):
+             patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_gen)):
             await spawn_junior_dev(ticket, tmpdir, config, golem_dir=None)
 
         assert len(captured_mcp_dir) == 1

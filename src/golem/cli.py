@@ -459,11 +459,18 @@ def run(
 
         if use_orchestrator:
             console.print("[bold cyan]Golem[/bold cyan] -- Orchestrator executing (wave-based)...")
+
+            def _on_ticket_complete(ticket_id: str, outcome: str, completed: int, total: int) -> None:
+                pct = int(100 * completed / total) if total > 0 else 0
+                style = "[green]" if outcome == "passed" else "[yellow]" if outcome == "skipped" else "[red]"
+                console.print(f"  {style}{ticket_id}[/] {outcome} [{completed}/{total} tickets, {pct}%]")
+
             executor = WaveExecutor(
                 golem_dir=golem_dir,
                 project_root=spec_project_root,
                 config=config,
                 event_bus=event_bus,
+                on_ticket_complete=_on_ticket_complete,
             )
             orch_result = await executor.run()
             elapsed = time.monotonic() - t0

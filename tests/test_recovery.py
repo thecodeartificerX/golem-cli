@@ -5,7 +5,9 @@ recovery delay schedule, and RecoveryCoordinator.run_with_recovery().
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import replace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -23,6 +25,48 @@ from golem.recovery import (
     recovery_delay,
 )
 from golem.supervisor import SupervisedResult, ToolCallRegistry
+
+
+# ---------------------------------------------------------------------------
+# ClaudeSDKClient mock helper (mirrors test_supervisor.py)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_sdk_client(
+    fake_gen_fn: Callable[..., AsyncGenerator[Any, None]],
+) -> type:
+    """Return a mock ClaudeSDKClient class whose receive_response() drives fake_gen_fn.
+
+    fake_gen_fn must be an async generator function. The prompt passed to
+    client.query() is forwarded as the first positional argument so tests that
+    inspect the prompt still work.
+    """
+
+    class _MockClient:
+        def __init__(self, options: Any = None, **kwargs: Any) -> None:
+            self._prompt: str = ""
+            self._gen: AsyncGenerator[Any, None] | None = None
+
+        async def __aenter__(self) -> "_MockClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            self._prompt = prompt
+            self._gen = fake_gen_fn(prompt)
+
+        async def receive_response(self) -> AsyncGenerator[Any, None]:  # type: ignore[override]
+            if self._gen is None:
+                self._gen = fake_gen_fn()
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            pass
+
+    return _MockClient
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +914,7 @@ class TestEventRegistry:
     def test_total_event_count_is_23(self) -> None:
         from golem.events import EVENT_TYPES
 
-        assert len(EVENT_TYPES) == 44
+        assert len(EVENT_TYPES) == 45  # TicketCompleted added
 
     def test_agent_error_classified_roundtrip(self) -> None:
         from golem.events import AgentErrorClassified, GolemEvent
@@ -958,7 +1002,7 @@ class TestContinuationCostFix:
             env={},
         )
 
-        with patch("golem.supervisor.query", side_effect=fake_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
              patch("golem.supervisor.compact_session_messages", return_value="summary"):
             result = await continuation_supervised_session(
                 "do work", options, "planner", config, stall_cfg,
@@ -1005,7 +1049,7 @@ class TestContinuationCostFix:
             env={},
         )
 
-        with patch("golem.supervisor.query", side_effect=fake_query):
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
             result = await continuation_supervised_session(
                 "do work", options, "planner", config, stall_cfg,
             )
@@ -1128,7 +1172,7 @@ class TestSupervisedSessionNewFields:
             env={},
         )
 
-        with patch("golem.supervisor.query", side_effect=fake_query):
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
             result = await supervised_session(
                 "do work", options, "planner", config, stall_cfg,
             )
@@ -1177,7 +1221,7 @@ class TestSupervisedSessionNewFields:
             env={},
         )
 
-        with patch("golem.supervisor.query", side_effect=fake_query):
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
             result = await supervised_session(
                 "do work", options, "planner", config, stall_cfg,
             )
@@ -1225,7 +1269,7 @@ class TestSupervisedSessionNewFields:
             env={},
         )
 
-        with patch("golem.supervisor.query", side_effect=fake_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
              patch("golem.supervisor.compact_session_messages", return_value="summary"):
             result = await continuation_supervised_session(
                 "do work", options, "planner", config, stall_cfg,
