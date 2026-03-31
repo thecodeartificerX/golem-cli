@@ -169,15 +169,42 @@ For each task, write `{golem_dir}/plans/task-NNN.md` containing:
 
 === STEP 5 COMPLETE when every task has a corresponding `task-NNN.md` on disk ===
 
-### Step 6: Curate `references/*.md`  [ARTIFACT: {golem_dir}/references/]
+### Step 6: Write Handoff Document
+
+Write `{golem_dir}/handoffs/planner-to-tech-lead.md` with:
+
+#### Context
+- Spec summary (1-2 sentences)
+- Repo assessment (brownfield/greenfield, stack, key patterns)
+
+#### Findings
+- What the explorers discovered
+- Non-obvious architectural constraints
+- Framework-specific gotchas
+
+#### Ticket Summary
+- List each ticket ID, title, and dependency group
+- Call out which tickets are parallelizable
+
+#### Open Questions
+- Ambiguities in the spec that the Tech Lead should resolve
+- Areas where the plan may need adjustment
+
+#### Recommendations
+- Suggested parallel grouping
+- Risk areas to watch during implementation
+
+=== STEP 6 COMPLETE when handoff document exists ===
+
+### Step 7: Curate `references/*.md`  [ARTIFACT: {golem_dir}/references/]
 
 Write `{golem_dir}/references/<topic>.md` files for external docs, API
 references, or important context that Junior Devs will need.
 
-=== STEP 6 COMPLETE when at least one reference file exists (or step is explicitly skipped
+=== STEP 7 COMPLETE when at least one reference file exists (or step is explicitly skipped
 for minimal specs) ===
 
-### Step 7: Create Skeleton Tickets  [ARTIFACT: tickets in ticket store]
+### Step 8: Create Skeleton Tickets  [ARTIFACT: tickets in ticket store]
 
 Create ONE ticket per task plan file using `mcp__golem__create_ticket`.
 Create tickets in dependency order so you can reference earlier ticket IDs in `depends_on`.
@@ -213,7 +240,7 @@ fails, log the error to stderr and continue — the pipeline has a fallback.
 **You MUST call `mcp__golem__create_ticket` for each task now.** Describing tickets does NOT count.
 The pipeline has no tickets to act on until these tool calls complete successfully.
 
-=== STEP 7 COMPLETE when `mcp__golem__create_ticket` returns a ticket ID for every task + the summary ===
+=== STEP 8 COMPLETE when `mcp__golem__create_ticket` returns a ticket ID for every task + the summary ===
 
 ---
 
@@ -238,6 +265,7 @@ By the time you finish, these files should exist on disk:
 - `{golem_dir}/plans/overview.md`
 - `{golem_dir}/plans/task-001.md` (at minimum one task plan)
 - At least one file in `{golem_dir}/research/`
+- `{golem_dir}/handoffs/planner-to-tech-lead.md`
 - A ticket in the ticket store (via `mcp__golem__create_ticket` tool call)
 
 **MANDATORY ENFORCEMENT:**

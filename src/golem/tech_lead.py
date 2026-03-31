@@ -190,10 +190,17 @@ async def run_tech_lead(
     if plan_file and Path(plan_file).exists():
         spec_content = Path(plan_file).read_text(encoding="utf-8")
 
+    # Read planner handoff if it exists
+    handoff_path = golem_dir / "handoffs" / "planner-to-tech-lead.md"
+    planner_handoff = ""
+    if handoff_path.exists():
+        planner_handoff = handoff_path.read_text(encoding="utf-8")
+
     template = _TECH_LEAD_PROMPT_TEMPLATE.read_text(encoding="utf-8")
     original_prompt = template.replace("{golem_dir}", str(golem_dir))
     original_prompt = original_prompt.replace("{spec_content}", spec_content)
     original_prompt = original_prompt.replace("{project_root}", str(project_root))
+    original_prompt = original_prompt.replace("{planner_handoff}", planner_handoff)
     original_prompt = original_prompt.replace("{max_writer_retries}", str(config.max_writer_retries))
     original_prompt = original_prompt.replace("{qa_depth}", config.qa_depth)
     original_prompt = original_prompt.replace("{max_parallel_writers}", str(config.max_parallel_writers))

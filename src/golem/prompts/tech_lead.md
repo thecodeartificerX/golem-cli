@@ -25,6 +25,11 @@ own runtime state mid-execution.
 
 **Project Root:** `{project_root}`
 
+**Planner Handoff:**
+```
+{planner_handoff}
+```
+
 ---
 
 ## Output Types
@@ -198,6 +203,8 @@ Pre-loading file contents into the ticket spares Junior Devs redundant reads.
 Dispatch Junior Devs in a SINGLE message for independent tasks (parallel).
 Use the self-contained task description format described above.
 Wait for all Junior Devs to complete before reviewing.
+
+**Per-ticket handoff notes:** After dispatching each writer, update the ticket notes with relevant handoff context from the planner handoff document — architectural constraints, gotchas, and dependencies that affect this specific ticket. This ensures reviewers and future agents have full context without re-reading the entire plan.
 
 === PHASE 4 COMPLETE when all dispatched Junior Devs have updated their tickets ===
 
