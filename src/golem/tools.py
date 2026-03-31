@@ -562,13 +562,8 @@ async def _handle_record_gotcha(
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 
-async def _handle_get_session_context(
-    memory_dir: Path,
-    args: dict[str, object],  # noqa: ARG001
-) -> dict[str, object]:
-    if not memory_dir.exists():
-        return {"content": [{"type": "text", "text": "No session context available yet."}]}
-
+def _read_session_context_sync(memory_dir: Path) -> str:
+    """Synchronous core of get_session_context — runs in a thread via asyncio.to_thread()."""
     parts: list[str] = []
 
     # Codebase map — cap at _MAX_DISCOVERIES entries
@@ -611,10 +606,23 @@ async def _handle_get_session_context(
         except OSError:
             pass
 
-    if not parts:
+    return "\n".join(parts)
+
+
+async def _handle_get_session_context(
+    memory_dir: Path,
+    args: dict[str, object],  # noqa: ARG001
+) -> dict[str, object]:
+    import asyncio
+
+    if not memory_dir.exists():
         return {"content": [{"type": "text", "text": "No session context available yet."}]}
 
-    text = "\n".join(parts)
+    # Offload all file I/O to a thread so the asyncio event loop stays responsive.
+    text = await asyncio.to_thread(_read_session_context_sync, memory_dir)
+    if not text:
+        return {"content": [{"type": "text", "text": "No session context available yet."}]}
+
     return {"content": [{"type": "text", "text": text}]}
 
 
@@ -845,87 +853,6 @@ def build_tool_registry(
 
 
 # ---------------------------------------------------------------------------
-# Legacy tool builder — kept for handle_tool_call() backward compat
-# ---------------------------------------------------------------------------
-
-
-def _build_tools(
-    golem_dir: Path,
-    config: GolemConfig,  # noqa: ARG001
-    project_root: Path,
-    registry: ToolCallRegistry | None = None,
-    event_bus: EventBus | None = None,
-) -> list[SdkMcpTool]:
-    """Build SdkMcpTool instances with handlers bound to golem_dir/config/project_root.
-
-    If registry is provided, each tool call records itself via registry.record().
-    If event_bus is provided, key tool calls emit structured GolemEvents.
-    """
-    store = TicketStore(golem_dir / "tickets")
-
-    def _wrap(name: str, handler: object) -> object:
-        if registry is None:
-            return handler
-
-        async def _instrumented(args: dict[str, object]) -> dict[str, object]:
-            registry.record(name, 0)
-            return await handler(args)  # type: ignore[misc]
-
-        return _instrumented
-
-    return [
-        SdkMcpTool(
-            name="create_ticket",
-            description="Create a new ticket in the ticket store.",
-            input_schema=_CREATE_TICKET_INPUT_SCHEMA,
-            handler=_wrap("create_ticket", partial(_handle_create_ticket, store, event_bus=event_bus)),
-        ),
-        SdkMcpTool(
-            name="update_ticket",
-            description="Update ticket status and append a history event.",
-            input_schema=_UPDATE_TICKET_INPUT_SCHEMA,
-            handler=_wrap("update_ticket", partial(_handle_update_ticket, store, event_bus=event_bus)),
-        ),
-        SdkMcpTool(
-            name="read_ticket",
-            description="Read a ticket by ID.",
-            input_schema=_READ_TICKET_INPUT_SCHEMA,
-            handler=_wrap("read_ticket", partial(_handle_read_ticket, store)),
-        ),
-        SdkMcpTool(
-            name="list_tickets",
-            description="List tickets, optionally filtered by status or assignee.",
-            input_schema=_LIST_TICKETS_INPUT_SCHEMA,
-            handler=_wrap("list_tickets", partial(_handle_list_tickets, store)),
-        ),
-        SdkMcpTool(
-            name="run_qa",
-            description="Run deterministic QA checks in a worktree. Returns structured QAResult.",
-            input_schema=_RUN_QA_INPUT_SCHEMA,
-            handler=_wrap("run_qa", partial(_handle_run_qa, event_bus=event_bus)),
-        ),
-        SdkMcpTool(
-            name="create_worktree",
-            description="Create a git worktree for a group on a new branch.",
-            input_schema=_CREATE_WORKTREE_INPUT_SCHEMA,
-            handler=_wrap("create_worktree", partial(_handle_create_worktree, event_bus=event_bus)),
-        ),
-        SdkMcpTool(
-            name="merge_branches",
-            description="Merge group branches into a target branch.",
-            input_schema=_MERGE_BRANCHES_INPUT_SCHEMA,
-            handler=_wrap("merge_branches", partial(_handle_merge_branches, event_bus=event_bus)),
-        ),
-        SdkMcpTool(
-            name="commit_worktree",
-            description="Stage and commit all changes in a worktree.",
-            input_schema=_COMMIT_WORKTREE_INPUT_SCHEMA,
-            handler=_wrap("commit_worktree", _handle_commit_worktree),
-        ),
-    ]
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -937,8 +864,17 @@ def get_tech_lead_tools(
     registry: ToolCallRegistry | None = None,
     event_bus: EventBus | None = None,
 ) -> list[SdkMcpTool]:
-    """Return all SdkMcpTool instances for the Tech Lead SDK session."""
-    return _build_tools(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
+    """Return all SdkMcpTool instances for the Tech Lead SDK session.
+
+    Delegates to build_tool_registry() — returns the full tech_lead tool set.
+    If registry is provided, each tool call is recorded via registry.record().
+    If event_bus is provided, key tool calls emit structured GolemEvents.
+    """
+    from golem.tool_registry import ToolContext
+
+    reg = build_tool_registry(golem_dir, config, project_root, registry=registry, event_bus=event_bus)
+    ctx = ToolContext(golem_dir=golem_dir, project_root=project_root, agent_type="tech_lead")
+    return reg.get_tools_for_agent("tech_lead", ctx)
 
 
 def create_golem_mcp_server(
@@ -1056,8 +992,13 @@ async def handle_tool_call(
     """Dispatch a tool call directly to the appropriate Python function.
 
     Returns JSON-encoded result string. Used for direct testing without going through MCP.
+    Delegates to build_tool_registry() — exposes the full tech_lead tool set.
     """
-    tools = _build_tools(golem_dir, config, project_root)
+    from golem.tool_registry import ToolContext
+
+    reg = build_tool_registry(golem_dir, config, project_root)
+    ctx = ToolContext(golem_dir=golem_dir, project_root=project_root, agent_type="tech_lead")
+    tools = reg.get_tools_for_agent("tech_lead", ctx)
     tool_map = {t.name: t for t in tools}
     if tool_name not in tool_map:
         raise ValueError(f"Unknown tool: {tool_name!r}")
