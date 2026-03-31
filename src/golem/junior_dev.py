@@ -446,3 +446,8 @@ async def spawn_junior_dev(
         duration_ms=duration_ms,
     )
 
+
+# Backward-compatible aliases
+spawn_writer_pair = spawn_junior_dev
+WriterResult = JuniorDevResult
+
