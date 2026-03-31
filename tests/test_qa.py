@@ -7,7 +7,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from golem.qa import _run_single_check, detect_infrastructure_checks, run_autofix, run_qa
+from golem.qa import (
+    QAFailureClassification,
+    _detect_playwright,
+    _run_single_check,
+    classify_failures,
+    detect_infrastructure_checks,
+    run_autofix,
+    run_qa,
+)
 from golem.tools import _handle_run_qa
 
 
@@ -412,3 +420,117 @@ def test_run_qa_parallel_infra_failure_skips_spec() -> None:
         assert result.stage == "infrastructure_failed"
         # Only infra checks ran
         assert len(result.checks) == 2
+
+
+# --- Playwright detection tests ---
+
+
+def test_detect_playwright_finds_ts_config(tmp_path: Path) -> None:
+    (tmp_path / "playwright.config.ts").write_text("export default {}", encoding="utf-8")
+    result = _detect_playwright(tmp_path)
+    assert result == ["npx playwright test --reporter=list"]
+
+
+def test_detect_playwright_finds_js_config(tmp_path: Path) -> None:
+    (tmp_path / "playwright.config.js").write_text("module.exports = {}", encoding="utf-8")
+    result = _detect_playwright(tmp_path)
+    assert result == ["npx playwright test --reporter=list"]
+
+
+def test_detect_playwright_finds_mjs_config(tmp_path: Path) -> None:
+    (tmp_path / "playwright.config.mjs").write_text("export default {}", encoding="utf-8")
+    result = _detect_playwright(tmp_path)
+    assert result == ["npx playwright test --reporter=list"]
+
+
+def test_detect_playwright_no_config(tmp_path: Path) -> None:
+    result = _detect_playwright(tmp_path)
+    assert result == []
+
+
+def test_detect_infrastructure_checks_includes_playwright_when_enabled(tmp_path: Path) -> None:
+    (tmp_path / "playwright.config.ts").write_text("export default {}", encoding="utf-8")
+    checks = detect_infrastructure_checks(tmp_path, skip_playwright=False)
+    assert "npx playwright test --reporter=list" in checks
+
+
+def test_detect_infrastructure_checks_skips_playwright_by_default(tmp_path: Path) -> None:
+    (tmp_path / "playwright.config.ts").write_text("export default {}", encoding="utf-8")
+    checks = detect_infrastructure_checks(tmp_path)
+    assert "npx playwright test --reporter=list" not in checks
+
+
+def test_run_qa_playwright_check_type() -> None:
+    """Playwright commands should be classified as 'e2e' check type."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, [], ["echo playwright"])
+        assert result.checks[0].type == "e2e"
+
+
+# --- QA failure classification tests ---
+
+
+def test_classify_failures_regression() -> None:
+    before = "PASSED tests/test_foo.py::test_bar\n"
+    after = "FAILED tests/test_foo.py::test_bar - AssertionError: expected 1\n"
+    classifications = classify_failures(before, after)
+    assert len(classifications) == 1
+    assert classifications[0].category == "regression"
+    assert "test_bar" in classifications[0].test_name
+
+
+def test_classify_failures_pre_existing() -> None:
+    before = "FAILED tests/test_foo.py::test_old - ValueError: bad\n"
+    after = "FAILED tests/test_foo.py::test_old - ValueError: bad\n"
+    classifications = classify_failures(before, after)
+    assert len(classifications) == 1
+    assert classifications[0].category == "pre_existing"
+
+
+def test_classify_failures_new_test() -> None:
+    before = "PASSED tests/test_foo.py::test_bar\n"
+    after = "FAILED tests/test_new.py::test_brand_new - TypeError: oops\n"
+    classifications = classify_failures(before, after)
+    assert len(classifications) == 1
+    assert classifications[0].category == "new_test_failure"
+    assert "test_brand_new" in classifications[0].test_name
+
+
+def test_classify_failures_mixed() -> None:
+    before = (
+        "FAILED tests/test_a.py::test_existing - Error: old\n"
+        "PASSED tests/test_b.py::test_regression\n"
+    )
+    after = (
+        "FAILED tests/test_a.py::test_existing - Error: old\n"
+        "FAILED tests/test_b.py::test_regression - AssertionError: new bug\n"
+        "FAILED tests/test_c.py::test_new_one - RuntimeError: boom\n"
+    )
+    classifications = classify_failures(before, after)
+    categories = {c.test_name: c.category for c in classifications}
+    assert categories["tests/test_a.py::test_existing"] == "pre_existing"
+    assert categories["tests/test_b.py::test_regression"] == "regression"
+    assert categories["tests/test_c.py::test_new_one"] == "new_test_failure"
+
+
+def test_classify_failures_empty_before() -> None:
+    before = ""
+    after = "FAILED tests/test_foo.py::test_bar - Error: fail\n"
+    classifications = classify_failures(before, after)
+    assert len(classifications) == 1
+    assert classifications[0].category == "new_test_failure"
+
+
+def test_classify_failures_no_failures() -> None:
+    before = "PASSED all tests\n"
+    after = "PASSED all tests\n"
+    classifications = classify_failures(before, after)
+    assert classifications == []
+
+
+def test_qa_failure_classification_dataclass() -> None:
+    """Verify QAFailureClassification fields are accessible."""
+    c = QAFailureClassification(category="regression", test_name="test_foo", error_summary="assertion failed")
+    assert c.category == "regression"
+    assert c.test_name == "test_foo"
+    assert c.error_summary == "assertion failed"

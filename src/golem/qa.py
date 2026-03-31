@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -28,7 +29,77 @@ class QAResult:
     stage: str = "complete"        # "infrastructure_failed" | "complete" | "crashed"
 
 
-def detect_infrastructure_checks(project_root: Path) -> list[str]:
+@dataclass
+class QAFailureClassification:
+    """Classifies a QA failure to help determine whether it is actionable."""
+
+    category: str  # "regression" | "new_test_failure" | "pre_existing" | "flaky"
+    test_name: str
+    error_summary: str
+
+
+def _detect_playwright(project_root: Path) -> list[str]:
+    """Detect Playwright config and return test commands if found."""
+    for ext in (".mjs", ".ts", ".js"):
+        if (project_root / f"playwright.config{ext}").exists():
+            return ["npx playwright test --reporter=list"]
+    return []
+
+
+_FAILED_TEST_PATTERNS: list[re.Pattern[str]] = [
+    # pytest:  FAILED tests/test_foo.py::test_bar - AssertionError: ...
+    re.compile(r"FAILED\s+([\w/\\.:]+)(?:\s*-\s*(.+))?"),
+    # jest/playwright:  FAIL  src/foo.test.ts > test name
+    re.compile(r"^[ \t]*FAIL\s+([\w/\\.:> ]+)", re.MULTILINE),
+]
+
+
+def _extract_failed_tests(output: str) -> list[tuple[str, str]]:
+    """Extract (test_name, error_summary) pairs from combined stdout+stderr."""
+    results: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for pattern in _FAILED_TEST_PATTERNS:
+        for match in pattern.finditer(output):
+            test_name = match.group(1).strip()
+            error_summary = match.group(2).strip() if match.lastindex and match.lastindex >= 2 else ""
+            if test_name not in seen:
+                seen.add(test_name)
+                results.append((test_name, error_summary))
+    return results
+
+
+def classify_failures(
+    before_output: str,
+    after_output: str,
+) -> list[QAFailureClassification]:
+    """Compare test output before and after changes to classify failures.
+
+    - pre_existing: test failed both before and after
+    - regression: test passed before but fails after
+    - new_test_failure: test not present before but fails after (new test added)
+    """
+    before_failures = {name for name, _ in _extract_failed_tests(before_output)}
+    after_failures = _extract_failed_tests(after_output)
+
+    classifications: list[QAFailureClassification] = []
+    for test_name, error_summary in after_failures:
+        if test_name in before_failures:
+            category = "pre_existing"
+        else:
+            # Check if this test existed in before_output at all
+            if test_name in before_output:
+                category = "regression"
+            else:
+                category = "new_test_failure"
+        classifications.append(QAFailureClassification(
+            category=category,
+            test_name=test_name,
+            error_summary=error_summary,
+        ))
+    return classifications
+
+
+def detect_infrastructure_checks(project_root: Path, *, skip_playwright: bool = True) -> list[str]:
     """Detect available lint/type-check tools from project files."""
     checks: list[str] = []
 
@@ -60,6 +131,9 @@ def detect_infrastructure_checks(project_root: Path) -> list[str]:
     if cargo_toml.exists():
         checks.append("cargo test")
 
+    if not skip_playwright:
+        checks.extend(_detect_playwright(project_root))
+
     return checks
 
 
@@ -70,6 +144,8 @@ def _classify_check(cmd: str) -> str:
         return "lint"
     if "pytest" in cmd or "jest" in cmd or "npm test" in cmd:
         return "test"
+    if "playwright" in cmd:
+        return "e2e"
     return "acceptance"
 
 
