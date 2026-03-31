@@ -81,6 +81,7 @@ uv.lock
 # ── Claude Code / Superpowers ──────────────────────────
 .claude/settings.json
 .claude/settings.local.json
+.claude/skills/
 .superpowers/
 
 # ── ZeroShot runtime ─────────────────────────────────
