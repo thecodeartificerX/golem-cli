@@ -158,6 +158,20 @@ def test_build_writer_prompt_reads_plan_file_from_disk() -> None:
         assert "Widget class" in prompt
 
 
+def test_both_prompts_list_all_writer_tools() -> None:
+    """Both junior_dev.md and junior_dev_rework.md must list every tool in WRITER_TOOLS."""
+    from golem.tool_registry import WRITER_TOOLS
+
+    prompts_dir = Path(__file__).resolve().parent.parent / "src" / "golem" / "prompts"
+    junior_dev_prompt = (prompts_dir / "junior_dev.md").read_text(encoding="utf-8")
+    rework_prompt = (prompts_dir / "junior_dev_rework.md").read_text(encoding="utf-8")
+
+    for tool_name in sorted(WRITER_TOOLS):
+        mcp_name = f"mcp__golem-junior-dev__{tool_name}"
+        assert mcp_name in junior_dev_prompt, f"junior_dev.md missing tool: {mcp_name}"
+        assert mcp_name in rework_prompt, f"junior_dev_rework.md missing tool: {mcp_name}"
+
+
 @pytest.mark.asyncio
 async def test_spawn_writer_pair_uses_worktree_cwd() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
