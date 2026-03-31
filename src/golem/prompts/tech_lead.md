@@ -117,10 +117,12 @@ The smoke test session should:
 **CRITICAL:** You MUST merge the integration branch into `main` before creating a PR. The run is NOT complete until `main` contains all the new code.
 
 1. Call `mcp__golem__run_qa` one final time to confirm all checks pass on the integration branch
-2. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
-3. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
-4. Verify main has the new commits: `git log --oneline -3`
-5. Create a PR with:
+2. **Cross-edict conflict detection:** Before merging, check if main has advanced since the branch was created. Run `git merge-base HEAD main` and compare with `git rev-parse main`. If they differ, main has diverged — rebase the integration branch onto main first with `git rebase main`. If the rebase has conflicts, abort with `git rebase --abort` and report the conflict.
+3. Run `git checkout main && git merge <integration-branch> --ff-only` to fast-forward main
+4. If fast-forward fails, run `git merge <integration-branch> --no-ff -m "feat: merge golem integration"` instead
+5. **Post-merge verification:** After a successful merge, run the full QA suite on main via `mcp__golem__run_qa`. If any check fails, revert the merge with `git revert --no-edit <merge-sha>` and report the failure. Do NOT leave a broken main.
+6. Verify main has the new commits: `git log --oneline -3`
+7. Create a PR with:
    - Title: `golem: <spec title>`
    - Body: full run report including completed tickets, QA results, integration review notes
    - Base branch: `main`

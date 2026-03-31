@@ -3,6 +3,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from golem.config import GolemConfig
+from golem.qa import QAResult, detect_infrastructure_checks, run_qa
+
 
 def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check)
@@ -88,3 +91,67 @@ def create_pr(branch: str, title: str, body: str, draft: bool, repo_root: Path, 
     if result.returncode != 0:
         raise RuntimeError(f"gh pr create failed: {result.stderr}")
     return result.stdout.strip()
+
+
+def run_post_merge_verification(
+    project_root: Path,
+    config: GolemConfig,
+    merge_commit_sha: str,
+) -> QAResult:
+    """Run full QA on main after a merge. Revert if it fails."""
+    infrastructure_checks = config.infrastructure_checks or detect_infrastructure_checks(project_root)
+    result = run_qa(
+        worktree_path=str(project_root),
+        checks=[],
+        infrastructure_checks=infrastructure_checks,
+    )
+    if not result.passed:
+        subprocess.run(
+            ["git", "revert", "--no-edit", merge_commit_sha],
+            cwd=str(project_root),
+            capture_output=True,
+            encoding="utf-8",
+        )
+    return result
+
+
+def check_main_divergence(worktree_path: Path, base_branch: str = "main") -> bool:
+    """Check if main has advanced since this worktree branched.
+
+    Returns True if main has new commits beyond the merge base (i.e. diverged).
+    """
+    merge_base = subprocess.run(
+        ["git", "merge-base", "HEAD", base_branch],
+        cwd=str(worktree_path),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    main_head = subprocess.run(
+        ["git", "rev-parse", base_branch],
+        cwd=str(worktree_path),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    return merge_base != main_head
+
+
+def rebase_onto_main(worktree_path: Path, base_branch: str = "main") -> bool:
+    """Rebase current branch onto base_branch. Returns True on success, False on conflict."""
+    result = subprocess.run(
+        ["git", "rebase", base_branch],
+        cwd=str(worktree_path),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["git", "rebase", "--abort"],
+            cwd=str(worktree_path),
+            capture_output=True,
+            encoding="utf-8",
+        )
+        return False
+    return True
