@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
-from golem.supervisor import ContinuationResult, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
+from golem.supervisor import ContinuationResult, _build_agent_hooks, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import TicketStore
 from golem.tools import create_golem_mcp_server
 from golem.worktree import delete_worktree, merge_group_branches
@@ -186,6 +186,9 @@ async def run_tech_lead(
         max_turns=config.max_tech_lead_turns,
         permission_mode="bypassPermissions",
         env=sdk_env(session_id=config.session_id, golem_dir=str(golem_dir)),
+        max_budget_usd=config.tech_lead_budget_usd,
+        fallback_model=config.fallback_model,
+        hooks=_build_agent_hooks(),
     )
 
     stall_cfg = stall_config_for_role("tech_lead", config.max_tech_lead_turns)

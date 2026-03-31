@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +10,42 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from golem.config import GolemConfig
+
+
+def _make_mock_sdk_client(
+    fake_gen_fn: Callable[..., AsyncGenerator[Any, None]],
+) -> type:
+    """Return a mock ClaudeSDKClient class backed by an async generator function.
+
+    The prompt passed to client.query() is forwarded as the first positional argument
+    to fake_gen_fn so tests that inspect the prompt still work.
+    """
+
+    class _MockClient:
+        def __init__(self, options: Any = None, **kwargs: Any) -> None:
+            self._prompt: str = ""
+            self._gen: AsyncGenerator[Any, None] | None = None
+
+        async def __aenter__(self) -> "_MockClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            self._prompt = prompt
+            self._gen = fake_gen_fn(prompt)
+
+        async def receive_response(self) -> AsyncGenerator[Any, None]:  # type: ignore[override]
+            if self._gen is None:
+                self._gen = fake_gen_fn()
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            pass
+
+    return _MockClient
 
 
 class _PassthroughCoordinator:
@@ -76,7 +113,7 @@ async def test_run_planner_creates_directories() -> None:
         golem_dir = Path(tmpdir) / ".golem"
         config = GolemConfig()
 
-        with patch("golem.supervisor.query", side_effect=_fake_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_fake_query)), \
              patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
@@ -93,7 +130,7 @@ async def test_run_planner_returns_ticket_id() -> None:
         golem_dir = Path(tmpdir) / ".golem"
         config = GolemConfig()
 
-        with patch("golem.supervisor.query", side_effect=_fake_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_fake_query)), \
              patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             ticket_id = await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
@@ -139,7 +176,7 @@ async def test_run_planner_injects_project_context() -> None:
             return
             yield
 
-        with patch("golem.supervisor.query", side_effect=_capturing_query), \
+        with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_capturing_query)), \
              patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
             await _run_planner_helper(spec_path, golem_dir, config, Path(tmpdir))
 
@@ -347,7 +384,7 @@ def test_skip_research_instruction_injected_when_true(tmp_path: "Path") -> None:
         return
         yield
 
-    with patch("golem.supervisor.query", side_effect=_capturing_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_capturing_query)), \
          patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
         asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
 
@@ -386,7 +423,7 @@ def test_skip_research_instruction_absent_when_false(tmp_path: "Path") -> None:
         return
         yield
 
-    with patch("golem.supervisor.query", side_effect=_capturing_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(_capturing_query)), \
          patch("golem.recovery.RecoveryCoordinator", _PassthroughCoordinator):
         asyncio.run(_run_planner_helper(spec_path, golem_dir, config, tmp_path))
 
@@ -443,3 +480,126 @@ async def test_run_planner_passes_edict_id_to_recovery_coordinator() -> None:
 
         assert len(recorded_kwargs) >= 1
         assert recorded_kwargs[0].get("edict_id") == "EDICT-001"
+
+
+# ---------------------------------------------------------------------------
+# max_budget_usd / fallback_model / hooks wiring tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_passes_max_budget_usd() -> None:
+    """_run_planner_session wires config.planner_budget_usd into ClaudeAgentOptions."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        # Capture the options passed to continuation_supervised_session
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig(planner_budget_usd=0.75)
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    assert getattr(opts, "max_budget_usd", None) == pytest.approx(0.75)
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_passes_fallback_model() -> None:
+    """_run_planner_session wires config.fallback_model into ClaudeAgentOptions."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig(fallback_model="claude-haiku-4-5-20251001")
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    assert getattr(opts, "fallback_model", None) == "claude-haiku-4-5-20251001"
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_passes_hooks() -> None:
+    """_run_planner_session wires _build_agent_hooks() into ClaudeAgentOptions."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig()
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    hooks = getattr(opts, "hooks", None)
+    assert hooks is not None
+    assert "PreToolUse" in hooks
+    assert len(hooks["PreToolUse"]) == 3

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
 from golem.config import GolemConfig
-import pytest
 
 from golem.supervisor import (
     StallConfig,
@@ -21,6 +22,56 @@ from golem.supervisor import (
     stall_config_for_role,
     supervised_session,
 )
+
+
+# ---------------------------------------------------------------------------
+# ClaudeSDKClient mock helpers
+# ---------------------------------------------------------------------------
+# supervised_session() now uses ClaudeSDKClient instead of query().
+# Tests patch golem.supervisor.ClaudeSDKClient with a class returned by
+# _make_mock_sdk_client(fake_query_fn).
+#
+# The fake_query_fn is an async generator that yields SDK message objects
+# (exactly as the old query() mock did). _make_mock_sdk_client wraps it in
+# a mock context manager whose receive_response() delegates to the generator.
+
+
+def _make_mock_sdk_client(
+    fake_gen_fn: Callable[..., AsyncGenerator[Any, None]],
+) -> type:
+    """Return a mock ClaudeSDKClient class that drives receive_response() from fake_gen_fn.
+
+    fake_gen_fn must be an async generator function (``async def f(*args, **kwargs): yield ...``).
+    The prompt passed to client.query() is forwarded as the first positional argument to
+    fake_gen_fn so tests that inspect the prompt still work.
+    """
+
+    class _MockClient:
+        def __init__(self, options: Any = None, **kwargs: Any) -> None:
+            self._prompt: str = ""
+            self._gen: AsyncGenerator[Any, None] | None = None
+
+        async def __aenter__(self) -> "_MockClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            self._prompt = prompt
+            self._gen = fake_gen_fn(prompt)
+
+        async def receive_response(self) -> AsyncGenerator[Any, None]:  # type: ignore[override]
+            if self._gen is None:
+                # query() not called yet — start with empty prompt
+                self._gen = fake_gen_fn()
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            pass
+
+    return _MockClient
 
 # ---------------------------------------------------------------------------
 # ToolCallRegistry tests
@@ -205,7 +256,7 @@ async def test_supervised_session_normal_completion() -> None:
             session_id="s1",
         )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             prompt="do work",
             options=options,
@@ -253,7 +304,7 @@ async def test_supervised_session_stall_kill() -> None:
                 model="claude-opus-4-5",
             )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             prompt="do work",
             options=options,
@@ -308,7 +359,7 @@ async def test_supervised_session_stall_warning_injected() -> None:
             result="done",
         )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             prompt="do work",
             options=options,
@@ -366,7 +417,7 @@ async def test_supervised_session_action_tool_resets_counter() -> None:
             session_id="s1",
         )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             prompt="do work",
             options=options,
@@ -475,7 +526,7 @@ async def test_supervised_session_emits_agent_spawned() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             "test prompt", options, "planner", config, stall_cfg, event_bus=bus,
         )
@@ -519,7 +570,7 @@ async def test_supervised_session_no_events_without_bus() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session(
             "test prompt", options, "planner", config, stall_cfg,
         )
@@ -560,7 +611,7 @@ async def test_supervised_session_captures_stop_reason() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session("test", options, "planner", config, stall_cfg)
 
     assert result.stop_reason == "max_tokens"
@@ -595,7 +646,7 @@ async def test_supervised_session_stop_reason_none_by_default() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await supervised_session("test", options, "planner", config, stall_cfg)
 
     assert result.stop_reason is None
@@ -919,7 +970,7 @@ async def test_continuation_disabled_passthrough() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg,
         )
@@ -966,7 +1017,7 @@ async def test_continuation_no_exhaustion_returns_immediately() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query):
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)):
         result = await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg,
         )
@@ -1030,7 +1081,7 @@ async def test_continuation_on_max_tokens_triggers_continuation() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
          patch("golem.supervisor.compact_session_messages", return_value="Summary of work done."):
         result = await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg,
@@ -1086,7 +1137,7 @@ async def test_continuation_cap_returns_exhausted() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
          patch("golem.supervisor.compact_session_messages", return_value="summary"):
         result = await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg,
@@ -1158,7 +1209,7 @@ async def test_continuation_emits_context_exhausted_event() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
          patch("golem.supervisor.compact_session_messages", return_value="summary"):
         await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg, event_bus=bus,
@@ -1230,7 +1281,7 @@ async def test_continuation_emits_session_continued_event() -> None:
         env={},
     )
 
-    with patch("golem.supervisor.query", side_effect=fake_query), \
+    with patch("golem.supervisor.ClaudeSDKClient", _make_mock_sdk_client(fake_query)), \
          patch("golem.supervisor.compact_session_messages", return_value="the summary"):
         await continuation_supervised_session(
             "do work", options, "planner", config, stall_cfg, event_bus=bus,
@@ -1346,3 +1397,209 @@ def test_session_continued_roundtrip() -> None:
     assert isinstance(restored, SessionContinued)
     assert restored.summary_chars == 1500
     assert restored.cumulative_cost_usd == pytest.approx(1.5)
+
+
+# ---------------------------------------------------------------------------
+# ClaudeSDKClient migration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_supervised_session_uses_client_context_manager() -> None:
+    """supervised_session uses ClaudeSDKClient context manager, not bare query()."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    config = GolemConfig()
+    stall_cfg = stall_config_for_role("planner", 50)
+
+    options = ClaudeAgentOptions(
+        model="claude-opus-4-5",
+        cwd=".",
+        tools={"type": "preset", "preset": "claude_code"},
+        max_turns=50,
+        permission_mode="bypassPermissions",
+        env={},
+    )
+
+    async def fake_query(*args: object, **kwargs: object) -> None:
+        yield ResultMessage(
+            subtype="result",
+            duration_ms=100,
+            duration_api_ms=50,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="done",
+        )
+
+    # Track that ClaudeSDKClient (not bare query) was entered
+    entered = []
+
+    class _TrackingMockClient:
+        def __init__(self, options: object = None, **kw: object) -> None:
+            self._gen = fake_query()
+
+        async def __aenter__(self) -> "_TrackingMockClient":
+            entered.append(True)
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            pass
+
+        async def receive_response(self):  # type: ignore[no-untyped-def]
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            pass
+
+    with patch("golem.supervisor.ClaudeSDKClient", _TrackingMockClient):
+        result = await supervised_session(
+            prompt="do work",
+            options=options,
+            role="planner",
+            config=config,
+            stall_config=stall_cfg,
+        )
+
+    assert len(entered) == 1, "ClaudeSDKClient context manager should be entered exactly once"
+    assert result.stalled is False
+
+
+@pytest.mark.asyncio
+async def test_supervised_session_interrupt_called_on_stall_kill() -> None:
+    """client.interrupt() is called when the kill threshold is reached."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    config = GolemConfig()
+    # kill at 50% of 10 = 5 consecutive idle turns
+    stall_cfg = StallConfig(
+        warning_pct=0.4,
+        kill_pct=0.5,
+        expected_actions=["create_ticket"],
+        role="planner",
+        max_turns=10,
+    )
+
+    options = ClaudeAgentOptions(
+        model="claude-opus-4-5",
+        cwd=".",
+        tools={"type": "preset", "preset": "claude_code"},
+        max_turns=10,
+        permission_mode="bypassPermissions",
+        env={},
+    )
+
+    interrupt_calls: list[bool] = []
+
+    async def fake_query(*args: object, **kwargs: object) -> None:
+        # 6 idle turns — exceeds kill threshold of 5
+        for i in range(6):
+            yield AssistantMessage(
+                content=[ToolUseBlock(id=f"t{i}", name="Read", input={})],
+                model="claude-opus-4-5",
+            )
+
+    class _InterruptTrackingMockClient:
+        def __init__(self, options: object = None, **kw: object) -> None:
+            self._gen = fake_query()
+
+        async def __aenter__(self) -> "_InterruptTrackingMockClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def query(self, prompt: str, session_id: str = "default") -> None:
+            pass
+
+        async def receive_response(self):  # type: ignore[no-untyped-def]
+            async for msg in self._gen:
+                yield msg
+
+        def interrupt(self) -> None:
+            interrupt_calls.append(True)
+
+    with patch("golem.supervisor.ClaudeSDKClient", _InterruptTrackingMockClient):
+        result = await supervised_session(
+            prompt="do work",
+            options=options,
+            role="planner",
+            config=config,
+            stall_config=stall_cfg,
+        )
+
+    assert result.stalled is True
+    assert len(interrupt_calls) == 1, "interrupt() should be called exactly once on stall kill"
+
+
+# ---------------------------------------------------------------------------
+# _build_agent_hooks tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_agent_hooks_returns_pre_tool_use_hooks() -> None:
+    """_build_agent_hooks returns a dict with PreToolUse key and HookMatcher list."""
+    from golem.supervisor import _build_agent_hooks
+
+    hooks = _build_agent_hooks()
+    assert "PreToolUse" in hooks
+    assert len(hooks["PreToolUse"]) == 3  # golem-cli, dangerous-git, ask-user
+
+
+@pytest.mark.asyncio
+async def test_hook_block_golem_cli_denies_clean_command() -> None:
+    """_hook_block_golem_cli denies golem clean commands."""
+    from golem.supervisor import _hook_block_golem_cli
+
+    result = await _hook_block_golem_cli(
+        {"tool_name": "Bash", "tool_input": {"command": "uv run golem clean"}, "hook_event_name": "PreToolUse",
+         "session_id": "", "transcript_path": "", "cwd": "", "agent_id": "", "agent_type": "", "tool_use_id": ""},
+        None, {"signal": None},
+    )
+    assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+
+@pytest.mark.asyncio
+async def test_hook_block_golem_cli_allows_unrelated_bash() -> None:
+    """_hook_block_golem_cli allows unrelated bash commands."""
+    from golem.supervisor import _hook_block_golem_cli
+
+    result = await _hook_block_golem_cli(
+        {"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "hook_event_name": "PreToolUse",
+         "session_id": "", "transcript_path": "", "cwd": "", "agent_id": "", "agent_type": "", "tool_use_id": ""},
+        None, {"signal": None},
+    )
+    assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+
+@pytest.mark.asyncio
+async def test_hook_block_ask_user_denies_ask_user_question() -> None:
+    """_hook_block_ask_user denies AskUserQuestion tool."""
+    from golem.supervisor import _hook_block_ask_user
+
+    result = await _hook_block_ask_user(
+        {"tool_name": "AskUserQuestion", "tool_input": {}, "hook_event_name": "PreToolUse",
+         "session_id": "", "transcript_path": "", "cwd": "", "agent_id": "", "agent_type": "", "tool_use_id": ""},
+        None, {"signal": None},
+    )
+    assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+
+@pytest.mark.asyncio
+async def test_hook_block_ask_user_allows_other_tools() -> None:
+    """_hook_block_ask_user allows non-AskUserQuestion tools."""
+    from golem.supervisor import _hook_block_ask_user
+
+    result = await _hook_block_ask_user(
+        {"tool_name": "Read", "tool_input": {"path": "foo.py"}, "hook_event_name": "PreToolUse",
+         "session_id": "", "transcript_path": "", "cwd": "", "agent_id": "", "agent_type": "", "tool_use_id": ""},
+        None, {"signal": None},
+    )
+    assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"

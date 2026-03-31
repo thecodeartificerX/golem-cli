@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from golem.config import GolemConfig, resolve_agent_options, sdk_env
 from golem.progress import ProgressLogger
-from golem.supervisor import ContinuationResult, StallConfig, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
+from golem.supervisor import ContinuationResult, StallConfig, _build_agent_hooks, build_escalated_prompt, continuation_supervised_session, stall_config_for_role
 from golem.tickets import Ticket
 from golem.tools import create_junior_dev_mcp_server
 
@@ -208,6 +208,9 @@ async def spawn_junior_dev(
         max_turns=config.max_worker_turns,
         permission_mode="bypassPermissions",
         env=sdk_env(),
+        max_budget_usd=config.worker_budget_usd,
+        fallback_model=config.fallback_model,
+        hooks=_build_agent_hooks(),
     )
 
     stall_cfg = stall_config_for_role("junior_dev", config.max_worker_turns)

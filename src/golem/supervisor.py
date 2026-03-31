@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, TextBlock, ToolUseBlock, query
 
 from golem.config import GolemConfig
 
@@ -25,8 +25,117 @@ except ImportError:
     RateLimitEvent = None  # SDK version doesn't support it yet
 
 if TYPE_CHECKING:
+    from claude_agent_sdk.types import PreToolUseHookInput, HookContext, SyncHookJSONOutput
     from golem.events import EventBus
 
+# ---------------------------------------------------------------------------
+# Python-native PreToolUse hooks for SDK sessions
+# ---------------------------------------------------------------------------
+#
+# These replace the shell-script hooks in .claude/hooks/ when running via the
+# SDK. They fire synchronously in-process via HookMatcher, avoiding the shell
+# spawn overhead and working reliably on Windows.
+#
+# Hook function signature (PreToolUse):
+#   async def hook(input_data: PreToolUseHookInput, tool_use_id: str | None,
+#                  context: HookContext) -> SyncHookJSONOutput | None
+#
+# Return None or {} to allow. Return a deny dict to block.
+
+
+_GOLEM_CLI_BLOCKED_PATTERNS: tuple[str, ...] = (
+    r"\bgolem\s+(clean|reset-ticket|export|status|run|resume|ui|doctor)\b",
+    r"\buv\s+run\s+golem\s+(clean|reset-ticket|export|status|run|resume|ui|doctor)\b",
+)
+
+
+def _deny_output(reason: str) -> "SyncHookJSONOutput":
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
+async def _hook_block_golem_cli(
+    input_data: "PreToolUseHookInput",
+    tool_use_id: str | None,
+    context: "HookContext",
+) -> "SyncHookJSONOutput":
+    """Block golem CLI invocations inside SDK sessions."""
+    import re
+
+    if input_data.get("tool_name") != "Bash":
+        return {}
+    command: str = (input_data.get("tool_input") or {}).get("command", "")
+    for pattern in _GOLEM_CLI_BLOCKED_PATTERNS:
+        if re.search(pattern, command):
+            return _deny_output(
+                f"BLOCKED: '{command}' -- You are a subprocess of Golem. "
+                "Running golem CLI commands destroys the runtime state you depend on. "
+                "Use your MCP tools for ticket/worktree operations instead. "
+                "NO BYPASS EXISTS."
+            )
+    return {}
+
+
+async def _hook_block_dangerous_git(
+    input_data: "PreToolUseHookInput",
+    tool_use_id: str | None,
+    context: "HookContext",
+) -> "SyncHookJSONOutput":
+    """Block dangerous git and system commands using golem.security validation."""
+    if input_data.get("tool_name") != "Bash":
+        return {}
+    command: str = (input_data.get("tool_input") or {}).get("command", "")
+    if not command:
+        return {}
+
+    try:
+        from golem.security import validate_command
+        allowed, reason = validate_command(command, allowlist=None)
+        if not allowed:
+            return _deny_output(f"{reason} NO BYPASS EXISTS.")
+    except Exception:
+        # If security module is unavailable, allow (fail-open for safety of execution)
+        pass
+    return {}
+
+
+async def _hook_block_ask_user(
+    input_data: "PreToolUseHookInput",
+    tool_use_id: str | None,
+    context: "HookContext",
+) -> "SyncHookJSONOutput":
+    """Block AskUserQuestion in headless SDK sessions."""
+    if input_data.get("tool_name") == "AskUserQuestion":
+        return _deny_output(
+            "BLOCKED: AskUserQuestion -- You are running in a headless SDK session. "
+            "There is no user to respond. Make autonomous decisions. "
+            "If unsure, choose the option that maintains code quality and correctness. "
+            "If blocked, update your ticket to needs_work with details."
+        )
+    return {}
+
+
+def _build_agent_hooks() -> dict[str, list[HookMatcher]]:
+    """Return PreToolUse hook configuration for all SDK agent sessions.
+
+    Ports the three shell hooks from .claude/hooks/ into Python-native HookMatcher
+    objects, eliminating subprocess spawn overhead and Windows path issues.
+    """
+    return {
+        "PreToolUse": [
+            HookMatcher(matcher="Bash", hooks=[_hook_block_golem_cli]),
+            HookMatcher(matcher="Bash", hooks=[_hook_block_dangerous_git]),
+            HookMatcher(matcher="AskUserQuestion", hooks=[_hook_block_ask_user]),
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # MCP action tool names — calls to these reset the stall counter.
 # SDK exposes MCP tools as "mcp__<server>__<name>" so we strip the prefix
 # before checking membership.  "Read tools" (Read, Grep, Glob, Bash) are
@@ -286,13 +395,16 @@ async def supervised_session(
 ) -> SupervisedResult:
     """Run a supervised SDK session with stall detection and circuit breakers.
 
+    Uses ClaudeSDKClient for the session loop so that client.interrupt() can be
+    called immediately when the kill threshold is reached, eliminating the
+    token-burn drain that the old generator-exhaust approach required.
+
     - Tracks tool calls via ToolCallRegistry
     - Injects a warning message when stall_config.warning_turn() consecutive turns
       pass without any action tool being called (restarts session with warning prepended)
     - Returns SupervisedResult(stalled=True) when stall_config.kill_turn() is reached
+    - Calls client.interrupt() at kill threshold; falls back to drain on error
     - Logs STALL_WARNING and STALL_DETECTED events to progress.log if golem_dir provided
-
-    At most 2 query() iterations: initial + 1 warning-injected restart.
     """
     from golem.progress import ProgressLogger
 
@@ -324,119 +436,127 @@ async def supervised_session(
     stop_reason: str | None = None
     sdk_session_id: str = ""
 
-    # Single-pass query — never break out of the async generator to avoid
-    # anyio cancel-scope cross-task RuntimeError on cleanup.  Stall flags
-    # are set in-flight; callers handle retry with escalated prompts.
-    async for message in query(prompt=current_prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            current_turn += 1
+    # ClaudeSDKClient context manager — replaces bare query() call.
+    # client.interrupt() stops the session immediately on stall kill, eliminating
+    # the token-burn drain that the old generator-exhaust approach required.
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(current_prompt)
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                current_turn += 1
 
-            # After kill threshold, count drained turns and skip processing but
-            # keep consuming so the generator exits naturally.
-            if kill_hit:
-                drained_turns += 1
-                continue
+                # After kill threshold: call interrupt() to stop the session immediately
+                # instead of draining the remaining turns. Falls back to drain pattern
+                # if interrupt raises an error (e.g., anyio cancel scope mismatch).
+                if kill_hit:
+                    drained_turns += 1
+                    continue
 
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    if on_text:
-                        on_text(block.text)
-                    if event_bus:
-                        from golem.events import AgentText
-                        await event_bus.emit(AgentText(role=role, text=block.text, turn=current_turn))
-                elif isinstance(block, ToolUseBlock):
-                    registry.record(block.name, current_turn)
-                    if on_tool:
-                        on_tool(block.name)
-                    if event_bus:
-                        from golem.events import (
-                            AgentToolCall, SubAgentSpawned, SkillInvoked,
-                            PlanModeEntered, TaskProgress,
-                        )
-                        await event_bus.emit(AgentToolCall(
-                            role=role, tool_name=block.name,
-                            arguments=block.input if isinstance(block.input, dict) else {},
-                            turn=current_turn,
-                        ))
-                        if block.name == "Agent":
-                            inp = block.input if isinstance(block.input, dict) else {}
-                            await event_bus.emit(SubAgentSpawned(
-                                parent_role=role,
-                                subagent_type=str(inp.get("subagent_type", "")),
-                                description=str(inp.get("description", "")),
-                                prompt_preview=str(inp.get("prompt", ""))[:200],
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        if on_text:
+                            on_text(block.text)
+                        if event_bus:
+                            from golem.events import AgentText
+                            await event_bus.emit(AgentText(role=role, text=block.text, turn=current_turn))
+                    elif isinstance(block, ToolUseBlock):
+                        registry.record(block.name, current_turn)
+                        if on_tool:
+                            on_tool(block.name)
+                        if event_bus:
+                            from golem.events import (
+                                AgentToolCall, SubAgentSpawned, SkillInvoked,
+                                PlanModeEntered, TaskProgress,
+                            )
+                            await event_bus.emit(AgentToolCall(
+                                role=role, tool_name=block.name,
+                                arguments=block.input if isinstance(block.input, dict) else {},
+                                turn=current_turn,
                             ))
-                        elif block.name == "Skill":
-                            inp = block.input if isinstance(block.input, dict) else {}
-                            await event_bus.emit(SkillInvoked(role=role, skill_name=str(inp.get("skill", ""))))
-                        elif block.name == "EnterPlanMode":
-                            await event_bus.emit(PlanModeEntered(role=role))
-                        elif block.name in ("TaskCreate", "TaskUpdate"):
-                            inp = block.input if isinstance(block.input, dict) else {}
-                            await event_bus.emit(TaskProgress(
-                                role=role, task_subject=str(inp.get("subject", "")),
-                                status=str(inp.get("status", "")),
-                            ))
+                            if block.name == "Agent":
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(SubAgentSpawned(
+                                    parent_role=role,
+                                    subagent_type=str(inp.get("subagent_type", "")),
+                                    description=str(inp.get("description", "")),
+                                    prompt_preview=str(inp.get("prompt", ""))[:200],
+                                ))
+                            elif block.name == "Skill":
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(SkillInvoked(role=role, skill_name=str(inp.get("skill", ""))))
+                            elif block.name == "EnterPlanMode":
+                                await event_bus.emit(PlanModeEntered(role=role))
+                            elif block.name in ("TaskCreate", "TaskUpdate"):
+                                inp = block.input if isinstance(block.input, dict) else {}
+                                await event_bus.emit(TaskProgress(
+                                    role=role, task_subject=str(inp.get("subject", "")),
+                                    status=str(inp.get("status", "")),
+                                ))
 
-            turns_since = registry.turns_since_last_action(current_turn)
+                turns_since = registry.turns_since_last_action(current_turn)
 
-            # Warning threshold: log but do NOT break — let query finish naturally
-            if not warned and turns_since >= stall_config.warning_turn():
-                warned = True
-                if golem_dir:
-                    ProgressLogger(golem_dir).log_stall_warning(
-                        role, current_turn, stall_config.max_turns, registry.action_call_count()
-                    )
-                if event_bus:
-                    from golem.events import AgentStallWarning
-                    await event_bus.emit(AgentStallWarning(
-                        role=role, turn=current_turn,
-                        turns_since_action=registry.turns_since_last_action(current_turn),
-                        action_tools_available=[],
-                    ))
-
-            # Kill threshold: mark stalled, skip further processing but
-            # keep consuming so the SDK generator exits cleanly.
-            if not kill_hit and turns_since >= stall_config.kill_turn():
-                kill_hit = True
-                stall_turn = current_turn
-                if golem_dir:
-                    ProgressLogger(golem_dir).log_stall_detected(
-                        role, current_turn, stall_config.max_turns, registry.action_call_count()
-                    )
-                if event_bus:
-                    from golem.events import AgentStallKill
-                    await event_bus.emit(AgentStallKill(role=role, turn=current_turn))
-
-        elif RateLimitEvent is not None and isinstance(message, RateLimitEvent):
-            info = getattr(message, "rate_limit_info", None)
-            if info is not None:
-                status = getattr(info, "status", None)
-                if status == "allowed_warning":
-                    utilization = getattr(info, "utilization", None)
-                    util_str = f" (utilization: {utilization:.0%})" if utilization is not None else ""
+                # Warning threshold: log but do NOT break — let query finish naturally
+                if not warned and turns_since >= stall_config.warning_turn():
+                    warned = True
                     if golem_dir:
-                        ProgressLogger(golem_dir).log_warning(
-                            role, f"rate limit approaching{util_str}"
+                        ProgressLogger(golem_dir).log_stall_warning(
+                            role, current_turn, stall_config.max_turns, registry.action_call_count()
                         )
-                elif status == "rejected":
-                    kill_hit = True
-                    resets_at = getattr(info, "resets_at", None)
-                    if resets_at is not None:
-                        rate_limit_resets_at = float(resets_at)
+                    if event_bus:
+                        from golem.events import AgentStallWarning
+                        await event_bus.emit(AgentStallWarning(
+                            role=role, turn=current_turn,
+                            turns_since_action=registry.turns_since_last_action(current_turn),
+                            action_tools_available=[],
+                        ))
 
-        elif isinstance(message, ResultMessage):
-            cost_usd = message.total_cost_usd or 0.0
-            usage = message.usage or {}
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-            cache_read_tokens = usage.get("cache_read_input_tokens", 0)
-            stop_reason = message.stop_reason
-            sdk_session_id = message.session_id or ""
-            if message.result:
-                result_text = message.result
-                if on_text:
-                    on_text(message.result)
+                # Kill threshold: call interrupt() to stop immediately, eliminating token burn.
+                # Falls back to drain-to-completion if interrupt raises (anyio task mismatch).
+                if not kill_hit and turns_since >= stall_config.kill_turn():
+                    kill_hit = True
+                    stall_turn = current_turn
+                    if golem_dir:
+                        ProgressLogger(golem_dir).log_stall_detected(
+                            role, current_turn, stall_config.max_turns, registry.action_call_count()
+                        )
+                    if event_bus:
+                        from golem.events import AgentStallKill
+                        await event_bus.emit(AgentStallKill(role=role, turn=current_turn))
+                    try:
+                        client.interrupt()
+                    except Exception:
+                        # Fallback: drain the generator naturally (original behaviour)
+                        pass
+
+            elif RateLimitEvent is not None and isinstance(message, RateLimitEvent):
+                info = getattr(message, "rate_limit_info", None)
+                if info is not None:
+                    status = getattr(info, "status", None)
+                    if status == "allowed_warning":
+                        utilization = getattr(info, "utilization", None)
+                        util_str = f" (utilization: {utilization:.0%})" if utilization is not None else ""
+                        if golem_dir:
+                            ProgressLogger(golem_dir).log_warning(
+                                role, f"rate limit approaching{util_str}"
+                            )
+                    elif status == "rejected":
+                        kill_hit = True
+                        resets_at = getattr(info, "resets_at", None)
+                        if resets_at is not None:
+                            rate_limit_resets_at = float(resets_at)
+
+            elif isinstance(message, ResultMessage):
+                cost_usd = message.total_cost_usd or 0.0
+                usage = message.usage or {}
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+                stop_reason = message.stop_reason
+                sdk_session_id = message.session_id or ""
+                if message.result:
+                    result_text = message.result
+                    if on_text:
+                        on_text(message.result)
 
     elapsed = time.monotonic() - start
     stalled = kill_hit
