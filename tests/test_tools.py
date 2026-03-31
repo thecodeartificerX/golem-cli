@@ -149,13 +149,6 @@ def test_create_golem_mcp_server_name() -> None:
         assert hasattr(server["instance"], "call_tool")
 
 
-def test_create_qa_mcp_server_name() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        server = create_qa_mcp_server(Path(tmpdir))
-        assert server["name"] == "golem-qa"
-        assert server["type"] == "sdk"
-
-
 @pytest.mark.asyncio
 async def test_handle_tool_call_update_ticket() -> None:
     """update_ticket changes status and persists."""

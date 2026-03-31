@@ -102,13 +102,6 @@ async def _run_planner_session(
     server_url: str = "",
 ) -> ContinuationResult:
     """Run a single planner supervised session."""
-    # SSE MCP disabled for now — Claude CLI doesn't reliably connect to
-    # SSE servers from --mcp-config inline JSON.  Keeping in-process MCP
-    # until the SDK supports reliable SSE transport from subprocesses.
-    # if server_url:
-    #     from golem.tools import create_golem_mcp_sse_config
-    #     mcp_server = create_golem_mcp_sse_config(config.session_id, server_url)
-    # else:
     mcp_server = create_golem_planner_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "planner", mcp_server)
 
