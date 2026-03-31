@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
 _MAX_DISCOVERIES = 20
 _MAX_MEMORY_CHARS = 1000  # per memory file
+_MAX_DEBRIEFS = 5  # most recent debriefs to include from project-level memory
 
 # ---------------------------------------------------------------------------
 # Write-path containment guard
@@ -405,8 +406,35 @@ async def _handle_record_gotcha(
     return {"content": [{"type": "text", "text": json.dumps({"ok": True})}]}
 
 
-def _read_session_context_sync(memory_dir: Path) -> str:
-    """Synchronous core of get_session_context — runs in a thread via asyncio.to_thread()."""
+def _format_patterns_json(patterns_file: Path) -> str:
+    """Parse patterns.json and return formatted lines, or empty string on failure."""
+    if not patterns_file.exists():
+        return ""
+    try:
+        raw = patterns_file.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, OSError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+
+    lines: list[str] = []
+    for p in data.get("patterns", []):
+        if p:
+            lines.append(f"- {p}")
+    for r in data.get("recommendations", []):
+        if r:
+            lines.append(f"- [rec] {r}")
+    for o in data.get("outcomes", []):
+        if o:
+            lines.append(f"- [outcome] {o}")
+    if not lines:
+        return ""
+    return "\n".join(lines)[-_MAX_MEMORY_CHARS:]
+
+
+def _read_memory_dir_sync(memory_dir: Path) -> str:
+    """Read all memory files from a single directory and return formatted text."""
     parts: list[str] = []
 
     # Codebase map — cap at _MAX_DISCOVERIES entries
@@ -438,13 +466,34 @@ def _read_session_context_sync(memory_dir: Path) -> str:
         except OSError:
             pass
 
-    # Patterns (written by other tooling, read here)
-    patterns_file = memory_dir / "patterns.md"
-    if patterns_file.exists():
+    # Patterns — JSON format (written by insight_extractor as patterns.json)
+    formatted = _format_patterns_json(memory_dir / "patterns.json")
+    if formatted:
+        parts.append("\n## Patterns")
+        parts.append(formatted)
+
+    return "\n".join(parts)
+
+
+def _read_debriefs_sync(debriefs_dir: Path) -> str:
+    """Read the most recent debrief files from a debriefs directory."""
+    if not debriefs_dir.exists() or not debriefs_dir.is_dir():
+        return ""
+
+    try:
+        debrief_files = sorted(debriefs_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
+    except OSError:
+        return ""
+
+    if not debrief_files:
+        return ""
+
+    parts: list[str] = []
+    for df in debrief_files[:_MAX_DEBRIEFS]:
         try:
-            content = patterns_file.read_text(encoding="utf-8")
-            if content.strip():
-                parts.append("\n## Patterns")
+            content = df.read_text(encoding="utf-8").strip()
+            if content:
+                parts.append(f"### {df.stem}")
                 parts.append(content[-_MAX_MEMORY_CHARS:])
         except OSError:
             pass
@@ -452,17 +501,77 @@ def _read_session_context_sync(memory_dir: Path) -> str:
     return "\n".join(parts)
 
 
+def _read_session_context_sync(edict_memory_dir: Path, project_root: Path | None = None) -> str:
+    """Synchronous core of get_session_context — runs in a thread via asyncio.to_thread().
+
+    Reads from both the project-level .golem/memory/ (cross-edict persistence)
+    and the per-edict memory directory. Project-level memory is presented first.
+    """
+    prior_parts: list[str] = []
+    current_parts: list[str] = []
+
+    # --- Project-level memory (cross-edict persistence) ---
+    if project_root is not None:
+        project_memory_dir = project_root / ".golem" / "memory"
+        if project_memory_dir.exists() and project_memory_dir.is_dir():
+            # Debriefs
+            debrief_text = _read_debriefs_sync(project_memory_dir / "debriefs")
+            if debrief_text:
+                prior_parts.append("## Debriefs")
+                prior_parts.append(debrief_text)
+
+            # Project-level gotchas
+            project_gotchas = project_memory_dir / "gotchas.md"
+            if project_gotchas.exists():
+                try:
+                    content = project_gotchas.read_text(encoding="utf-8")
+                    if content.strip():
+                        prior_parts.append("\n## Project Gotchas")
+                        prior_parts.append(content[-_MAX_MEMORY_CHARS:])
+                except OSError:
+                    pass
+
+            # Project-level patterns
+            formatted = _format_patterns_json(project_memory_dir / "patterns.json")
+            if formatted:
+                prior_parts.append("\n## Project Patterns")
+                prior_parts.append(formatted)
+
+    # --- Per-edict memory (current session) ---
+    if edict_memory_dir.exists() and edict_memory_dir.is_dir():
+        edict_text = _read_memory_dir_sync(edict_memory_dir)
+        if edict_text:
+            current_parts.append(edict_text)
+
+    # --- Assemble output with section headers ---
+    output_parts: list[str] = []
+    if prior_parts:
+        output_parts.append("=== PRIOR EDICT KNOWLEDGE ===")
+        output_parts.extend(prior_parts)
+    if current_parts:
+        output_parts.append("\n=== CURRENT SESSION ===")
+        output_parts.extend(current_parts)
+
+    return "\n".join(output_parts)
+
+
 async def _handle_get_session_context(
     memory_dir: Path,
+    project_root: Path | None,
     args: dict[str, object],  # noqa: ARG001
 ) -> dict[str, object]:
     import asyncio
 
-    if not memory_dir.exists():
+    # Check if either memory source exists
+    project_memory_exists = (
+        project_root is not None
+        and (project_root / ".golem" / "memory").exists()
+    )
+    if not memory_dir.exists() and not project_memory_exists:
         return {"content": [{"type": "text", "text": "No session context available yet."}]}
 
     # Offload all file I/O to a thread so the asyncio event loop stays responsive.
-    text = await asyncio.to_thread(_read_session_context_sync, memory_dir)
+    text = await asyncio.to_thread(_read_session_context_sync, memory_dir, project_root)
     if not text:
         return {"content": [{"type": "text", "text": "No session context available yet."}]}
 
@@ -809,7 +918,8 @@ def build_tool_registry(
         return SdkMcpTool(
             name="get_session_context",
             description=(
-                "Get context from previous sessions: codebase discoveries, gotchas, and patterns. "
+                "Get context from previous sessions and prior edicts: codebase discoveries, "
+                "gotchas, patterns, and debrief summaries. "
                 "Call at session start to pick up where the last session left off."
             ),
             input_schema={
@@ -818,7 +928,7 @@ def build_tool_registry(
             },
             handler=_wrap_handler(
                 "get_session_context",
-                partial(_handle_get_session_context, memory_dir),
+                partial(_handle_get_session_context, memory_dir, project_root),
             ),
         )
 
