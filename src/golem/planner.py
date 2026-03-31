@@ -117,7 +117,7 @@ async def _run_planner_session(
         setting_sources=sources,
         max_turns=config.planner_max_turns,
         permission_mode="bypassPermissions",
-        env=sdk_env(),
+        env=sdk_env(session_id=config.session_id, golem_dir=str(golem_dir)),
     )
 
     stall_cfg = stall_config_for_role("planner", config.planner_max_turns, skip_research=config.skip_research)

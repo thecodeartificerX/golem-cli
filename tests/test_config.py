@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from golem.config import ComplexityProfile, GolemConfig, load_config, save_config, sdk_env
+from golem.config import GolemConfig, load_config, save_config, sdk_env
 
 
 def test_golem_config_defaults() -> None:
@@ -518,3 +518,93 @@ def test_session_fields_roundtrip() -> None:
         loaded = load_config(golem_dir)
         assert loaded.session_id == "auth-flow-1"
         assert loaded.branch_prefix == "golem/auth-flow-1"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 budget fields
+# ---------------------------------------------------------------------------
+
+
+def test_budget_field_defaults() -> None:
+    """Budget fields must have the correct default values."""
+    config = GolemConfig()
+    assert config.planner_budget_usd == 2.0
+    assert config.tech_lead_budget_usd == 5.0
+    assert config.worker_budget_usd == 1.0
+    assert config.fallback_model == "claude-sonnet-4-6"
+
+
+def test_apply_complexity_profile_budget_trivial() -> None:
+    """TRIVIAL profile sets minimal budget caps."""
+    config = GolemConfig()
+    config.apply_complexity_profile("TRIVIAL")
+    assert config.planner_budget_usd == 0.10
+    assert config.tech_lead_budget_usd == 0.0
+    assert config.worker_budget_usd == 0.25
+
+
+def test_apply_complexity_profile_budget_simple() -> None:
+    """SIMPLE profile sets moderate budget caps."""
+    config = GolemConfig()
+    config.apply_complexity_profile("SIMPLE")
+    assert config.planner_budget_usd == 0.50
+    assert config.tech_lead_budget_usd == 1.0
+    assert config.worker_budget_usd == 0.50
+
+
+def test_apply_complexity_profile_budget_standard() -> None:
+    """STANDARD profile sets default budget caps (matching GolemConfig defaults)."""
+    config = GolemConfig()
+    config.apply_complexity_profile("STANDARD")
+    assert config.planner_budget_usd == 2.0
+    assert config.tech_lead_budget_usd == 5.0
+    assert config.worker_budget_usd == 1.0
+
+
+def test_apply_complexity_profile_budget_critical() -> None:
+    """CRITICAL profile sets elevated budget caps."""
+    config = GolemConfig()
+    config.apply_complexity_profile("CRITICAL")
+    assert config.planner_budget_usd == 5.0
+    assert config.tech_lead_budget_usd == 10.0
+    assert config.worker_budget_usd == 2.0
+
+
+def test_budget_fields_roundtrip(tmp_path: Path) -> None:
+    """Budget fields survive a full save -> load round-trip."""
+    config = GolemConfig(planner_budget_usd=3.5, tech_lead_budget_usd=7.0, worker_budget_usd=1.5)
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.planner_budget_usd == 3.5
+    assert loaded.tech_lead_budget_usd == 7.0
+    assert loaded.worker_budget_usd == 1.5
+
+
+def test_fallback_model_default() -> None:
+    """fallback_model must default to claude-sonnet-4-6."""
+    config = GolemConfig()
+    assert config.fallback_model == "claude-sonnet-4-6"
+
+
+def test_fallback_model_roundtrip(tmp_path: Path) -> None:
+    """fallback_model survives a full save -> load round-trip."""
+    config = GolemConfig(fallback_model="claude-haiku-4-5-20251001")
+    save_config(config, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.fallback_model == "claude-haiku-4-5-20251001"
+
+
+def test_sdk_env_with_session_id_and_golem_dir() -> None:
+    """sdk_env with session_id and golem_dir includes those values in the returned dict."""
+    env = sdk_env(session_id="test-123", golem_dir="/tmp/golem")
+    assert env.get("GOLEM_SESSION_ID") == "test-123"
+    assert env.get("GOLEM_DIR") == "/tmp/golem"
+    assert env.get("ANTHROPIC_API_KEY") == ""
+    assert env.get("GOLEM_SDK_SESSION") == "1"
+
+
+def test_sdk_env_without_optional_args() -> None:
+    """sdk_env() with no args does not include GOLEM_SESSION_ID or GOLEM_DIR."""
+    env = sdk_env()
+    assert "GOLEM_SESSION_ID" not in env
+    assert "GOLEM_DIR" not in env
