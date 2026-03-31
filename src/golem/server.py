@@ -653,24 +653,20 @@ def create_app() -> FastAPI:
             meta.status = "created"
             write_session(session_dir, meta)
 
-        # Register MCP tools for this session
-        from golem.tools import _build_tools
-        mcp_tools = _build_tools(session_dir, GolemConfig(), project_root)
-        mcp_registry.register(session_id, mcp_tools)
+        # Register MCP tools for this session using the canonical factory functions.
+        from golem.tools import build_tool_registry
+        from golem.tool_registry import ToolContext
+        session_config = GolemConfig()
+        session_config.session_id = session_id
+        tool_reg = build_tool_registry(session_dir, session_config, project_root)
 
-        # Register Junior Dev tools (limited set) for this session
-        from functools import partial
-        from claude_agent_sdk import SdkMcpTool
-        from golem.tools import _handle_run_qa, _handle_update_ticket, _handle_read_ticket
-        from golem.tools import _RUN_QA_INPUT_SCHEMA, _UPDATE_TICKET_INPUT_SCHEMA, _READ_TICKET_INPUT_SCHEMA
-        from golem.tickets import TicketStore
-        jd_store = TicketStore(session_dir / "tickets")
-        jd_tools = [
-            SdkMcpTool(name="run_qa", description="Run deterministic QA checks in a worktree.", input_schema=_RUN_QA_INPUT_SCHEMA, handler=_handle_run_qa),
-            SdkMcpTool(name="update_ticket", description="Update ticket status and append a history event.", input_schema=_UPDATE_TICKET_INPUT_SCHEMA, handler=partial(_handle_update_ticket, jd_store)),
-            SdkMcpTool(name="read_ticket", description="Read a ticket by ID.", input_schema=_READ_TICKET_INPUT_SCHEMA, handler=partial(_handle_read_ticket, jd_store)),
-        ]
-        mcp_registry.register(f"{session_id}-jd", jd_tools)
+        # Tech lead gets the full tool set (all 12 tools).
+        tl_ctx = ToolContext(golem_dir=session_dir, project_root=project_root, agent_type="tech_lead")
+        mcp_registry.register(session_id, tool_reg.get_tools_for_agent("tech_lead", tl_ctx))
+
+        # Junior dev gets the writer tool set (run_qa, update_ticket, read_ticket, memory tools).
+        jd_ctx = ToolContext(golem_dir=session_dir, project_root=project_root, agent_type="writer")
+        mcp_registry.register(f"{session_id}-jd", tool_reg.get_tools_for_agent("writer", jd_ctx))
 
         return {"session_id": session_id, "status": "created"}
 

@@ -19,6 +19,10 @@ _EXPECTED_TOOL_NAMES = {
     "create_worktree",
     "merge_branches",
     "commit_worktree",
+    "get_build_progress",
+    "record_discovery",
+    "record_gotcha",
+    "get_session_context",
 }
 
 
