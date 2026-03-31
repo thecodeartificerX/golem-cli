@@ -99,6 +99,10 @@ class GolemConfig:
     # Fallback model when primary is unavailable
     fallback_model: str = "claude-sonnet-4-6"
 
+    edict_max_retries: int = 3              # max self-heal retries before needs_attention
+    edict_auto_start: bool = True           # auto-start pipeline on edict creation
+    repo_registry_path: str = ""            # override for repos.json location (empty = ~/.golem/repos.json)
+
     # Complexity profiles (defaults provided, operator can override)
     complexity_profiles: dict[str, dict] = field(default_factory=lambda: {
         "TRIVIAL": {
@@ -182,7 +186,7 @@ class GolemConfig:
         self.max_tech_lead_turns = profile_dict.get("tech_lead_max_turns", self.max_tech_lead_turns)
         self.worker_model = profile_dict.get("worker_model", self.worker_model)
         self.max_worker_turns = profile_dict.get("worker_max_turns", self.max_worker_turns)
-        self.skip_tech_lead = profile_dict.get("skip_tech_lead", False)
+        self.skip_tech_lead = profile_dict.get("skip_tech_lead", self.skip_tech_lead)
         # New tier-gating fields
         self.skip_research = profile_dict.get("skip_research", self.skip_research)
         self.max_writer_retries = profile_dict.get("max_writer_retries", self.max_writer_retries)
@@ -278,6 +282,9 @@ class GolemConfig:
             warnings.append(f"merge_strategy must be 'sequential' or 'file_overlap_first', got {self.merge_strategy!r}")
         if self.max_rework_attempts < 0:
             warnings.append(f"max_rework_attempts must be >= 0, got {self.max_rework_attempts}")
+
+        if self.edict_max_retries < 0:
+            warnings.append("edict_max_retries must be >= 0")
 
         # Parallel executor settings
         if self.max_concurrency < 1:

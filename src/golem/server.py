@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -22,7 +23,16 @@ from golem.events import EventBus, FanoutBackend, FileBackend, QueueBackend
 from golem.mcp_sse import McpSessionRegistry
 from golem.merge import MergeCoordinator
 from golem.session import create_session_dir, generate_session_id, read_session, write_session
-from golem.ui import format_sse
+from golem.tickets import TicketStore
+
+# ---------------------------------------------------------------------------
+# SSE helper (moved from legacy ui.py)
+# ---------------------------------------------------------------------------
+
+
+def format_sse(event_type: str, data: dict[str, object]) -> str:
+    """Format a Server-Sent Event string with correct wire format."""
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 if TYPE_CHECKING:
     from golem.tickets import Ticket
@@ -52,6 +62,22 @@ class GuidanceRequest(BaseModel):
 class TicketStatusPatchRequest(BaseModel):
     status: str
     note: str = "Manual status change via board UI"
+
+
+class AddRepoRequest(BaseModel):
+    path: str
+
+
+class RepoResponse(BaseModel):
+    id: str
+    path: str
+    name: str
+    added_at: str
+
+
+class CreateEdictRequest(BaseModel):
+    title: str
+    body: str
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +176,56 @@ class SessionState:
     log_buffer: deque[dict[str, str | None]] = field(default_factory=lambda: deque(maxlen=200))
     background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     resume_event: asyncio.Event = field(default_factory=_make_set_event)
+
+
+@dataclass
+class EdictState:
+    id: str
+    repo_id: str
+    repo_path: str
+    title: str
+    body: str
+    status: str = "pending"
+    created_at: str = ""
+    pipeline: object | None = None  # PipelineCoordinator at runtime
+    task: asyncio.Task | None = None  # type: ignore[type-arg]
+    tail_task: asyncio.Task | None = None  # type: ignore[type-arg]
+    event_queue: asyncio.Queue[str] = field(default_factory=lambda: asyncio.Queue())
+    observe_queue: asyncio.Queue[object] = field(default_factory=lambda: asyncio.Queue())
+    log_buffer: deque[dict[str, str | None]] = field(default_factory=lambda: deque(maxlen=200))
+    resume_event: asyncio.Event = field(default_factory=asyncio.Event)
+    cost_usd: float = 0.0
+    pr_url: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.created_at:
+            self.created_at = datetime.now(tz=UTC).isoformat()
+        self.resume_event.set()
+
+
+class EdictManager:
+    def __init__(self) -> None:
+        self._edicts: dict[str, EdictState] = {}
+
+    def create_edict(self, repo_id: str, repo_path: str, title: str, body: str) -> EdictState:
+        nums = [int(k.split("-")[1]) for k in self._edicts if k.startswith("EDICT-")]
+        next_num = (max(nums) + 1) if nums else 1
+        edict_id = f"EDICT-{next_num:03d}"
+        state = EdictState(id=edict_id, repo_id=repo_id, repo_path=repo_path, title=title, body=body)
+        self._edicts[edict_id] = state
+        return state
+
+    def get_edict(self, edict_id: str) -> EdictState | None:
+        return self._edicts.get(edict_id)
+
+    def list_edicts(self, repo_id: str | None = None) -> list[EdictState]:
+        edicts = list(self._edicts.values())
+        if repo_id:
+            edicts = [e for e in edicts if e.repo_id == repo_id]
+        return edicts
+
+    def remove_edict(self, edict_id: str) -> bool:
+        return self._edicts.pop(edict_id, None) is not None
 
 
 class SessionManager:
@@ -391,7 +467,7 @@ async def run_session(
     from golem.planner import run_planner
     from golem.progress import ProgressLogger
     from golem.tech_lead import run_tech_lead
-    from golem.writer import spawn_junior_dev
+    from golem.junior_dev import spawn_junior_dev
 
     # Capture stderr to session.log for post-mortem debugging
     golem_dir.mkdir(parents=True, exist_ok=True)
@@ -493,6 +569,7 @@ def _on_session_done(task: asyncio.Task[None], state: SessionState, mgr: Session
 # ---------------------------------------------------------------------------
 
 _template_html: str = ""
+_dashboard_html: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +579,7 @@ _template_html: str = ""
 
 def create_app() -> FastAPI:
     """Create and return the configured FastAPI application instance."""
-    global _template_html, _startup_time
+    global _template_html, _dashboard_html, _startup_time
 
     _startup_time = datetime.now(tz=UTC)
 
@@ -516,12 +593,28 @@ def create_app() -> FastAPI:
             "<body><p>Dashboard template not found.</p></body></html>"
         )
 
+    # Load dashboard template
+    dashboard_path = Path(__file__).parent / "dashboard.html"
+    if dashboard_path.exists():
+        _dashboard_html = dashboard_path.read_text(encoding="utf-8")
+
     # Resolve golem_dir — default to cwd / .golem
     golem_dir = Path(os.environ.get("GOLEM_DIR", "")) or Path.cwd() / ".golem"
     sessions_dir = golem_dir / "sessions"
     session_mgr = SessionManager(sessions_dir)
     mcp_registry = McpSessionRegistry()
     merge_coordinator = MergeCoordinator(golem_dir, session_mgr)
+
+    # Determine registry path for repo management
+    from golem.repos import RepoRegistry
+    registry_path_str = os.environ.get("GOLEM_REGISTRY_PATH", "")
+    if not registry_path_str:
+        registry_path_str = str(Path.home() / ".golem" / "repos.json")
+    registry_path = Path(registry_path_str)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    repo_registry = RepoRegistry(registry_path)
+
+    edict_mgr = EdictManager()
 
     # Queues for aggregate SSE stream (one per connected client)
     _aggregate_queues: set[asyncio.Queue[str]] = set()
@@ -592,6 +685,12 @@ def create_app() -> FastAPI:
                         s.process.terminate()
                     except (ProcessLookupError, OSError):
                         pass
+            # Cancel any running edict pipelines and their log tailers
+            for state in edict_mgr.list_edicts():
+                if state.task and not state.task.done():
+                    state.task.cancel()
+                if state.tail_task and not state.tail_task.done():
+                    state.tail_task.cancel()
 
     app = FastAPI(title="Golem Server", lifespan=lifespan)
 
@@ -601,20 +700,33 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
+        return HTMLResponse(_dashboard_html or _template_html)
+
+    @app.get("/legacy", response_class=HTMLResponse)
+    async def legacy_ui() -> HTMLResponse:
         return HTMLResponse(_template_html)
 
     @app.get("/api/server/status")
     async def server_status() -> dict[str, object]:
         uptime = (datetime.now(tz=UTC) - _startup_time).total_seconds()
         sessions = session_mgr.list_sessions()
-        counts: dict[str, int] = {}
+        session_counts: dict[str, int] = {}
         for s in sessions:
-            counts[s.status] = counts.get(s.status, 0) + 1
+            session_counts[s.status] = session_counts.get(s.status, 0) + 1
+
+        edict_counts: dict[str, int] = {}
+        for e in edict_mgr.list_edicts():
+            edict_counts[e.status] = edict_counts.get(e.status, 0) + 1
+
+        repos = await repo_registry.list_repos()
+
         return {
             "pid": os.getpid(),
             "port": int(os.environ.get("GOLEM_PORT", 7665)),
             "uptime_seconds": round(uptime, 1),
-            "session_counts": counts,
+            "repo_count": len(repos),
+            "edict_counts": edict_counts,
+            "session_counts": session_counts,
         }
 
     @app.post("/api/server/stop")
@@ -1325,4 +1437,521 @@ def create_app() -> FastAPI:
         entries.sort(key=lambda e: e["timestamp"])
         return entries
 
+    # ------------------------------------------------------------------
+    # Task 4.1: Repo management endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/repos")
+    async def list_repos() -> list[dict[str, str]]:
+        repos = await repo_registry.list_repos()
+        return [r.to_dict() for r in repos]
+
+    @app.post("/api/repos", status_code=201)
+    async def add_repo(req: AddRepoRequest) -> dict[str, str]:
+        from fastapi import HTTPException
+        try:
+            repo = await repo_registry.add(req.path)
+            return repo.to_dict()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.delete("/api/repos/{repo_id}", status_code=204)
+    async def remove_repo(repo_id: str) -> None:
+        from fastapi import HTTPException
+        removed = await repo_registry.remove(repo_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Repo not found")
+
+    # ------------------------------------------------------------------
+    # Task 4.2: Edict CRUD endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/repos/{repo_id}/edicts")
+    async def list_edicts(repo_id: str) -> list[dict[str, object]]:
+        return [
+            {
+                "id": e.id, "repo_id": e.repo_id, "title": e.title, "body": e.body,
+                "status": e.status, "created_at": e.created_at, "cost_usd": e.cost_usd,
+                "pr_url": e.pr_url,
+            }
+            for e in edict_mgr.list_edicts(repo_id)
+        ]
+
+    async def _auto_start_edict(state: EdictState, _server_golem_dir: Path) -> None:
+        """Launch the pipeline for a newly created edict."""
+        from golem.session import create_edict_dir
+        from golem.edict import Edict, EdictStore
+        from golem.pipeline import PipelineCoordinator
+
+        # Use the TARGET repo's .golem/, not the server's own
+        repo_golem_dir = Path(state.repo_path) / ".golem"
+        repo_golem_dir.mkdir(parents=True, exist_ok=True)
+
+        edict_dir = create_edict_dir(repo_golem_dir / "edicts", state.id)
+        edict_store = EdictStore(repo_golem_dir / "edicts")
+        edict_obj = Edict(
+            id=state.id, repo_path=state.repo_path,
+            title=state.title, body=state.body,
+        )
+        await edict_store.create(edict_obj)
+
+        ticket_store_obj = TicketStore(edict_dir / "tickets")
+        config = GolemConfig()
+
+        observe_backend = QueueBackend(state.observe_queue)
+        file_backend = FileBackend(edict_dir / "events.jsonl")
+        event_bus_obj = EventBus(FanoutBackend([observe_backend, file_backend]))
+
+        srv_url = f"http://127.0.0.1:{os.environ.get('GOLEM_PORT', '7665')}"
+        pipeline = PipelineCoordinator(
+            edict=edict_obj, edict_store=edict_store,
+            ticket_store=ticket_store_obj, config=config,
+            project_root=Path(state.repo_path), golem_dir=repo_golem_dir,
+            event_bus=event_bus_obj, server_url=srv_url,
+        )
+        state.pipeline = pipeline
+        state.status = "running"
+
+        async def _run_pipeline() -> None:
+            pipeline_result = await pipeline.run()
+            state.status = pipeline_result.status
+            state.cost_usd = pipeline_result.total_cost_usd
+            state.pr_url = pipeline_result.pr_url
+
+        task = asyncio.create_task(_run_pipeline())
+        state.task = task
+
+        def _on_task_done(t: asyncio.Task) -> None:  # type: ignore[type-arg]
+            if t.cancelled():
+                state.status = "failed"
+                return
+            exc = t.exception()
+            if exc:
+                import traceback
+                print(f"[PIPELINE] Background task exception: {exc}", file=sys.stderr)
+                traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+                state.status = "failed"
+
+        task.add_done_callback(_on_task_done)
+
+        # Tail progress.log AND session.log into the SSE event_queue for the Logs tab
+        async def _tail_edict_log() -> None:
+            log_files = {
+                edict_dir / "progress.log": 0,
+                edict_dir / "session.log": 0,
+            }
+            while state.task and not state.task.done():
+                await asyncio.sleep(0.5)
+                for log_path in list(log_files):
+                    if not log_path.exists():
+                        continue
+                    try:
+                        with open(log_path, encoding="utf-8") as f:
+                            f.seek(log_files[log_path])
+                            new_content = f.read()
+                            log_files[log_path] = f.tell()
+                    except OSError:
+                        continue
+                    for raw_line in new_content.splitlines():
+                        if not raw_line.strip():
+                            continue
+                        entry: dict[str, str | None] = {"message": raw_line, "raw": raw_line}
+                        state.log_buffer.append(entry)
+                        await state.event_queue.put(format_sse("log", entry))
+
+        state.tail_task = asyncio.create_task(_tail_edict_log())
+
+    @app.post("/api/repos/{repo_id}/edicts", status_code=201)
+    async def create_edict(repo_id: str, req: CreateEdictRequest) -> dict[str, object]:
+        from fastapi import HTTPException
+        repo = await repo_registry.get(repo_id)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repo not found")
+        state = edict_mgr.create_edict(repo_id, repo.path, req.title, req.body)
+
+        # Auto-start the pipeline if configured (skip in test mode)
+        config = GolemConfig()
+        if config.edict_auto_start and not os.environ.get("GOLEM_TEST_MODE"):
+            await _auto_start_edict(state, golem_dir)
+
+        return {
+            "id": state.id, "repo_id": state.repo_id, "title": state.title,
+            "body": state.body, "status": state.status, "created_at": state.created_at,
+        }
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}")
+    async def get_edict(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        return {
+            "id": state.id, "repo_id": state.repo_id, "title": state.title,
+            "body": state.body, "status": state.status, "created_at": state.created_at,
+            "cost_usd": state.cost_usd, "pr_url": state.pr_url,
+        }
+
+    @app.patch("/api/repos/{repo_id}/edicts/{edict_id}")
+    async def update_edict(repo_id: str, edict_id: str, req: Request) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        body = await req.json()
+        if "title" in body:
+            state.title = body["title"]
+        if "body" in body:
+            state.body = body["body"]
+        return {"id": state.id, "title": state.title, "body": state.body, "status": state.status}
+
+    @app.delete("/api/repos/{repo_id}/edicts/{edict_id}", status_code=204)
+    async def delete_edict(repo_id: str, edict_id: str) -> None:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        edict_mgr.remove_edict(edict_id)
+
+    @app.post("/api/repos/{repo_id}/edicts/{edict_id}/start")
+    async def start_edict(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        if state.status not in ("pending", "needs_attention"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot start edict in '{state.status}' status",
+            )
+
+        from golem.session import create_edict_dir
+        from golem.edict import Edict, EdictStore
+        from golem.pipeline import PipelineCoordinator
+
+        # Use the TARGET repo's .golem/, not the server's own
+        repo_golem_dir = Path(state.repo_path) / ".golem"
+        repo_golem_dir.mkdir(parents=True, exist_ok=True)
+
+        edict_dir = create_edict_dir(repo_golem_dir / "edicts", edict_id)
+        edict_store = EdictStore(repo_golem_dir / "edicts")
+        edict_obj = Edict(id=edict_id, repo_path=state.repo_path, title=state.title, body=state.body)
+        await edict_store.create(edict_obj)
+
+        ticket_store_obj = TicketStore(edict_dir / "tickets")
+        config = GolemConfig()
+
+        observe_backend = QueueBackend(state.observe_queue)
+        file_backend = FileBackend(edict_dir / "events.jsonl")
+        event_bus = EventBus(FanoutBackend([observe_backend, file_backend]))
+
+        srv_url = f"http://127.0.0.1:{os.environ.get('GOLEM_PORT', '7665')}"
+        pipeline = PipelineCoordinator(
+            edict=edict_obj,
+            edict_store=edict_store,
+            ticket_store=ticket_store_obj,
+            config=config,
+            project_root=Path(state.repo_path),
+            golem_dir=repo_golem_dir,
+            event_bus=event_bus,
+            server_url=srv_url,
+        )
+        state.pipeline = pipeline
+        state.status = "running"
+
+        async def _run_pipeline() -> None:
+            result = await pipeline.run()
+            state.status = result.status
+            state.cost_usd = result.total_cost_usd
+            state.pr_url = result.pr_url
+
+        task = asyncio.create_task(_run_pipeline())
+        state.task = task
+
+        def _on_task_done(t: asyncio.Task) -> None:  # type: ignore[type-arg]
+            if t.cancelled():
+                state.status = "failed"
+                return
+            exc = t.exception()
+            if exc:
+                import traceback
+                print(f"[PIPELINE] Background task exception: {exc}", file=sys.stderr)
+                traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+                state.status = "failed"
+
+        task.add_done_callback(_on_task_done)
+
+        async def _tail_edict_log() -> None:
+            log_files = {
+                edict_dir / "progress.log": 0,
+                edict_dir / "session.log": 0,
+            }
+            while state.task and not state.task.done():
+                await asyncio.sleep(0.5)
+                for log_path in list(log_files):
+                    if not log_path.exists():
+                        continue
+                    try:
+                        with open(log_path, encoding="utf-8") as f:
+                            f.seek(log_files[log_path])
+                            new_content = f.read()
+                            log_files[log_path] = f.tell()
+                    except OSError:
+                        continue
+                    for raw_line in new_content.splitlines():
+                        if not raw_line.strip():
+                            continue
+                        entry: dict[str, str | None] = {"message": raw_line, "raw": raw_line}
+                        state.log_buffer.append(entry)
+                        await state.event_queue.put(format_sse("log", entry))
+
+        state.tail_task = asyncio.create_task(_tail_edict_log())
+        return {"id": state.id, "status": state.status}
+
+    @app.post("/api/repos/{repo_id}/edicts/{edict_id}/pause")
+    async def pause_edict(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        if state.pipeline:
+            await state.pipeline.pause()  # type: ignore[union-attr]
+            state.status = "paused"
+        return {"id": state.id, "status": state.status}
+
+    @app.post("/api/repos/{repo_id}/edicts/{edict_id}/resume")
+    async def resume_edict(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        if state.pipeline:
+            await state.pipeline.resume()  # type: ignore[union-attr]
+            state.status = "running"
+        return {"id": state.id, "status": state.status}
+
+    @app.post("/api/repos/{repo_id}/edicts/{edict_id}/kill")
+    async def kill_edict(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        if state.pipeline:
+            await state.pipeline.kill()  # type: ignore[union-attr]
+        if state.task and not state.task.done():
+            state.task.cancel()
+        state.status = "failed"
+        return {"id": state.id, "status": state.status}
+
+    @app.post("/api/repos/{repo_id}/edicts/{edict_id}/guidance")
+    async def send_edict_guidance(
+        repo_id: str, edict_id: str, req: GuidanceRequest
+    ) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        if state.pipeline:
+            await state.pipeline.send_guidance(req.text)  # type: ignore[union-attr]
+        return {"id": state.id, "status": "guidance_sent"}
+
+    # ------------------------------------------------------------------
+    # Task 4.3: Pipeline board and observability endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/board")
+    async def get_edict_board(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+
+        edict_dir = Path(state.repo_path) / ".golem" / "edicts" / edict_id
+        tickets_dir = edict_dir / "tickets"
+        columns: dict[str, dict[str, object]] = {
+            "planner": {"count": 0, "active": state.status == "planning", "tickets": []},
+            "tech_lead": {"count": 0, "tickets": []},
+            "junior_dev": {"count": 0, "tickets": []},
+            "qa": {"count": 0, "tickets": []},
+            "done": {"count": 0, "tickets": []},
+            "failed": {"count": 0, "tickets": []},
+        }
+
+        if tickets_dir.exists():
+            ticket_store = TicketStore(tickets_dir)
+            tickets = await ticket_store.list_tickets()
+            for t in tickets:
+                stage = t.pipeline_stage or "tech_lead"
+                if stage in columns:
+                    col_tickets = columns[stage]["tickets"]
+                    assert isinstance(col_tickets, list)
+                    col_tickets.append({
+                        "id": t.id, "title": t.title, "status": t.status,
+                        "agent_id": t.agent_id, "pipeline_stage": stage,
+                    })
+                    columns[stage]["count"] = len(col_tickets)
+
+        return {
+            "edict_id": edict_id,
+            "columns": columns,
+            "column_order": ["planner", "tech_lead", "junior_dev", "qa", "done", "failed"],
+        }
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/tickets")
+    async def get_edict_tickets(repo_id: str, edict_id: str) -> list[dict[str, object]]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        edict_dir = Path(state.repo_path) / ".golem" / "edicts" / edict_id / "tickets"
+        if not edict_dir.exists():
+            return []
+        ticket_store = TicketStore(edict_dir)
+        tickets = await ticket_store.list_tickets()
+        return [
+            {
+                "id": t.id, "title": t.title, "status": t.status,
+                "pipeline_stage": t.pipeline_stage, "agent_id": t.agent_id,
+            }
+            for t in tickets
+        ]
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/tickets/{ticket_id}")
+    async def get_edict_ticket_detail(
+        repo_id: str, edict_id: str, ticket_id: str
+    ) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        edict_dir = Path(state.repo_path) / ".golem" / "edicts" / edict_id / "tickets"
+        if not edict_dir.exists():
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        ticket_store = TicketStore(edict_dir)
+        try:
+            ticket = await ticket_store.read(ticket_id)
+            import dataclasses
+            return dataclasses.asdict(ticket)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/dependencies")
+    async def get_edict_dependencies(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        from golem.tickets import compute_waves, get_dependency_graph
+
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+
+        tickets_dir = Path(state.repo_path) / ".golem" / "edicts" / edict_id / "tickets"
+        tickets: list[Ticket] = []
+        if tickets_dir.exists():
+            ticket_store = TicketStore(tickets_dir)
+            tickets = await ticket_store.list_tickets()
+
+        graph = get_dependency_graph(tickets)
+        cycle_detected = False
+        waves: list[list[str]] = []
+        try:
+            waves = compute_waves(tickets)
+        except ValueError:
+            cycle_detected = True
+
+        return {"graph": graph, "waves": waves, "cycle_detected": cycle_detected}
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/observe")
+    async def observe_edict(repo_id: str, edict_id: str) -> StreamingResponse:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+
+        async def _stream() -> AsyncGenerator[str, None]:
+            while True:
+                try:
+                    event = await asyncio.wait_for(state.observe_queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(event) if isinstance(event, dict) else str(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+
+        return StreamingResponse(_stream(), media_type="text/event-stream")
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/logs")
+    async def edict_logs(repo_id: str, edict_id: str) -> StreamingResponse:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+
+        async def _stream() -> AsyncGenerator[str, None]:
+            for entry in list(state.log_buffer):
+                yield format_sse("log", entry)
+            while True:
+                try:
+                    event = await asyncio.wait_for(state.event_queue.get(), timeout=30.0)
+                    yield event
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+
+        return StreamingResponse(_stream(), media_type="text/event-stream")
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/cost")
+    async def edict_cost(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        return {"edict_id": edict_id, "total_cost_usd": state.cost_usd, "breakdown": []}
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/diff")
+    async def edict_diff(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        return {"edict_id": edict_id, "diff": ""}
+
+    @app.get("/api/repos/{repo_id}/edicts/{edict_id}/plan")
+    async def edict_plan(repo_id: str, edict_id: str) -> dict[str, object]:
+        from fastapi import HTTPException
+        state = edict_mgr.get_edict(edict_id)
+        if not state or state.repo_id != repo_id:
+            raise HTTPException(status_code=404, detail="Edict not found")
+        edict_dir = Path(state.repo_path) / ".golem" / "edicts" / edict_id
+        plan_path = edict_dir / "plans" / "overview.md"
+        content = ""
+        if plan_path.exists():
+            content = plan_path.read_text(encoding="utf-8")
+        return {"edict_id": edict_id, "plan": content}
+
     return app
+
+
+# ---------------------------------------------------------------------------
+# Server lifecycle helpers (moved from legacy ui.py, used by CLI `ui` command)
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+
+_ui_logger = _logging.getLogger("golem.ui")
+
+
+def configure_logging(debug: bool = False) -> None:
+    """Configure the golem.ui logger with formatted console output."""
+    level = _logging.DEBUG if debug else _logging.INFO
+    handler = _logging.StreamHandler()
+    handler.setFormatter(_logging.Formatter("[%(asctime)s] [UI] %(message)s", datefmt="%H:%M:%S"))
+    _ui_logger.addHandler(handler)
+    _ui_logger.setLevel(level)
+
+
+def start_server(
+    host: str = "127.0.0.1", port: int = 7665, log_level: str = "warning", debug: bool = False
+) -> None:
+    """Start the uvicorn server for the legacy single-session UI. Blocks until Ctrl+C."""
+    import uvicorn
+
+    configure_logging(debug=debug)
+    _ui_logger.info("Golem UI server starting on %s:%d", host, port)
+    app = create_app()
+    uvicorn.run(app, host=host, port=port, log_level="info" if debug else log_level)

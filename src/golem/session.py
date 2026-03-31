@@ -102,6 +102,15 @@ def create_session_dir(sessions_dir: Path, session_id: str, spec_path: Path) -> 
     return session_dir
 
 
+def create_edict_dir(edicts_dir: Path, edict_id: str) -> Path:
+    """Create the directory scaffold for an edict."""
+    edict_dir = edicts_dir / edict_id
+    edict_dir.mkdir(parents=True, exist_ok=True)
+    for sub in ("tickets", "plans", "research", "references", "reports", "worktrees"):
+        (edict_dir / sub).mkdir(exist_ok=True)
+    return edict_dir
+
+
 def delete_session_dir(sessions_dir: Path, session_id: str) -> bool:
     """Remove a session directory from disk. Returns True if removed."""
     session_dir = sessions_dir / session_id

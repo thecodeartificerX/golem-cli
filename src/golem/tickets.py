@@ -8,6 +8,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
+STAGE_PLANNER = "planner"
+STAGE_TECH_LEAD = "tech_lead"
+STAGE_JUNIOR_DEV = "junior_dev"
+STAGE_QA = "qa"
+STAGE_DONE = "done"
+STAGE_FAILED = "failed"
+
+
 def _write_json_atomic(path: Path, data: dict) -> None:  # type: ignore[type-arg]
     """Write JSON to path atomically via tmp+rename.
 
@@ -54,6 +62,9 @@ class Ticket:
     history: list[TicketEvent] = field(default_factory=list)
     session_id: str = ""
     depends_on: list[str] = field(default_factory=list)  # ticket IDs this ticket blocks on
+    edict_id: str = ""           # parent Edict reference (e.g., "EDICT-001")
+    pipeline_stage: str = ""     # determines board column
+    agent_id: str = ""           # which agent instance is handling this (e.g., "junior-dev-3")
 
 
 def _ticket_to_dict(ticket: Ticket) -> dict:
@@ -94,7 +105,68 @@ def _ticket_from_dict(data: dict) -> Ticket:
         history=history,
         session_id=data.get("session_id", ""),
         depends_on=data.get("depends_on", []),
+        edict_id=data.get("edict_id", ""),
+        pipeline_stage=data.get("pipeline_stage", ""),
+        agent_id=data.get("agent_id", ""),
     )
+
+
+def compute_waves(tickets: list[Ticket]) -> list[list[str]]:
+    """Compute execution waves from ticket dependencies using Kahn's algorithm.
+
+    Returns a list of waves, where each wave is a list of ticket IDs that can
+    execute in parallel (all their dependencies are in earlier waves).
+
+    Tickets with no dependencies go in wave 0.
+    Raises ValueError if there's a dependency cycle.
+    """
+    from collections import deque
+
+    if not tickets:
+        return []
+
+    ticket_ids: set[str] = {t.id for t in tickets}
+
+    # Build adjacency structures, ignoring missing dependency references
+    in_degree: dict[str, int] = {}
+    dependents: dict[str, list[str]] = {}  # dep_id -> list of tickets that depend on dep_id
+
+    for t in tickets:
+        valid_deps = [d for d in t.depends_on if d in ticket_ids]
+        in_degree[t.id] = len(valid_deps)
+        dependents.setdefault(t.id, [])
+        for d in valid_deps:
+            dependents.setdefault(d, []).append(t.id)
+
+    # Kahn's algorithm: process tickets in waves
+    queue: deque[str] = deque(tid for tid, deg in in_degree.items() if deg == 0)
+    wave_map: dict[str, int] = {tid: 0 for tid in queue}
+    processed = 0
+
+    while queue:
+        tid = queue.popleft()
+        processed += 1
+        for dep_id in dependents.get(tid, []):
+            wave_map[dep_id] = max(wave_map.get(dep_id, 0), wave_map[tid] + 1)
+            in_degree[dep_id] -= 1
+            if in_degree[dep_id] == 0:
+                queue.append(dep_id)
+
+    if processed != len(tickets):
+        cycle_members = sorted(tid for tid, deg in in_degree.items() if deg > 0)
+        raise ValueError(f"Dependency cycle detected involving: {', '.join(cycle_members)}")
+
+    # Group ticket IDs by wave, sorted within each wave for determinism
+    wave_buckets: dict[int, list[str]] = {}
+    for tid, wave_num in wave_map.items():
+        wave_buckets.setdefault(wave_num, []).append(tid)
+
+    return [sorted(wave_buckets[i]) for i in sorted(wave_buckets)]
+
+
+def get_dependency_graph(tickets: list[Ticket]) -> dict[str, list[str]]:
+    """Return {ticket_id: [depends_on_ids]} for all tickets. For board visualization."""
+    return {t.id: list(t.depends_on) for t in tickets}
 
 
 class TicketStore:
@@ -144,12 +216,18 @@ class TicketStore:
         note: str,
         attachments: list[str] | None = None,
         agent: str = "system",
+        pipeline_stage: str | None = None,
+        agent_id: str | None = None,
     ) -> None:
         async with self._lock:
             path = self._resolve_path(ticket_id)
             data = json.loads(path.read_text(encoding="utf-8"))
             ticket = _ticket_from_dict(data)
             ticket.status = status
+            if pipeline_stage is not None:
+                ticket.pipeline_stage = pipeline_stage
+            if agent_id is not None:
+                ticket.agent_id = agent_id
             ticket.history.append(
                 TicketEvent(
                     ts=datetime.now(tz=UTC).isoformat(),
@@ -165,6 +243,8 @@ class TicketStore:
         self,
         status_filter: str | None = None,
         assigned_to_filter: str | None = None,
+        edict_id_filter: str | None = None,
+        pipeline_stage_filter: str | None = None,
     ) -> list[Ticket]:
         if not self._dir.exists():
             return []
@@ -175,6 +255,10 @@ class TicketStore:
             if status_filter is not None and ticket.status != status_filter:
                 continue
             if assigned_to_filter is not None and ticket.assigned_to != assigned_to_filter:
+                continue
+            if edict_id_filter is not None and ticket.edict_id != edict_id_filter:
+                continue
+            if pipeline_stage_filter is not None and ticket.pipeline_stage != pipeline_stage_filter:
                 continue
             tickets.append(ticket)
         return tickets
