@@ -103,6 +103,26 @@ class PipelineCoordinator:
             except (OSError, ValueError):
                 pass
 
+        # Ensure project-level memory directory exists (persists across edicts)
+        project_memory_dir = Path(self._project_root) / ".golem" / "memory"
+        project_memory_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create .golem/.gitignore if it doesn't exist
+        golem_gitignore = Path(self._project_root) / ".golem" / ".gitignore"
+        if not golem_gitignore.exists():
+            golem_gitignore.write_text(
+                "# Ephemeral runtime state -- do not commit\n"
+                "edicts/\n"
+                "worktrees/\n"
+                "merge_staging/\n"
+                "conflict-log.json\n"
+                "config.json\n"
+                "\n"
+                "# Memory persists across edicts -- DO commit\n"
+                "!memory/\n",
+                encoding="utf-8",
+            )
+
         try:
             # Emit EdictCreated event
             if self._event_bus:

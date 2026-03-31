@@ -585,3 +585,217 @@ async def test_handle_tool_call_create_ticket_with_dependencies() -> None:
         assert data["depends_on"] == [ticket1_id]
         assert data["edict_id"] == "EDICT-001"
         assert data["pipeline_stage"] == "tech_lead"
+
+
+# ---------------------------------------------------------------------------
+# Memory system tests (Specs 1.3 + 2.1 + 2.3)
+# ---------------------------------------------------------------------------
+
+
+def test_read_session_context_reads_patterns_json_not_md(tmp_path: Path) -> None:
+    """_read_session_context_sync reads patterns.json (JSON) not patterns.md."""
+    from golem.tools import _read_session_context_sync
+
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+
+    # Write patterns.json (the format insight_extractor produces)
+    patterns_data = {
+        "patterns": ["Always use encoding='utf-8'", "Prefer pathlib over os.path"],
+        "recommendations": ["Add more type hints"],
+        "outcomes": ["Refactored config module"],
+    }
+    (memory_dir / "patterns.json").write_text(json.dumps(patterns_data), encoding="utf-8")
+
+    # Should NOT have a patterns.md — but even if present, .json takes precedence
+    result = _read_session_context_sync(memory_dir)
+    assert "Always use encoding" in result
+    assert "Prefer pathlib" in result
+    assert "[rec] Add more type hints" in result
+    assert "[outcome] Refactored config module" in result
+
+
+def test_read_session_context_ignores_patterns_md(tmp_path: Path) -> None:
+    """_read_session_context_sync does NOT read patterns.md (old format)."""
+    from golem.tools import _read_session_context_sync
+
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+
+    # Write only patterns.md — should be ignored
+    (memory_dir / "patterns.md").write_text("# Old patterns\n- something", encoding="utf-8")
+
+    result = _read_session_context_sync(memory_dir)
+    assert "Old patterns" not in result
+    assert "something" not in result
+
+
+def test_read_session_context_reads_project_memory(tmp_path: Path) -> None:
+    """get_session_context reads from project-level .golem/memory/ when it exists."""
+    from golem.tools import _read_session_context_sync
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    project_memory = project_root / ".golem" / "memory"
+    project_memory.mkdir(parents=True)
+
+    # Write project-level gotchas
+    (project_memory / "gotchas.md").write_text(
+        "# Gotchas\n\n## [2026-03-30]\nAlways close file handles\n",
+        encoding="utf-8",
+    )
+
+    edict_memory = tmp_path / "edict_memory"
+    edict_memory.mkdir()
+
+    result = _read_session_context_sync(edict_memory, project_root)
+    assert "PRIOR EDICT KNOWLEDGE" in result
+    assert "Always close file handles" in result
+
+
+def test_read_session_context_merges_both_memory_dirs(tmp_path: Path) -> None:
+    """Both project-level and edict-level memory are included in output."""
+    from golem.tools import _read_session_context_sync
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    project_memory = project_root / ".golem" / "memory"
+    project_memory.mkdir(parents=True)
+    (project_memory / "gotchas.md").write_text("# Gotchas\n\n## [2026-03-30]\nProject gotcha\n", encoding="utf-8")
+
+    edict_memory = tmp_path / "edict_memory"
+    edict_memory.mkdir()
+    (edict_memory / "gotchas.md").write_text("# Gotchas\n\n## [2026-03-31]\nEdict gotcha\n", encoding="utf-8")
+
+    result = _read_session_context_sync(edict_memory, project_root)
+    assert "PRIOR EDICT KNOWLEDGE" in result
+    assert "Project gotcha" in result
+    assert "CURRENT SESSION" in result
+    assert "Edict gotcha" in result
+
+
+def test_read_session_context_includes_debriefs(tmp_path: Path) -> None:
+    """Debrief files from .golem/memory/debriefs/ are included in output."""
+    from golem.tools import _read_session_context_sync
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    debriefs_dir = project_root / ".golem" / "memory" / "debriefs"
+    debriefs_dir.mkdir(parents=True)
+
+    (debriefs_dir / "2026-03-28-edict-001.md").write_text("Fixed auth module bugs.", encoding="utf-8")
+    (debriefs_dir / "2026-03-29-edict-002.md").write_text("Added config validation.", encoding="utf-8")
+
+    edict_memory = tmp_path / "edict_memory"
+    edict_memory.mkdir()
+
+    result = _read_session_context_sync(edict_memory, project_root)
+    assert "PRIOR EDICT KNOWLEDGE" in result
+    assert "Debriefs" in result
+    assert "Fixed auth module bugs" in result
+    assert "Added config validation" in result
+
+
+def test_read_session_context_limits_debriefs_to_5(tmp_path: Path) -> None:
+    """Only the 5 most recent debriefs are included (sorted by filename descending)."""
+    from golem.tools import _read_session_context_sync
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    debriefs_dir = project_root / ".golem" / "memory" / "debriefs"
+    debriefs_dir.mkdir(parents=True)
+
+    # Create 7 debrief files
+    for i in range(7):
+        (debriefs_dir / f"2026-03-{20 + i:02d}-edict-{i:03d}.md").write_text(
+            f"Debrief content {i}", encoding="utf-8"
+        )
+
+    edict_memory = tmp_path / "edict_memory"
+    edict_memory.mkdir()
+
+    result = _read_session_context_sync(edict_memory, project_root)
+    # Most recent 5 should be included (indices 2-6, since sorted desc)
+    assert "Debrief content 6" in result
+    assert "Debrief content 5" in result
+    assert "Debrief content 4" in result
+    assert "Debrief content 3" in result
+    assert "Debrief content 2" in result
+    # Oldest 2 should NOT be included
+    assert "Debrief content 0" not in result
+    assert "Debrief content 1" not in result
+
+
+def test_read_session_context_empty_returns_empty_string(tmp_path: Path) -> None:
+    """Empty memory dirs produce empty string (handler returns 'No session context' message)."""
+    from golem.tools import _read_session_context_sync
+
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = _read_session_context_sync(empty_dir)
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_handle_get_session_context_empty_returns_no_context_message(tmp_path: Path) -> None:
+    """An empty memory dir returns 'No session context available yet.' message."""
+    from golem.tools import _handle_get_session_context
+
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = await _handle_get_session_context(empty_dir, None, {})
+    text = result["content"][0]["text"]  # type: ignore[index]
+    assert text == "No session context available yet."
+
+
+@pytest.mark.asyncio
+async def test_handle_get_session_context_with_project_root(tmp_path: Path) -> None:
+    """get_session_context handler correctly passes project_root through."""
+    from golem.tools import _handle_get_session_context
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    project_memory = project_root / ".golem" / "memory"
+    project_memory.mkdir(parents=True)
+    (project_memory / "gotchas.md").write_text("# Gotchas\n\n## [2026-03-30]\nImportant gotcha\n", encoding="utf-8")
+
+    edict_memory = tmp_path / "edict_memory"
+    # edict_memory does NOT exist — only project memory
+
+    result = await _handle_get_session_context(edict_memory, project_root, {})
+    text = result["content"][0]["text"]  # type: ignore[index]
+    assert "Important gotcha" in text
+    assert "PRIOR EDICT KNOWLEDGE" in text
+
+
+def test_golem_gitignore_created_by_pipeline(tmp_path: Path) -> None:
+    """PipelineCoordinator.run() creates .golem/.gitignore with correct content."""
+    gitignore_path = tmp_path / ".golem" / ".gitignore"
+    (tmp_path / ".golem").mkdir(parents=True)
+
+    # Simulate what pipeline does
+    if not gitignore_path.exists():
+        gitignore_path.write_text(
+            "# Ephemeral runtime state -- do not commit\n"
+            "edicts/\n"
+            "worktrees/\n"
+            "merge_staging/\n"
+            "conflict-log.json\n"
+            "config.json\n"
+            "\n"
+            "# Memory persists across edicts -- DO commit\n"
+            "!memory/\n",
+            encoding="utf-8",
+        )
+
+    content = gitignore_path.read_text(encoding="utf-8")
+    assert "edicts/" in content
+    assert "worktrees/" in content
+    assert "merge_staging/" in content
+    assert "conflict-log.json" in content
+    assert "config.json" in content
+    assert "!memory/" in content
+    assert "do not commit" in content.lower()
+    assert "DO commit" in content

@@ -386,7 +386,7 @@ async def test_record_and_retrieve_discovery(tmp_path: Path) -> None:
         "description": "MCP tool registry",
         "category": "api",
     })
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     assert "src/golem/tools.py" in text
     assert "MCP tool registry" in text
@@ -441,7 +441,7 @@ async def test_record_gotcha_without_context(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_get_session_context_returns_empty_message_if_no_memory(tmp_path: Path) -> None:
     memory_dir = tmp_path / "nonexistent_memory"
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     assert "No session context" in text
 
@@ -451,7 +451,7 @@ async def test_get_session_context_returns_empty_if_no_data_in_memory(tmp_path: 
     """Memory dir exists but has no content."""
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     assert "No session context" in text
 
@@ -462,7 +462,7 @@ async def test_get_session_context_reads_discoveries_and_gotchas(tmp_path: Path)
     await _handle_record_discovery(memory_dir, {"file_path": "src/a.py", "description": "module A"})
     await _handle_record_gotcha(memory_dir, {"gotcha": "Watch out for X"})
 
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     assert "src/a.py" in text
     assert "module A" in text
@@ -473,9 +473,10 @@ async def test_get_session_context_reads_discoveries_and_gotchas(tmp_path: Path)
 async def test_get_session_context_reads_patterns_file(tmp_path: Path) -> None:
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
-    (memory_dir / "patterns.md").write_text("## Pattern: always use async", encoding="utf-8")
+    patterns_data = {"patterns": ["always use async"], "recommendations": [], "outcomes": []}
+    (memory_dir / "patterns.json").write_text(json.dumps(patterns_data), encoding="utf-8")
 
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     assert "Patterns" in text
     assert "always use async" in text
@@ -491,7 +492,7 @@ async def test_get_session_context_caps_discoveries_at_max(tmp_path: Path) -> No
             "description": f"Module {i}",
         })
 
-    result = await _handle_get_session_context(memory_dir, {})
+    result = await _handle_get_session_context(memory_dir, None, {})
     text = result["content"][0]["text"]
     # Count discovery entries
     count = text.count("src/module_")
