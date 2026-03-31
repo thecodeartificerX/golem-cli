@@ -198,8 +198,8 @@ Tasks are organized by theme. Each task should be:
 **What:** Lines 296 and 299 both print the table. Remove the duplicate.
 **Done when:** `uv run pytest` passes and table prints once.
 
-#### [ ] 148. `TicketStore` — File-level locking for cross-process safety
-**Size:** Medium | **Files:** `src/golem/tickets.py`
+#### [x] 148. `TicketStore` — File-level locking for cross-process safety (DONE)
+**Size:** Medium | **Files:** `src/golem/tickets.py`, `pyproject.toml`, `tests/test_tickets.py`
 **What:** `asyncio.Lock` only protects within one process. If two Golem processes write simultaneously, JSON can corrupt. Use `filelock` (add to deps) or OS-level lock file.
 **Done when:** `uv run pytest` passes.
 
@@ -444,17 +444,17 @@ Tasks are organized by theme. Each task should be:
 **What:** Show which agents are currently active (planner, tech lead, writers) with spinner animations. Driven by SSE events.
 **Done when:** Visual inspection confirms indicators work.
 
-#### [ ] 194. UI — Error toast notifications
+#### [x] 194. UI — Error toast notifications (DONE)
 **Size:** Small | **Files:** `src/golem/ui_template.html`
 **What:** When an SSE error event arrives, show a toast notification in the UI instead of silently logging.
 **Done when:** Visual inspection confirms toasts work.
 
-#### [ ] 195. UI — Keyboard shortcuts
+#### [x] 195. UI — Keyboard shortcuts (DONE)
 **Size:** Small | **Files:** `src/golem/ui_template.html`
-**What:** Add keyboard shortcuts: `r` = run, `c` = clean, `s` = stop, `Esc` = close panels.
+**What:** Add keyboard shortcuts: `r` = run, `p` = pause, `k` = kill, `n` = new, `t` = theme, `?` = help, `Esc` = close panels.
 **Done when:** Visual inspection confirms shortcuts work.
 
-#### [ ] 196. UI — Dark/light theme toggle
+#### [x] 196. UI — Dark/light theme toggle (DONE)
 **Size:** Small | **Files:** `src/golem/ui_template.html`
 **What:** Add a theme toggle button. Save preference in localStorage.
 **Done when:** Visual inspection confirms both themes work.

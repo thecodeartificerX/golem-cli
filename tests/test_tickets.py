@@ -289,3 +289,34 @@ async def test_ticket_without_session_id_loads_default(tmp_path: Path) -> None:
     store = TicketStore(tickets_dir)
     loaded = await store.read("TICKET-001")
     assert loaded.session_id == ""
+
+
+@pytest.mark.asyncio
+async def test_file_lock_initialized(tmp_path: Path) -> None:
+    """TicketStore initializes a FileLock for cross-process locking."""
+    from filelock import FileLock
+
+    tickets_dir = tmp_path / "tickets"
+    store = TicketStore(tickets_dir)
+    await store.create(_make_ticket("Lock Test"))
+    # FileLock is lazily created on first write
+    assert store._file_lock is not None
+    assert isinstance(store._file_lock, FileLock)
+    assert str(store._file_lock.lock_file).endswith(".ticket-store.lock")
+
+
+@pytest.mark.asyncio
+async def test_file_lock_reused_across_operations(tmp_path: Path) -> None:
+    """The same FileLock instance is reused across multiple operations."""
+    tickets_dir = tmp_path / "tickets"
+    store = TicketStore(tickets_dir)
+
+    # Create ticket (triggers lock creation)
+    ticket_id = await store.create(_make_ticket("Lock Reuse Test"))
+    lock1 = store._file_lock
+
+    # Update ticket (should reuse lock)
+    await store.update(ticket_id, "in_progress", "Working")
+    lock2 = store._file_lock
+
+    assert lock1 is lock2  # Same instance

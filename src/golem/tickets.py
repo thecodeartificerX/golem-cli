@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from filelock import FileLock
+
 
 STAGE_PLANNER = "planner"
 STAGE_TECH_LEAD = "tech_lead"
@@ -172,28 +174,49 @@ def get_dependency_graph(tickets: list[Ticket]) -> dict[str, list[str]]:
 class TicketStore:
     def __init__(self, tickets_dir: Path) -> None:
         self._dir = tickets_dir
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()  # In-process async lock
+        self._file_lock: FileLock | None = None  # Cross-process file lock (created lazily)
+
+    def _get_file_lock(self) -> FileLock:
+        """Get or create the cross-process file lock."""
+        if self._file_lock is None:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            self._file_lock = FileLock(self._dir / ".ticket-store.lock", timeout=30)
+        return self._file_lock
+
+    def _create_sync(self, ticket: Ticket) -> str:
+        """Synchronous ticket creation (called inside file lock)."""
+        self._dir.mkdir(parents=True, exist_ok=True)
+        # Find next ID (case-insensitive count to handle mixed-case files)
+        existing = sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-"))
+        next_num = len(existing) + 1
+        ticket_id = f"TICKET-{next_num:03d}"
+        ticket.id = ticket_id
+        # Append created event
+        ticket.history = [
+            TicketEvent(
+                ts=datetime.now(tz=UTC).isoformat(),
+                agent=ticket.created_by,
+                action="created",
+                note=f"Ticket created: {ticket.title}",
+            )
+        ]
+        path = self._dir / f"{ticket_id}.json"
+        _write_json_atomic(path, _ticket_to_dict(ticket))
+        return ticket_id
 
     async def create(self, ticket: Ticket) -> str:
         async with self._lock:
-            self._dir.mkdir(parents=True, exist_ok=True)
-            # Find next ID (case-insensitive count to handle mixed-case files)
-            existing = sorted(p for p in self._dir.glob("*.json") if p.stem.upper().startswith("TICKET-"))
-            next_num = len(existing) + 1
-            ticket_id = f"TICKET-{next_num:03d}"
-            ticket.id = ticket_id
-            # Append created event
-            ticket.history = [
-                TicketEvent(
-                    ts=datetime.now(tz=UTC).isoformat(),
-                    agent=ticket.created_by,
-                    action="created",
-                    note=f"Ticket created: {ticket.title}",
-                )
-            ]
-            path = self._dir / f"{ticket_id}.json"
-            _write_json_atomic(path, _ticket_to_dict(ticket))
-            return ticket_id
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None,
+                lambda: self._with_file_lock(lambda: self._create_sync(ticket)),
+            )
+
+    def _with_file_lock(self, fn):  # type: ignore[no-untyped-def]
+        """Execute fn with the cross-process file lock held."""
+        with self._get_file_lock():
+            return fn()
 
     async def read(self, ticket_id: str) -> Ticket:
         path = self._resolve_path(ticket_id)
@@ -209,6 +232,36 @@ class TicketStore:
                     return candidate
         return path
 
+    def _update_sync(
+        self,
+        ticket_id: str,
+        status: str,
+        note: str,
+        attachments: list[str] | None = None,
+        agent: str = "system",
+        pipeline_stage: str | None = None,
+        agent_id: str | None = None,
+    ) -> None:
+        """Synchronous ticket update (called inside file lock)."""
+        path = self._resolve_path(ticket_id)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        ticket = _ticket_from_dict(data)
+        ticket.status = status
+        if pipeline_stage is not None:
+            ticket.pipeline_stage = pipeline_stage
+        if agent_id is not None:
+            ticket.agent_id = agent_id
+        ticket.history.append(
+            TicketEvent(
+                ts=datetime.now(tz=UTC).isoformat(),
+                agent=agent,
+                action=f"status_changed_to_{status}",
+                note=note,
+                attachments=attachments or [],
+            )
+        )
+        _write_json_atomic(path, _ticket_to_dict(ticket))
+
     async def update(
         self,
         ticket_id: str,
@@ -220,24 +273,15 @@ class TicketStore:
         agent_id: str | None = None,
     ) -> None:
         async with self._lock:
-            path = self._resolve_path(ticket_id)
-            data = json.loads(path.read_text(encoding="utf-8"))
-            ticket = _ticket_from_dict(data)
-            ticket.status = status
-            if pipeline_stage is not None:
-                ticket.pipeline_stage = pipeline_stage
-            if agent_id is not None:
-                ticket.agent_id = agent_id
-            ticket.history.append(
-                TicketEvent(
-                    ts=datetime.now(tz=UTC).isoformat(),
-                    agent=agent,
-                    action=f"status_changed_to_{status}",
-                    note=note,
-                    attachments=attachments or [],
-                )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._with_file_lock(
+                    lambda: self._update_sync(
+                        ticket_id, status, note, attachments, agent, pipeline_stage, agent_id
+                    )
+                ),
             )
-            _write_json_atomic(path, _ticket_to_dict(ticket))
 
     async def list_tickets(
         self,
