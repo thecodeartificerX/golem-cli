@@ -348,3 +348,67 @@ def test_qa_depth_strict_exits_early_when_passing() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         result = run_qa(tmpdir, ["exit 0"], infrastructure_checks=["exit 0"], qa_depth="strict")
         assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Spec 226: Parallel check execution tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_qa_parallel_all_pass() -> None:
+    """Parallel execution returns correct results when all checks pass."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0", "echo a", "echo b"], [], parallel=True)
+        assert result.passed is True
+        assert len(result.checks) == 3
+        assert all(c.passed for c in result.checks)
+
+
+def test_run_qa_parallel_one_fails() -> None:
+    """Parallel execution correctly identifies a failing check."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0", "exit 1", "exit 0"], [], parallel=True)
+        assert result.passed is False
+        passed = [c for c in result.checks if c.passed]
+        failed = [c for c in result.checks if not c.passed]
+        assert len(passed) == 2
+        assert len(failed) == 1
+
+
+def test_run_qa_parallel_preserves_order() -> None:
+    """Parallel execution returns results in the same order as input commands."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmds = ["echo first", "echo second", "echo third"]
+        result = run_qa(tmpdir, cmds, [], parallel=True)
+        assert [c.tool for c in result.checks] == cmds
+
+
+def test_run_qa_parallel_false_runs_sequentially() -> None:
+    """parallel=False falls back to sequential execution."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0", "echo ok"], [], parallel=False)
+        assert result.passed is True
+        assert len(result.checks) == 2
+
+
+def test_run_qa_parallel_infra_checks() -> None:
+    """Parallel execution works for infrastructure checks too."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(tmpdir, ["exit 0"], infrastructure_checks=["exit 0", "echo a", "echo b"], parallel=True)
+        assert result.passed is True
+        # 3 infra checks + 1 spec check = 4 total
+        assert len(result.checks) == 4
+
+
+def test_run_qa_parallel_infra_failure_skips_spec() -> None:
+    """Parallel infra checks that fail still skip spec checks."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_qa(
+            tmpdir,
+            ["echo should_not_run"],
+            infrastructure_checks=["exit 0", "exit 1"],
+            parallel=True,
+        )
+        assert result.stage == "infrastructure_failed"
+        # Only infra checks ran
+        assert len(result.checks) == 2

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -124,11 +125,37 @@ def _build_result(checks: list[QACheck], stage: str) -> QAResult:
     )
 
 
+def _run_checks_parallel(cmds: list[str], worktree_path: str, max_workers: int = 4) -> list[QACheck]:
+    """Run checks in parallel using ThreadPoolExecutor.
+
+    Returns checks in the same order as the input commands (not completion order).
+    """
+    if not cmds:
+        return []
+
+    results: dict[int, QACheck] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all checks with their index to preserve order
+        future_to_idx = {
+            executor.submit(_run_single_check, cmd, worktree_path): i
+            for i, cmd in enumerate(cmds)
+        }
+
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            results[idx] = future.result()
+
+    # Return in original order
+    return [results[i] for i in range(len(cmds))]
+
+
 def run_qa(
     worktree_path: str,
     checks: list[str],
     infrastructure_checks: list[str] | None = None,
     qa_depth: str = "standard",
+    parallel: bool = True,
 ) -> QAResult:
     """Run infrastructure checks first (fast gate), then spec checks. Returns structured QAResult.
 
@@ -136,14 +163,19 @@ def run_qa(
     - "minimal": infrastructure checks only (no spec validation commands)
     - "standard": infrastructure checks + spec validation commands (default)
     - "strict": infrastructure checks + spec validation + re-review loop (up to 3 cycles)
+
+    parallel: if True (default), run checks within each phase concurrently using threads.
     """
     all_checks: list[QACheck] = []
     infra = infrastructure_checks or []
 
     # Phase 1: Infrastructure checks (always-on gate)
-    for cmd in infra:
-        check = _run_single_check(cmd, worktree_path)
-        all_checks.append(check)
+    if parallel and len(infra) > 1:
+        all_checks.extend(_run_checks_parallel(infra, worktree_path))
+    else:
+        for cmd in infra:
+            check = _run_single_check(cmd, worktree_path)
+            all_checks.append(check)
 
     infra_failed = any(not c.passed for c in all_checks)
     if infra_failed:
@@ -154,9 +186,12 @@ def run_qa(
         return _build_result(all_checks, stage="complete")
 
     # Phase 2: Spec checks (only if infra passed)
-    for cmd in checks:
-        check = _run_single_check(cmd, worktree_path)
-        all_checks.append(check)
+    if parallel and len(checks) > 1:
+        all_checks.extend(_run_checks_parallel(checks, worktree_path))
+    else:
+        for cmd in checks:
+            check = _run_single_check(cmd, worktree_path)
+            all_checks.append(check)
 
     if qa_depth != "strict":
         return _build_result(all_checks, stage="complete")
@@ -169,9 +204,12 @@ def run_qa(
             return result
         # Re-run spec checks only (not infra again)
         all_checks_recheck: list[QACheck] = list(all_checks[:len(infra)])
-        for cmd in checks:
-            check = _run_single_check(cmd, worktree_path)
-            all_checks_recheck.append(check)
+        if parallel and len(checks) > 1:
+            all_checks_recheck.extend(_run_checks_parallel(checks, worktree_path))
+        else:
+            for cmd in checks:
+                check = _run_single_check(cmd, worktree_path)
+                all_checks_recheck.append(check)
         all_checks = all_checks_recheck
 
     return _build_result(all_checks, stage="complete")
