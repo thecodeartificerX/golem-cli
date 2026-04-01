@@ -10,6 +10,11 @@ def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subproc
 
 def create_worktree(group_id: str, branch: str, base_branch: str, path: Path, repo_root: Path) -> None:
     """Create a git worktree for a group at `path` on a new `branch` from `base_branch`."""
+    if not (repo_root / ".git").exists():
+        raise RuntimeError(
+            f"No git repository found at {repo_root}. "
+            "Run 'git init -b main' in your project directory before using Golem."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     # Check if branch already exists
     result = _run(["git", "branch", "--list", branch], cwd=repo_root, check=False)
