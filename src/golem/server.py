@@ -660,6 +660,36 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Edict startup recovery: scan all registered repos for persisted edicts so that
+        # IDs don't restart from EDICT-001 after a server restart and old edicts remain
+        # accessible via the API.
+        try:
+            repos = await repo_registry.list_repos()
+            for repo in repos:
+                repo_edicts_dir = Path(repo.path) / ".golem" / "edicts"
+                if not repo_edicts_dir.exists():
+                    continue
+                for edict_json in sorted(repo_edicts_dir.glob("EDICT-*.json")):
+                    try:
+                        data = json.loads(edict_json.read_text(encoding="utf-8"))
+                        edict_id = data.get("id", "")
+                        if not edict_id or edict_mgr.get_edict(edict_id) is not None:
+                            continue
+                        state = EdictState(
+                            id=edict_id,
+                            repo_id=repo.id,
+                            repo_path=repo.path,
+                            title=data.get("title", ""),
+                            body=data.get("body", ""),
+                            status=data.get("status", "pending"),
+                            created_at=data.get("created_at", ""),
+                        )
+                        edict_mgr._edicts[edict_id] = state
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001
+            pass
+
         # Start conflict scanner background task
         async def _on_new_conflicts(conflicts: list) -> None:
             for c in conflicts:
@@ -1778,7 +1808,7 @@ def create_app() -> FastAPI:
 
         if tickets_dir.exists():
             ticket_store = TicketStore(tickets_dir)
-            tickets = await ticket_store.list_tickets()
+            tickets = await ticket_store.list_tickets(edict_id_filter=edict_id)
             for t in tickets:
                 stage = t.pipeline_stage or "tech_lead"
                 if stage in columns:
@@ -1806,7 +1836,7 @@ def create_app() -> FastAPI:
         if not edict_dir.exists():
             return []
         ticket_store = TicketStore(edict_dir)
-        tickets = await ticket_store.list_tickets()
+        tickets = await ticket_store.list_tickets(edict_id_filter=edict_id)
         return [
             {
                 "id": t.id, "title": t.title, "status": t.status,
@@ -1847,7 +1877,7 @@ def create_app() -> FastAPI:
         tickets: list[Ticket] = []
         if tickets_dir.exists():
             ticket_store = TicketStore(tickets_dir)
-            tickets = await ticket_store.list_tickets()
+            tickets = await ticket_store.list_tickets(edict_id_filter=edict_id)
 
         graph = get_dependency_graph(tickets)
         cycle_detected = False
