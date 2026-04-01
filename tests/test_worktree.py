@@ -173,3 +173,9 @@ def test_merge_group_branches_skips_nonexistent() -> None:
         # Should succeed — nonexistent branch is skipped
         assert success is True
         assert conflict_info == ""
+
+
+def test_create_worktree_raises_without_git_dir(tmp_path: Path) -> None:
+    """create_worktree raises RuntimeError with clear message when no .git is present."""
+    with pytest.raises(RuntimeError, match="No git repository"):
+        create_worktree("g1", "golem/test", "main", tmp_path / "wt", tmp_path)

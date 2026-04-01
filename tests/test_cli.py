@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -244,3 +247,96 @@ def test_resume_cli_no_tickets_exits_cleanly() -> None:
     result = runner.invoke(app, ["resume"])
     # Should exit with error since no tickets dir exists
     assert result.exit_code != 0 or "no tickets" in result.output.lower()
+
+
+def test_run_gitinit_skipped_when_repo_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run with an existing git repo must NOT reinitialize it."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    # Set up a real git repo with one commit
+    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True, capture_output=True)
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task\n\nDo the thing.\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    # Record commit count before the run
+    log_before = subprocess.run(
+        ["git", "log", "--oneline"], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    commit_count_before = len(log_before.stdout.strip().splitlines())
+
+    # Patch run_planner to stop execution cleanly after git-init check
+    async def _noop_planner(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("test stop — planner not needed")
+
+    monkeypatch.setattr("golem.cli.run_planner", _noop_planner)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--force"])
+
+    # .git must still exist and commit count must not have grown (no bootstrap commit)
+    assert (tmp_path / ".git").exists()
+    log_after = subprocess.run(
+        ["git", "log", "--oneline"], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    commit_count_after = len(log_after.stdout.strip().splitlines())
+    assert commit_count_after == commit_count_before
+    assert "Initializing" not in result.output
+
+
+def test_run_gitinit_creates_repo_for_greenfield(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run must auto-initialize a git repo when none exists."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task\n\nDo the thing.\n", encoding="utf-8")
+
+    # Patch run_planner to stop execution after git-init block runs
+    async def _noop_planner(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("test stop — planner not needed")
+
+    monkeypatch.setattr("golem.cli.run_planner", _noop_planner)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--force"])
+
+    # The git repo must have been created
+    assert (tmp_path / ".git").exists()
+    assert "Initializing" in result.output
+    assert "Git repository initialized" in result.output
+
+
+def test_run_gitinit_exit_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """golem run must exit 1 with a red error when git init fails."""
+    from typer.testing import CliRunner
+
+    from golem.cli import app
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\n## Task\n\nDo the thing.\n", encoding="utf-8")
+
+    # Patch subprocess.run inside the cli module to raise CalledProcessError for git init
+    original_run = subprocess.run
+
+    def _failing_subprocess(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        if cmd[:3] == ["git", "init", "-b"]:
+            raise subprocess.CalledProcessError(128, cmd, stderr=b"fatal: not a valid git repo")
+        return original_run(cmd, **kwargs)  # type: ignore[return-value]
+
+    monkeypatch.setattr("subprocess.run", _failing_subprocess)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(spec), "--force"])
+
+    assert result.exit_code == 1
+    assert "Failed to initialize git repository" in result.output

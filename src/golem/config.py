@@ -75,3 +75,75 @@ def save_config(config: GolemConfig, golem_dir: Path) -> None:
     data = {k: v for k, v in asdict(config).items() if k not in _EPHEMERAL_FIELDS}
     with open(golem_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
+
+
+async def run_environment_checks(project_root: Path) -> list[dict[str, object]]:
+    """Run preflight environment checks."""
+    import shutil
+    import socket
+    import subprocess
+
+    checks: list[dict[str, object]] = []
+
+    # Check claude CLI
+    claude_path = shutil.which("claude")
+    checks.append({
+        "check": "claude CLI",
+        "passed": claude_path is not None,
+        "detail": str(claude_path) if claude_path else "not found on PATH",
+    })
+
+    # Check rg (ripgrep)
+    rg_path = shutil.which("rg")
+    checks.append({
+        "check": "ripgrep (rg)",
+        "passed": rg_path is not None,
+        "detail": str(rg_path) if rg_path else "not found on PATH",
+    })
+
+    # Check git clean
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(project_root), capture_output=True, text=True, encoding="utf-8",
+        )
+        is_clean = result.returncode == 0 and not result.stdout.strip()
+        checks.append({
+            "check": "git clean",
+            "passed": is_clean,
+            "detail": "working tree clean" if is_clean else "uncommitted changes",
+        })
+    except Exception as e:
+        checks.append({"check": "git clean", "passed": False, "detail": str(e)})
+
+    # Check .git exists
+    git_dir = project_root / ".git"
+    checks.append({
+        "check": "git repository",
+        "passed": git_dir.exists(),
+        "detail": "found" if git_dir.exists() else f"no .git directory at {project_root} -- run 'git init -b main'",
+    })
+
+    # Check stale .golem
+    golem_dir = project_root / ".golem"
+    checks.append({
+        "check": "no stale .golem",
+        "passed": not golem_dir.exists(),
+        "detail": "clean" if not golem_dir.exists() else ".golem directory exists",
+    })
+
+    # Check port 7665
+    port_free = True
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            port_free = s.connect_ex(("127.0.0.1", 7665)) != 0
+    except Exception:
+        pass
+    checks.append({
+        "check": "port 7665",
+        "passed": port_free,
+        "detail": "available" if port_free else "in use",
+    })
+
+    return checks

@@ -133,6 +133,38 @@ def run(
 
     config = load_config(golem_dir)
     spec_project_root = _resolve_spec_project_root(spec)
+
+    # Auto-initialize git repo for greenfield projects.
+    if not (spec_project_root / ".git").exists():
+        import subprocess as _sp
+        console.print(
+            f"[yellow]No git repository found at {spec_project_root}. "
+            "Initializing...[/yellow]"
+        )
+        try:
+            _sp.run(
+                ["git", "init", "-b", "main"],
+                cwd=str(spec_project_root), check=True, capture_output=True,
+            )
+            # git worktree add requires at least one commit to exist
+            _sp.run(
+                ["git", "add", "-A"],
+                cwd=str(spec_project_root), check=True, capture_output=True,
+            )
+            _sp.run(
+                ["git", "commit", "-m", "chore: initial commit (golem bootstrap)"],
+                cwd=str(spec_project_root), check=True, capture_output=True,
+                env={**__import__("os").environ, "GIT_AUTHOR_NAME": "golem", "GIT_AUTHOR_EMAIL": "golem@localhost",
+                     "GIT_COMMITTER_NAME": "golem", "GIT_COMMITTER_EMAIL": "golem@localhost"},
+            )
+            console.print("[green]Git repository initialized.[/green]")
+        except _sp.CalledProcessError as _git_err:
+            console.print(
+                f"[red]Failed to initialize git repository: "
+                f"{_git_err.stderr.decode(errors='replace') if _git_err.stderr else _git_err}[/red]"
+            )
+            raise typer.Exit(1)
+
     config.infrastructure_checks = _detect_infrastructure_checks(spec_project_root)
     save_config(config, golem_dir)
 
