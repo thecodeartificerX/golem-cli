@@ -4,9 +4,11 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from golem.qa import detect_infrastructure_checks, run_autofix, run_qa
+import pytest
+
+from golem.qa import _run_single_check, detect_infrastructure_checks, run_autofix, run_qa
 
 
 def test_run_qa_all_pass() -> None:
@@ -35,11 +37,8 @@ def test_run_qa_one_fails() -> None:
 
 def test_run_qa_captures_stdout_stderr() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Use a command that fails and produces output on Windows and Unix
-        if sys.platform == "win32":
-            cmd = 'cmd /c "echo hello_stdout && echo hello_stderr 1>&2 && exit 1"'
-        else:
-            cmd = "echo hello_stdout; echo hello_stderr >&2; exit 1"
+        # On Windows, bash routing is used so POSIX syntax works; same for Unix
+        cmd = "echo hello_stdout; echo hello_stderr >&2; exit 1"
         result = run_qa(tmpdir, [cmd], [])
         check = result.checks[0]
         assert check.passed is False
@@ -120,3 +119,74 @@ def test_run_qa_empty_checks() -> None:
         assert result.passed is True
         assert result.checks == []
         assert "0/0" in result.summary or result.summary == ""
+
+
+def test_run_single_check_bash_routing_on_windows() -> None:
+    """On Windows with bash found, _run_single_check uses shell=False with bash list command."""
+    fake_bash = r"C:\Program Files\Git\bin\bash.exe"
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+    mock_result.stderr = ""
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("sys.platform", "win32"):
+            with patch("golem.qa._find_bash", return_value=fake_bash):
+                with patch("subprocess.run", return_value=mock_result) as mock_run:
+                    check = _run_single_check("test -f README.md", tmpdir)
+
+    assert check.passed is True
+    call_args = mock_run.call_args
+    cmd_arg = call_args[0][0]
+    assert isinstance(cmd_arg, list)
+    assert cmd_arg[0] == fake_bash
+    assert cmd_arg[1] == "-c"
+    assert cmd_arg[2] == "test -f README.md"
+    assert call_args[1]["shell"] is False
+
+
+def test_run_single_check_no_bash_fallback() -> None:
+    """On Windows with no bash found, _run_single_check falls back to shell=True and sets cannot_validate=True."""
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+    mock_result.stderr = ""
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("sys.platform", "win32"):
+            with patch("golem.qa._find_bash", return_value=None):
+                with patch("subprocess.run", return_value=mock_result):
+                    check = _run_single_check("test -f README.md", tmpdir)
+
+    assert check.cannot_validate is True
+    assert "WARNING" in check.stderr
+    assert "bash.exe not found" in check.stderr
+
+
+def test_run_single_check_unix_unchanged() -> None:
+    """On Linux/macOS, _run_single_check uses shell=True with the raw command string."""
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "ok"
+    mock_result.stderr = ""
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("sys.platform", "linux"):
+            with patch("subprocess.run", return_value=mock_result) as mock_run:
+                check = _run_single_check("echo ok", tmpdir)
+
+    assert check.passed is True
+    call_args = mock_run.call_args
+    cmd_arg = call_args[0][0]
+    assert cmd_arg == "echo ok"
+    assert call_args[1]["shell"] is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only integration test")
+def test_posix_test_command_passes_with_real_bash(tmp_path: Path) -> None:
+    """Integration test: POSIX test -f command passes via real bash routing on Windows."""
+    readme = tmp_path / "README.md"
+    readme.write_text("hello", encoding="utf-8")
+
+    result = run_qa(str(tmp_path), ["test -f README.md"], [])
+    assert result.passed is True, f"Expected pass, got: {result.summary}"

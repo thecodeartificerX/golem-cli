@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -17,6 +18,32 @@ def _subprocess_env() -> dict[str, str]:
         except Exception:
             pass
     return env
+
+
+def _find_bash() -> str | None:
+    """Locate bash.exe on Windows. Returns absolute path or None if not found."""
+    import shutil
+
+    if sys.platform != "win32":
+        return shutil.which("bash")
+
+    env = _subprocess_env()
+    # Prefer Git Bash over WSL bash
+    candidate = shutil.which("bash", path=env.get("PATH", ""))
+    if candidate and "git" in candidate.lower():
+        return candidate
+
+    _GIT_BASH_CANDIDATES: list[str] = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ]
+    for path in _GIT_BASH_CANDIDATES:
+        if Path(path).is_file():
+            return path
+
+    # Fallback: any bash on PATH (WSL, MSYS2, etc.)
+    return shutil.which("bash", path=env.get("PATH", ""))
 
 
 def _normalize_cmd(cmd: str) -> str:
