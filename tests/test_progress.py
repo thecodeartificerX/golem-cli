@@ -381,3 +381,73 @@ def test_existing_log_methods_still_work(tmp_path: Path) -> None:
     logger.log_planner_start()
     log = (golem_dir / "progress.log").read_text(encoding="utf-8")
     assert "LEAD_ARCHITECT_START" in log
+
+
+# ---------------------------------------------------------------------------
+# Issue 4 — Progress log granularity tests
+# ---------------------------------------------------------------------------
+
+
+def test_log_session_start_writes_correct_format(tmp_path: Path) -> None:
+    """log_session_start writes SESSION_START with session_id and spec fields."""
+    logger = ProgressLogger(tmp_path)
+    logger.log_session_start("sid-1", "/path/spec.md")
+    content = (tmp_path / "progress.log").read_text(encoding="utf-8")
+    assert "SESSION_START session_id=sid-1" in content
+    assert "spec=/path/spec.md" in content
+
+
+def test_log_session_complete_writes_correct_format(tmp_path: Path) -> None:
+    """log_session_complete writes SESSION_COMPLETE with session_id and status fields."""
+    logger = ProgressLogger(tmp_path)
+    logger.log_session_complete("sid-1", "done")
+    content = (tmp_path / "progress.log").read_text(encoding="utf-8")
+    assert "SESSION_COMPLETE session_id=sid-1" in content
+    assert "status=done" in content
+
+
+@pytest.mark.asyncio
+async def test_ensure_merged_returns_list_of_merged_branches(tmp_path: Path) -> None:
+    """_ensure_merged_to_main returns a list[str] containing merged branch names."""
+    import subprocess
+    from golem.tech_lead import _ensure_merged_to_main
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True, capture_output=True)
+    (repo / "README.md").write_text("init", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+    # Create an unmerged integration branch with a commit
+    subprocess.run(["git", "checkout", "-b", "golem/test/integration"], cwd=repo, check=True, capture_output=True)
+    (repo / "feature.txt").write_text("new feature", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "feature work"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "main"], cwd=repo, check=True, capture_output=True)
+
+    result = await _ensure_merged_to_main(repo)
+    assert isinstance(result, list)
+    assert "golem/test/integration" in result
+
+
+@pytest.mark.asyncio
+async def test_ensure_merged_empty_list_when_nothing_to_merge(tmp_path: Path) -> None:
+    """_ensure_merged_to_main returns [] when no integration branches exist."""
+    import subprocess
+    from golem.tech_lead import _ensure_merged_to_main
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True, capture_output=True)
+    (repo / "README.md").write_text("init", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+    result = await _ensure_merged_to_main(repo)
+    assert isinstance(result, list)
+    assert result == []

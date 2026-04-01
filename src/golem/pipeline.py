@@ -305,6 +305,7 @@ class PipelineCoordinator:
                             )
                         except (ValueError, OSError, FileNotFoundError):
                             pass
+                        progress.log_task_complete(ticket_id)
                     else:
                         _log(f"[PIPELINE] TRIVIAL tier: skip_tech_lead=True, spawning Junior Dev directly for {ticket_id}")
                         ticket = await self._ticket_store.read(ticket_id)
@@ -337,6 +338,7 @@ class PipelineCoordinator:
                             )
                         except (ValueError, OSError, FileNotFoundError):
                             pass
+                        progress.log_task_complete(ticket_id)
 
                     # -- Completion phase --
                     tickets = await self._ticket_store.list_tickets()

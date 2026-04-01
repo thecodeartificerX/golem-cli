@@ -180,6 +180,7 @@ async def _handle_list_tickets(store: TicketStore, args: dict[str, object]) -> d
 async def _handle_run_qa(
     args: dict[str, object],
     event_bus: EventBus | None = None,
+    golem_dir: Path | None = None,
 ) -> dict[str, object]:
     import asyncio
     import sys
@@ -222,6 +223,14 @@ async def _handle_run_qa(
             summary=result.summary,
             checks_run=total,
         ))
+    if golem_dir is not None:
+        from golem.progress import ProgressLogger as _ProgressLogger
+        _logger = _ProgressLogger(golem_dir)
+        _logger.log_qa_result(
+            ticket_id=str(args.get("ticket_id", "unknown")),
+            passed=result.passed,
+            summary=result.summary,
+        )
     return {"content": [{"type": "text", "text": json.dumps(asdict(result))}]}
 
 
@@ -800,7 +809,7 @@ def build_tool_registry(
             },
             handler=_wrap_handler(
                 "run_qa",
-                partial(_handle_run_qa, event_bus=event_bus),
+                partial(_handle_run_qa, event_bus=event_bus, golem_dir=golem_dir),
             ),
         )
 

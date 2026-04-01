@@ -423,124 +423,139 @@ def run(
         events_path = golem_dir / "events.jsonl"
         event_bus = EventBus(FileBackend(events_path), session_id=config.session_id)
 
-        progress.log_classification(classification.complexity, classification.reasoning)
-        progress.log_planner_start()
-        t_plan = time.monotonic()
-        with console.status("[bold cyan]Planning...[/bold cyan] Lead Architect analyzing spec", spinner="dots"):
-            planner_result = await run_planner(spec, golem_dir, config, project_root, event_bus=event_bus)
-        ticket_id = planner_result.ticket_id
-        plan_elapsed = time.monotonic() - t_plan
-        plan_m, plan_s = divmod(int(plan_elapsed), 60)
-        progress.log_planner_complete(ticket_id)
-        console.print(f"  Lead Architect completed in {plan_m}m {plan_s}s -- ticket: {ticket_id}")
+        progress.log_session_start(
+            session_id=config.session_id or "local",
+            spec_path=str(spec.resolve()),
+        )
+        _session_status = "failed"
+        try:
+            progress.log_classification(classification.complexity, classification.reasoning)
+            progress.log_planner_start()
+            t_plan = time.monotonic()
+            with console.status("[bold cyan]Planning...[/bold cyan] Lead Architect analyzing spec", spinner="dots"):
+                planner_result = await run_planner(spec, golem_dir, config, project_root, event_bus=event_bus)
+            ticket_id = planner_result.ticket_id
+            plan_elapsed = time.monotonic() - t_plan
+            plan_m, plan_s = divmod(int(plan_elapsed), 60)
+            progress.log_planner_complete(ticket_id)
+            console.print(f"  Lead Architect completed in {plan_m}m {plan_s}s -- ticket: {ticket_id}")
 
-        # Show ticket summary before handing off
-        store = TicketStore(golem_dir / "tickets")
-        ticket = await store.read(ticket_id)
-        console.print(f"  Title:     {ticket.title[:70]}")
-        if ticket.context.plan_file:
-            console.print(f"  Plan file: {ticket.context.plan_file}")
-        if ticket.context.references:
-            console.print(f"  References: {len(ticket.context.references)} file(s)")
+            # Show ticket summary before handing off
+            store = TicketStore(golem_dir / "tickets")
+            ticket = await store.read(ticket_id)
+            console.print(f"  Title:     {ticket.title[:70]}")
+            if ticket.context.plan_file:
+                console.print(f"  Plan file: {ticket.context.plan_file}")
+            if ticket.context.references:
+                console.print(f"  References: {len(ticket.context.references)} file(s)")
 
-        if dry_run:
-            console.print("[bold yellow]--dry-run: Lead Architect done. Skipping Tech Lead.[/bold yellow]")
-            return
+            if dry_run:
+                console.print("[bold yellow]--dry-run: Lead Architect done. Skipping Tech Lead.[/bold yellow]")
+                _session_status = "done"
+                return
 
-        if config.self_critique_enabled:
-            console.print("  Self-critique: reviewing plan for CRITICAL tier...")
-            try:
-                await _run_self_critique(golem_dir, config, project_root, event_bus=event_bus)
-            except Exception as critique_err:
-                console.print(f"  [dim]Self-critique failed (non-fatal): {critique_err}[/dim]")
+            if config.self_critique_enabled:
+                console.print("  Self-critique: reviewing plan for CRITICAL tier...")
+                try:
+                    await _run_self_critique(golem_dir, config, project_root, event_bus=event_bus)
+                except Exception as critique_err:
+                    console.print(f"  [dim]Self-critique failed (non-fatal): {critique_err}[/dim]")
 
-        # Choose execution path: orchestrator vs Tech Lead vs trivial single-writer
-        use_orchestrator = orchestrator or config.orchestrator_enabled
+            # Choose execution path: orchestrator vs Tech Lead vs trivial single-writer
+            use_orchestrator = orchestrator or config.orchestrator_enabled
 
-        if use_orchestrator:
-            console.print("[bold cyan]Golem[/bold cyan] -- Orchestrator executing (wave-based)...")
+            if use_orchestrator:
+                console.print("[bold cyan]Golem[/bold cyan] -- Orchestrator executing (wave-based)...")
 
-            def _on_ticket_complete(ticket_id: str, outcome: str, completed: int, total: int) -> None:
-                pct = int(100 * completed / total) if total > 0 else 0
-                style = "[green]" if outcome == "passed" else "[yellow]" if outcome == "skipped" else "[red]"
-                console.print(f"  {style}{ticket_id}[/] {outcome} [{completed}/{total} tickets, {pct}%]")
+                def _on_ticket_complete(ticket_id: str, outcome: str, completed: int, total: int) -> None:
+                    pct = int(100 * completed / total) if total > 0 else 0
+                    style = "[green]" if outcome == "passed" else "[yellow]" if outcome == "skipped" else "[red]"
+                    console.print(f"  {style}{ticket_id}[/] {outcome} [{completed}/{total} tickets, {pct}%]")
 
-            executor = WaveExecutor(
-                golem_dir=golem_dir,
-                project_root=spec_project_root,
-                config=config,
-                event_bus=event_bus,
-                on_ticket_complete=_on_ticket_complete,
-            )
-            orch_result = await executor.run()
+                executor = WaveExecutor(
+                    golem_dir=golem_dir,
+                    project_root=spec_project_root,
+                    config=config,
+                    event_bus=event_bus,
+                    on_ticket_complete=_on_ticket_complete,
+                )
+                orch_result = await executor.run()
+                elapsed = time.monotonic() - t0
+                mins, secs = divmod(int(elapsed), 60)
+                progress.log_run_cost_summary(orch_result.total_cost_usd)
+                if orch_result.total_cost_usd > 0:
+                    console.print(f"[dim]Run cost: ${orch_result.total_cost_usd:.4f}[/dim]")
+                console.print(
+                    f"[bold]Orchestration complete in {mins}m {secs}s:[/bold] "
+                    f"{orch_result.tickets_passed} passed, {orch_result.tickets_failed} failed, "
+                    f"{orch_result.tickets_skipped} skipped across {orch_result.waves_completed} waves"
+                )
+                _session_status = "done"
+                return
+
+            # Check if Tech Lead should be skipped (TRIVIAL complexity)
+            if config.skip_tech_lead:
+                console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
+                writer_result = await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus)
+                total_cost = (planner_result.cost_usd or 0.0) + (writer_result.cost_usd or 0.0)
+                progress.log_run_cost_summary(total_cost)
+                if total_cost > 0:
+                    console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")
+                elapsed = time.monotonic() - t0
+                mins, secs = divmod(int(elapsed), 60)
+                console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
+                _session_status = "done"
+                return
+
+            console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
+            progress.log_tech_lead_start(ticket_id)
+            tech_lead_result = await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus)
             elapsed = time.monotonic() - t0
             mins, secs = divmod(int(elapsed), 60)
-            progress.log_run_cost_summary(orch_result.total_cost_usd)
-            if orch_result.total_cost_usd > 0:
-                console.print(f"[dim]Run cost: ${orch_result.total_cost_usd:.4f}[/dim]")
-            console.print(
-                f"[bold]Orchestration complete in {mins}m {secs}s:[/bold] "
-                f"{orch_result.tickets_passed} passed, {orch_result.tickets_failed} failed, "
-                f"{orch_result.tickets_skipped} skipped across {orch_result.waves_completed} waves"
-            )
-            return
-
-        # Check if Tech Lead should be skipped (TRIVIAL complexity)
-        if config.skip_tech_lead:
-            console.print("  [dim]TRIVIAL: skipping Tech Lead, dispatching single Junior Dev[/dim]")
-            writer_result = await spawn_junior_dev(ticket, str(project_root), config, golem_dir, event_bus=event_bus)
-            total_cost = (planner_result.cost_usd or 0.0) + (writer_result.cost_usd or 0.0)
+            progress.log_tech_lead_complete(elapsed_s=elapsed)
+            total_cost = progress.sum_agent_costs()
             progress.log_run_cost_summary(total_cost)
             if total_cost > 0:
                 console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")
-            elapsed = time.monotonic() - t0
-            mins, secs = divmod(int(elapsed), 60)
             console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
-            return
 
-        console.print("[bold cyan]Golem[/bold cyan] -- Tech Lead executing...")
-        progress.log_tech_lead_start(ticket_id)
-        tech_lead_result = await run_tech_lead(ticket_id, golem_dir, config, project_root, event_bus=event_bus)
-        elapsed = time.monotonic() - t0
-        mins, secs = divmod(int(elapsed), 60)
-        progress.log_tech_lead_complete(elapsed_s=elapsed)
-        total_cost = progress.sum_agent_costs()
-        progress.log_run_cost_summary(total_cost)
-        if total_cost > 0:
-            console.print(f"[dim]Run cost: ${total_cost:.4f}[/dim]")
-        console.print(f"[bold]Run complete in {mins}m {secs}s.[/bold]")
+            # Final summary
+            all_tickets = await store.list_tickets()
 
-        # Final summary
-        all_tickets = await store.list_tickets()
+            # Check for escalation tickets that need operator attention
+            escalations = [t for t in all_tickets if t.type == "escalation" and t.status == "pending"]
+            if escalations:
+                console.print(f"\n[red][!] {len(escalations)} escalation(s) need operator attention:[/red]")
+                for esc in escalations:
+                    console.print(f"  [red]{esc.id}[/red]: {esc.title}")
 
-        # Check for escalation tickets that need operator attention
-        escalations = [t for t in all_tickets if t.type == "escalation" and t.status == "pending"]
-        if escalations:
-            console.print(f"\n[red][!] {len(escalations)} escalation(s) need operator attention:[/red]")
-            for esc in escalations:
-                console.print(f"  [red]{esc.id}[/red]: {esc.title}")
+            # Check for unresolved blockers
+            blockers = [t for t in all_tickets if t.type == "blocker" and t.status == "pending"]
+            if blockers:
+                console.print(f"\n[yellow][!] {len(blockers)} unresolved blocker(s):[/yellow]")
+                for blk in blockers:
+                    console.print(f"  [yellow]{blk.id}[/yellow]: {blk.title}")
 
-        # Check for unresolved blockers
-        blockers = [t for t in all_tickets if t.type == "blocker" and t.status == "pending"]
-        if blockers:
-            console.print(f"\n[yellow][!] {len(blockers)} unresolved blocker(s):[/yellow]")
-            for blk in blockers:
-                console.print(f"  [yellow]{blk.id}[/yellow]: {blk.title}")
+            if all_tickets:
+                by_status: dict[str, int] = {}
+                for t in all_tickets:
+                    by_status[t.status] = by_status.get(t.status, 0) + 1
+                parts = [f"{count} {status}" for status, count in sorted(by_status.items())]
+                console.print(f"  Tickets:    {', '.join(parts)}")
 
-        if all_tickets:
-            by_status: dict[str, int] = {}
-            for t in all_tickets:
-                by_status[t.status] = by_status.get(t.status, 0) + 1
-            parts = [f"{count} {status}" for status, count in sorted(by_status.items())]
-            console.print(f"  Tickets:    {', '.join(parts)}")
-
-        plans_dir = golem_dir / "plans"
-        research_dir = golem_dir / "research"
-        refs_dir = golem_dir / "references"
-        plan_count = len(list(plans_dir.glob("task-*.md"))) if plans_dir.exists() else 0
-        research_count = len(list(research_dir.glob("*.md"))) if research_dir.exists() else 0
-        ref_count = len(list(refs_dir.glob("*.md"))) if refs_dir.exists() else 0
-        console.print(f"  Artifacts:  {plan_count} plans, {research_count} research, {ref_count} references")
+            plans_dir = golem_dir / "plans"
+            research_dir = golem_dir / "research"
+            refs_dir = golem_dir / "references"
+            plan_count = len(list(plans_dir.glob("task-*.md"))) if plans_dir.exists() else 0
+            research_count = len(list(research_dir.glob("*.md"))) if research_dir.exists() else 0
+            ref_count = len(list(refs_dir.glob("*.md"))) if refs_dir.exists() else 0
+            console.print(f"  Artifacts:  {plan_count} plans, {research_count} research, {ref_count} references")
+            _session_status = "done"
+        finally:
+            progress.log_session_complete(
+                session_id=config.session_id or "local",
+                status=_session_status,
+            )
 
     async def _run_with_timeout() -> None:
         if timeout > 0:

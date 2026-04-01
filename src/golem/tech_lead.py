@@ -46,11 +46,13 @@ _TECH_LEAD_PROMPT_TEMPLATE = Path(__file__).parent / "prompts" / "tech_lead.md"
 
 async def _ensure_merged_to_main(
     project_root: Path, branch_prefix: str = "golem", config: GolemConfig | None = None
-) -> None:
+) -> list[str]:
     """Self-healing: merge any golem integration branches into main if the Tech Lead didn't.
 
     Includes cross-edict conflict detection (rebase if main diverged) and
     post-merge verification (revert if QA fails after merge).
+
+    Returns the list of branch names that were successfully merged.
     """
     if config is None:
         config = GolemConfig()
@@ -63,11 +65,13 @@ async def _ensure_merged_to_main(
     def _log(msg: str) -> None:
         print(f"[TECH LEAD] {msg}", file=sys.stderr)
 
+    merged: list[str] = []
+
     # Find golem integration branches
     result = await asyncio.to_thread(_git, "branch", "--list", f"{branch_prefix}/*/integration")
     integration_branches = [b.strip().lstrip("* ") for b in result.stdout.splitlines() if b.strip()]
     if not integration_branches:
-        return
+        return merged
 
     # Check if main already has the integration commits
     checkout_result = await asyncio.to_thread(_git, "checkout", "main")
@@ -76,7 +80,7 @@ async def _ensure_merged_to_main(
         checkout_result = await asyncio.to_thread(_git, "checkout", "master")
         if checkout_result.returncode != 0:
             _log("Warning: could not checkout main or master branch")
-            return
+            return merged
 
     for branch in integration_branches:
         # Check if branch is already merged into main
@@ -120,6 +124,10 @@ async def _ensure_merged_to_main(
         verification = await asyncio.to_thread(run_post_merge_verification, project_root, config, merge_sha)
         if not verification.passed:
             _log(f"Post-merge verification FAILED after merging {branch}. Merge reverted.")
+        else:
+            merged.append(branch)
+
+    return merged
 
 
 def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
@@ -408,7 +416,9 @@ async def run_tech_lead(
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
     branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
-    await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix, config=config)
+    merged_branches = await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix, config=config)
+    for _branch in merged_branches:
+        progress.log_merge_complete(_branch)
 
     # Promote debrief and gotchas to project-level memory
     await _promote_debrief_to_memory(golem_dir, project_root, edict_id)
