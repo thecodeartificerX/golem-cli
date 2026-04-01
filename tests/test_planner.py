@@ -650,3 +650,125 @@ async def test_run_planner_session_passes_hooks() -> None:
     assert hooks is not None
     assert "PreToolUse" in hooks
     assert len(hooks["PreToolUse"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Stderr capture and debug_sdk tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_stderr_callback_set() -> None:
+    """_run_planner_session wires a stderr callback into ClaudeAgentOptions."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig()
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    stderr_cb = getattr(opts, "stderr", None)
+    assert callable(stderr_cb), "ClaudeAgentOptions.stderr must be a callable"
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_debug_sdk_adds_extra_arg() -> None:
+    """When config.debug_sdk=True, 'debug-to-stderr' key is in ClaudeAgentOptions.extra_args."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig(debug_sdk=True)
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    extra_args = getattr(opts, "extra_args", {})
+    assert "debug-to-stderr" in extra_args, "debug-to-stderr must be in extra_args when debug_sdk=True"
+
+
+@pytest.mark.asyncio
+async def test_run_planner_session_no_debug_sdk_empty_extra_args() -> None:
+    """When config.debug_sdk=False (default), extra_args is empty."""
+    import tempfile
+
+    from golem.planner import _run_planner_session
+
+    captured_options: list[object] = []
+
+    async def _capturing_session(*args: Any, **kwargs: Any) -> Any:
+        from golem.supervisor import ContinuationResult, ToolCallRegistry
+        opts = kwargs.get("options") or (args[1] if len(args) > 1 else None)
+        if opts is not None:
+            captured_options.append(opts)
+        return ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=1, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        golem_dir.mkdir()
+        config = GolemConfig(debug_sdk=False)
+
+        with patch("golem.planner.continuation_supervised_session", _capturing_session):
+            await _run_planner_session(
+                prompt="test",
+                golem_dir=golem_dir,
+                config=config,
+                cwd=Path(tmpdir),
+            )
+
+    assert len(captured_options) >= 1
+    opts = captured_options[0]
+    extra_args = getattr(opts, "extra_args", {})
+    assert "debug-to-stderr" not in extra_args, "debug-to-stderr must NOT be in extra_args when debug_sdk=False"

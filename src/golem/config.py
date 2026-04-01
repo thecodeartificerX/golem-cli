@@ -92,6 +92,8 @@ class GolemConfig:
     max_writer_retries: int = 3
     # Skip Explorer+Researcher sub-agent spawning inside the planner
     skip_research: bool = False
+    # Enable verbose Claude CLI SDK debug output to stderr (captured to progress.log)
+    debug_sdk: bool = False
     # Run a self-critique pass after planning (planner re-reads own plan)
     self_critique_enabled: bool = False
     # Maximum parallel Junior Dev sessions per dispatch group

@@ -199,6 +199,22 @@ async def spawn_junior_dev(
         config, "writer", mcp_server, golem_mcp_name="golem-junior-dev",
     )
 
+    _stderr_lines: list[str] = []
+    _jd_log_dir = golem_dir or Path(worktree_path)
+
+    def _capture_stderr(line: str) -> None:
+        _stderr_lines.append(line)
+        try:
+            log_path = _jd_log_dir / "progress.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"[STDERR] {line}\n")
+        except OSError:
+            pass
+
+    _jd_extra_args: dict[str, str | None] = {}
+    if config.debug_sdk:
+        _jd_extra_args["debug-to-stderr"] = None
+
     options = ClaudeAgentOptions(
         model=config.worker_model,
         cwd=worktree_path,
@@ -211,6 +227,8 @@ async def spawn_junior_dev(
         max_budget_usd=config.worker_budget_usd,
         fallback_model=config.fallback_model,
         hooks=_build_agent_hooks(),
+        stderr=_capture_stderr,
+        extra_args=_jd_extra_args,
     )
 
     stall_cfg = stall_config_for_role("junior_dev", config.max_worker_turns)
@@ -251,7 +269,11 @@ async def spawn_junior_dev(
             event_bus=event_bus,
         )
     except RecoveryExhausted as exc:
-        raise RuntimeError(str(exc)) from exc
+        stderr_tail = _stderr_lines[-20:]
+        diag = "\n".join(stderr_tail)
+        raise RuntimeError(
+            f"{exc}\nCLI stderr (last {len(stderr_tail)} lines):\n{diag}"
+        ) from exc
 
     if session_result is None:
         raise RuntimeError(f"Junior Dev failed (ticket {ticket.id}): no session result")
