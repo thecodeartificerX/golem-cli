@@ -1178,3 +1178,148 @@ async def test_patch_ticket_status_ticket_not_found(board_client, tmp_path: Path
         json={"status": "done"},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Edict recovery tests (Issue 1 — EdictManager disk recovery)
+# ---------------------------------------------------------------------------
+# These tests use starlette.testclient.TestClient (sync) instead of
+# httpx.AsyncClient because TestClient triggers the ASGI lifespan, which is
+# where the edict disk-recovery block runs.
+
+
+def _make_edict_json(edict_id: str, repo_path: str, status: str = "done") -> dict:
+    """Build a minimal edict JSON dict for recovery tests."""
+    return {
+        "id": edict_id,
+        "repo_path": repo_path,
+        "title": f"Edict {edict_id}",
+        "body": "Do something",
+        "status": status,
+        "created_at": "2026-04-01T00:00:00+00:00",
+        "updated_at": "2026-04-01T00:00:00+00:00",
+        "pr_url": None,
+        "ticket_ids": [],
+        "cost_usd": 0.0,
+        "error": None,
+    }
+
+
+def test_edict_recovery_on_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Edicts written to disk before startup are recovered and visible via GET /api/repos/{repo_id}/edicts."""
+    from starlette.testclient import TestClient
+
+    repo_dir = tmp_path / "my-repo"
+    repo_dir.mkdir()
+    edicts_dir = repo_dir / ".golem" / "edicts"
+    edicts_dir.mkdir(parents=True)
+
+    # Write a pre-existing edict JSON to disk
+    edict_data = _make_edict_json("EDICT-001", str(repo_dir), status="done")
+    (edicts_dir / "EDICT-001.json").write_text(json.dumps(edict_data), encoding="utf-8")
+
+    # Pre-populate repos.json so repo_registry knows about this repo
+    registry_path = tmp_path / "repos.json"
+    registry_path.write_text(
+        json.dumps([{"id": "my-repo", "path": str(repo_dir), "name": "my-repo", "added_at": "2026-04-01T00:00:00+00:00"}]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("GOLEM_DIR", str(tmp_path / ".golem"))
+    monkeypatch.setenv("GOLEM_REGISTRY_PATH", str(registry_path))
+    app = create_app()
+
+    with TestClient(app) as client:
+        resp = client.get("/api/repos/my-repo/edicts")
+    assert resp.status_code == 200
+    edicts = resp.json()
+    assert len(edicts) == 1
+    assert edicts[0]["id"] == "EDICT-001"
+    assert edicts[0]["status"] == "done"
+
+
+def test_edict_recovery_id_counter_continues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """After recovering EDICT-003 from disk, a new edict created via the API gets EDICT-004."""
+    from starlette.testclient import TestClient
+
+    repo_dir = tmp_path / "my-repo"
+    repo_dir.mkdir()
+    edicts_dir = repo_dir / ".golem" / "edicts"
+    edicts_dir.mkdir(parents=True)
+
+    # Write three pre-existing edicts to disk
+    for num in range(1, 4):
+        edict_id = f"EDICT-{num:03d}"
+        edict_data = _make_edict_json(edict_id, str(repo_dir), status="done")
+        (edicts_dir / f"{edict_id}.json").write_text(json.dumps(edict_data), encoding="utf-8")
+
+    registry_path = tmp_path / "repos.json"
+    registry_path.write_text(
+        json.dumps([{"id": "my-repo", "path": str(repo_dir), "name": "my-repo", "added_at": "2026-04-01T00:00:00+00:00"}]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("GOLEM_DIR", str(tmp_path / ".golem"))
+    monkeypatch.setenv("GOLEM_REGISTRY_PATH", str(registry_path))
+    # GOLEM_TEST_MODE suppresses _auto_start_edict so no real pipeline starts
+    monkeypatch.setenv("GOLEM_TEST_MODE", "1")
+    app = create_app()
+
+    with TestClient(app) as client:
+        # Confirm recovery: all three edicts visible
+        resp = client.get("/api/repos/my-repo/edicts")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 3
+
+        # Create a new edict — should get EDICT-004
+        resp = client.post(
+            "/api/repos/my-repo/edicts",
+            json={"title": "New edict", "body": "Do the new thing"},
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "EDICT-004"
+
+
+def test_edict_id_filter_excludes_wrong_edict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/repos/{repo_id}/edicts/{edict_id}/tickets filters out tickets with wrong edict_id."""
+    from starlette.testclient import TestClient
+
+    repo_dir = tmp_path / "my-repo"
+    repo_dir.mkdir()
+    edicts_dir = repo_dir / ".golem" / "edicts"
+    edicts_dir.mkdir(parents=True)
+
+    # Write EDICT-001 to disk so recovery registers it
+    edict_data = _make_edict_json("EDICT-001", str(repo_dir), status="in_progress")
+    (edicts_dir / "EDICT-001.json").write_text(json.dumps(edict_data), encoding="utf-8")
+
+    # Create tickets directory with one ticket belonging to EDICT-001 and one to EDICT-002
+    tickets_dir = repo_dir / ".golem" / "edicts" / "EDICT-001" / "tickets"
+    tickets_dir.mkdir(parents=True)
+
+    ticket_good = _make_ticket_json("TICKET-001", "done")
+    ticket_good["edict_id"] = "EDICT-001"
+    (tickets_dir / "TICKET-001.json").write_text(json.dumps(ticket_good), encoding="utf-8")
+
+    ticket_bad = _make_ticket_json("TICKET-002", "pending")
+    ticket_bad["edict_id"] = "EDICT-002"  # wrong edict
+    (tickets_dir / "TICKET-002.json").write_text(json.dumps(ticket_bad), encoding="utf-8")
+
+    registry_path = tmp_path / "repos.json"
+    registry_path.write_text(
+        json.dumps([{"id": "my-repo", "path": str(repo_dir), "name": "my-repo", "added_at": "2026-04-01T00:00:00+00:00"}]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("GOLEM_DIR", str(tmp_path / ".golem"))
+    monkeypatch.setenv("GOLEM_REGISTRY_PATH", str(registry_path))
+    app = create_app()
+
+    with TestClient(app) as client:
+        resp = client.get("/api/repos/my-repo/edicts/EDICT-001/tickets")
+    assert resp.status_code == 200
+    tickets = resp.json()
+    # Only the ticket with edict_id == "EDICT-001" should appear
+    assert len(tickets) == 1
+    assert tickets[0]["id"] == "TICKET-001"
