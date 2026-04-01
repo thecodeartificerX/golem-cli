@@ -450,6 +450,137 @@ def test_tech_lead_prompt_includes_phase_9() -> None:
     assert "Recommendations" in content
 
 
+# ---------------------------------------------------------------------------
+# Unit 2: Double Tech Lead Dispatch Fix tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_integration_commits_session_scoped_branch(tmp_path: Path) -> None:
+    """Session-scoped branch (3-segment) is found with matching branch_prefix."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    # Create three-segment branch: golem/abc123/wave-0-integration
+    _git(repo, "checkout", "-b", "golem/abc123/wave-0-integration")
+    (repo / "work.txt").write_text("feature work", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "feature")
+    _git(repo, "checkout", "main")
+
+    result = await _check_integration_commits(repo, branch_prefix="golem/abc123")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_check_integration_commits_legacy_two_segment_branch(tmp_path: Path) -> None:
+    """Legacy two-segment branch (golem/wave-0/integration) is found with default prefix."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    _git(repo, "checkout", "-b", "golem/wave-0/integration")
+    (repo / "work.txt").write_text("feature work", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "feature")
+    _git(repo, "checkout", "main")
+
+    result = await _check_integration_commits(repo, branch_prefix="golem")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_check_integration_commits_already_merged_returns_false(tmp_path: Path) -> None:
+    """Branch with no commits beyond main returns False (already merged)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    _git(repo, "checkout", "-b", "golem/wave-0/integration")
+    (repo / "work.txt").write_text("feature work", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "feature")
+    _git(repo, "checkout", "main")
+    _git(repo, "merge", "golem/wave-0/integration", "--ff-only")
+
+    result = await _check_integration_commits(repo, branch_prefix="golem")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_check_integration_commits_default_prefix(tmp_path: Path) -> None:
+    """Default branch_prefix='golem' works without specifying it explicitly."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    _git(repo, "checkout", "-b", "golem/wave-1/integration")
+    (repo / "work.txt").write_text("more work", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "more feature")
+    _git(repo, "checkout", "main")
+
+    # Call with no branch_prefix argument — should use default "golem"
+    result = await _check_integration_commits(repo)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_run_tech_lead_skips_retry_when_ticket_done() -> None:
+    """No-commits retry is skipped when the dispatch ticket is already done."""
+    from golem.config import GolemConfig
+    from golem.supervisor import ContinuationResult, ToolCallRegistry
+    from golem.tech_lead import run_tech_lead
+    from golem.tickets import Ticket, TicketContext, TicketStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        golem_dir = Path(tmpdir) / ".golem"
+        (golem_dir / "tickets").mkdir(parents=True)
+        config = GolemConfig()
+
+        store = TicketStore(golem_dir / "tickets")
+        ticket_id = await store.create(
+            Ticket(
+                id="", type="task", title="TL Task", status="pending",
+                priority="medium", created_by="planner", assigned_to="tech_lead",
+                context=TicketContext(plan_file=""),
+            )
+        )
+        # Mark the ticket as done before the guard runs
+        await store.update(ticket_id, "done", "first session succeeded")
+
+        ok = ContinuationResult(
+            result_text="done", cost_usd=0.0, input_tokens=0, output_tokens=0,
+            turns=5, duration_s=0.1, stalled=False, stall_turn=None,
+            registry=ToolCallRegistry(), continuation_count=0, exhausted=False,
+        )
+        mock_session = AsyncMock(return_value=ok)
+
+        recovery_instantiation_count = 0
+
+        class _CountingCoordinator:
+            def __init__(self, _config: Any) -> None:
+                nonlocal recovery_instantiation_count
+                recovery_instantiation_count += 1
+
+            async def run_with_recovery(self, session_fn: Any, **kwargs: Any) -> Any:
+                return await session_fn()
+
+        with patch("golem.tech_lead.continuation_supervised_session", mock_session), \
+             patch("golem.tech_lead._check_integration_commits", AsyncMock(return_value=False)), \
+             patch("golem.tech_lead._ensure_merged_to_main", AsyncMock()), \
+             patch("golem.tech_lead._promote_debrief_to_memory", AsyncMock()), \
+             patch("golem.tech_lead._promote_gotchas_to_memory", AsyncMock()), \
+             patch("golem.recovery.RecoveryCoordinator", _CountingCoordinator):
+            await run_tech_lead(ticket_id, golem_dir, config, Path(tmpdir))
+
+        # Only the initial coordinator is instantiated; no second (no-commits) coordinator
+        assert recovery_instantiation_count == 1
+        # Only one session call (no retry)
+        assert mock_session.call_count == 1
+
+
 def test_tech_lead_prompt_includes_blocker_instructions() -> None:
     """Tech Lead prompt should contain blocker-checking instructions."""
     prompt_path = Path(__file__).parent.parent / "src" / "golem" / "prompts" / "tech_lead.md"

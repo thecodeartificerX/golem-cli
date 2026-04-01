@@ -136,11 +136,14 @@ def _cleanup_golem_worktrees(golem_dir: Path, project_root: Path) -> None:
                 print(f"[TECH LEAD] Warning: could not clean worktree {wt.name}: {cleanup_err}", file=sys.stderr)
 
 
-async def _check_integration_commits(project_root: Path) -> bool:
+async def _check_integration_commits(
+    project_root: Path,
+    branch_prefix: str = "golem",
+) -> bool:
     """Return True if at least one golem integration branch has commits beyond main."""
     result = await asyncio.to_thread(
         subprocess.run,
-        ["git", "branch", "--list", "golem/*/integration"],
+        ["git", "branch", "--list", f"{branch_prefix}/*integration"],
         cwd=project_root,
         capture_output=True,
         text=True,
@@ -355,45 +358,50 @@ async def run_tech_lead(
         session_result = retry_result
 
     # Post-session verification: check for commits on integration branch beyond main
-    if not await _check_integration_commits(project_root):
-        # No commits produced — treat as stall and retry with escalated prompt
-        progress.log_stall_warning(
-            "tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count()
-        )
-        escalated = build_escalated_prompt(
-            "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
-        )
-        no_commits_coordinator = RecoveryCoordinator(config)
-        try:
-            retry_result = await no_commits_coordinator.run_with_recovery(
-                session_fn=lambda: continuation_supervised_session(
-                    prompt=escalated,
-                    options=options,
+    branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
+    if not await _check_integration_commits(project_root, branch_prefix=branch_prefix):
+        # No commits produced — treat as stall and retry with escalated prompt,
+        # but only if the ticket is not already done (first session may have succeeded
+        # even when the branch glob doesn't match, e.g. branch already merged).
+        _ticket_check = await store.read(ticket_id)
+        if _ticket_check.status != "done":
+            progress.log_stall_warning(
+                "tech_lead", session_result.turns, config.max_tech_lead_turns, session_result.registry.action_call_count()
+            )
+            escalated = build_escalated_prompt(
+                "tech_lead", original_prompt, session_result.turns, stall_cfg.expected_actions
+            )
+            no_commits_coordinator = RecoveryCoordinator(config)
+            try:
+                retry_result = await no_commits_coordinator.run_with_recovery(
+                    session_fn=lambda: continuation_supervised_session(
+                        prompt=escalated,
+                        options=options,
+                        role="tech_lead",
+                        config=config,
+                        stall_config=stall_cfg,
+                        on_text=on_text,
+                        on_tool=on_tool,
+                        golem_dir=golem_dir,
+                        event_bus=event_bus,
+                    ),
                     role="tech_lead",
-                    config=config,
-                    stall_config=stall_cfg,
-                    on_text=on_text,
-                    on_tool=on_tool,
+                    label=f"{ticket_id}-no-commits-retry",
                     golem_dir=golem_dir,
+                    edict_id=edict_id,
                     event_bus=event_bus,
-                ),
-                role="tech_lead",
-                label=f"{ticket_id}-no-commits-retry",
-                golem_dir=golem_dir,
-                edict_id=edict_id,
-                event_bus=event_bus,
-            )
-        except RecoveryExhausted as e:
-            _cleanup_golem_worktrees(golem_dir, project_root)
-            raise RuntimeError(f"Tech Lead no-commits retry failed: {e}") from None
+                )
+            except RecoveryExhausted as e:
+                _cleanup_golem_worktrees(golem_dir, project_root)
+                raise RuntimeError(f"Tech Lead no-commits retry failed: {e}") from None
 
-        if retry_result.stalled:
-            progress.log_stall_fatal("tech_lead", retry_result.turns)
-            _cleanup_golem_worktrees(golem_dir, project_root)
-            raise RuntimeError(
-                "Tech Lead produced no commits after retry"
-            )
-        session_result = retry_result
+            if retry_result.stalled:
+                progress.log_stall_fatal("tech_lead", retry_result.turns)
+                _cleanup_golem_worktrees(golem_dir, project_root)
+                raise RuntimeError(
+                    "Tech Lead produced no commits after retry"
+                )
+            session_result = retry_result
 
     _cache_read = getattr(session_result, "cache_read_tokens", 0)
     progress.log_agent_cost(
@@ -407,7 +415,6 @@ async def run_tech_lead(
     )
 
     # Self-heal: if integration branches exist but weren't merged to main, merge them
-    branch_prefix = f"golem/{config.session_id}" if config.session_id else "golem"
     await _ensure_merged_to_main(project_root, branch_prefix=branch_prefix, config=config)
 
     # Promote debrief and gotchas to project-level memory
