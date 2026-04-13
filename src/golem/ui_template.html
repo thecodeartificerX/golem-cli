@@ -458,6 +458,10 @@
     .badge-completed    { color: var(--muted);   border-color: var(--border);            background: transparent; }
     .badge-merged       { color: var(--muted);   border-color: var(--border);            background: transparent; }
     .badge-archived     { color: var(--dim-text); border-color: var(--dim-text);          background: transparent; }
+    .badge-planning     { color: var(--info);    border-color: rgba(59, 130, 246, 0.4);  background: rgba(59, 130, 246, 0.08); }
+    .badge-in_progress  { color: var(--warning); border-color: rgba(234, 179, 8, 0.4);  background: rgba(234, 179, 8, 0.08); }
+    .badge-done         { color: var(--success); border-color: rgba(34, 197, 94, 0.4);  background: rgba(34, 197, 94, 0.08); }
+    .badge-needs_attention { color: #f97316;     border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08); }
 
     .badge-complexity-trivial   { color: #6b7280; border-color: #374151; background: transparent; }
     .badge-complexity-simple    { color: var(--info); border-color: rgba(59, 130, 246, 0.3); background: transparent; }
@@ -2200,6 +2204,15 @@
   /** @type {Object.<string, Object>} */
   var sessionsCache = {};
 
+  /** @type {Object.<string, Object>} */
+  var edictsCache = {};
+
+  /** @type {string} 'session' or 'edict' */
+  var selectedItemType = 'session';
+
+  /** @type {string|null} repo_id for the selected edict */
+  var selectedEdictRepoId = null;
+
   /** @type {EventSource|null} */
   var observeEventSource = null;
 
@@ -2307,11 +2320,41 @@
     if (pane) pane.classList.add('active');
     // Lazy-load tab data
     if (selectedSessionId) {
-      if (tab === 'board') fetchBoard(selectedSessionId);
-      if (tab === 'plan') fetchPlan(selectedSessionId);
-      if (tab === 'diff') fetchDiff(selectedSessionId);
-      if (tab === 'cost') fetchCost(selectedSessionId);
-      if (tab === 'observe') connectObserveSSE(selectedSessionId);
+      if (tab === 'board') {
+        if (selectedItemType === 'edict' && selectedEdictRepoId) {
+          fetchEdictBoard(selectedSessionId, selectedEdictRepoId);
+        } else {
+          fetchBoard(selectedSessionId);
+        }
+      }
+      if (tab === 'plan') {
+        if (selectedItemType === 'edict' && selectedEdictRepoId) {
+          fetchEdictPlan(selectedSessionId, selectedEdictRepoId);
+        } else {
+          fetchPlan(selectedSessionId);
+        }
+      }
+      if (tab === 'diff') {
+        if (selectedItemType !== 'edict') {
+          fetchDiff(selectedSessionId);
+        } else {
+          diffContent.textContent = '(diff not available for edicts)';
+        }
+      }
+      if (tab === 'cost') {
+        if (selectedItemType === 'edict' && selectedEdictRepoId) {
+          fetchEdictCost(selectedSessionId, selectedEdictRepoId);
+        } else {
+          fetchCost(selectedSessionId);
+        }
+      }
+      if (tab === 'observe') {
+        if (selectedItemType === 'edict' && selectedEdictRepoId) {
+          connectEdictObserveSSE(selectedSessionId, selectedEdictRepoId);
+        } else {
+          connectObserveSSE(selectedSessionId);
+        }
+      }
       if (tab === 'preflight') { preflightSessionId = null; /* reset so user can re-run */ }
     }
   });
@@ -2386,6 +2429,26 @@
       groups['completed'].forEach(function (s) { html += renderSessionEntry(s, ''); });
     }
 
+    // --- Edict section ---
+    var edictEntries = Object.values(edictsCache);
+    if (edictEntries.length > 0) {
+      html += '<div class="session-group-header">-- Edicts --</div>';
+      edictEntries.forEach(function (e) {
+        var isActive = (selectedItemType === 'edict' && selectedSessionId === e.id);
+        html += '<div class="session-entry' + (isActive ? ' active' : '') + '" ' +
+                'data-id="' + esc(e.id) + '" data-type="edict">' +
+                '<div class="session-entry-top">' +
+                '<div class="session-status-dot ' + esc(e.status || 'pending') + '"></div>' +
+                '<div class="session-name">' + esc(e.title || e.id) + '</div>' +
+                '</div>' +
+                '<div class="session-meta">' +
+                '<span class="badge badge-' + esc(e.status || 'pending') + '">' +
+                esc(e.status || 'pending') + '</span>' +
+                '</div>' +
+                '</div>';
+      });
+    }
+
     if (!html) {
       html = '<div style="padding:16px 12px;color:var(--dim-text);font-size:11px">No sessions yet.</div>';
     }
@@ -2395,7 +2458,11 @@
     // Re-attach click handlers
     sessionList.querySelectorAll('.session-entry').forEach(function (el) {
       el.addEventListener('click', function () {
-        selectSession(el.dataset.id);
+        if (el.dataset.type === 'edict') {
+          selectEdict(el.dataset.id);
+        } else {
+          selectSession(el.dataset.id);
+        }
       });
     });
 
@@ -2494,6 +2561,35 @@
   }
 
   // -----------------------------------------------------------------------
+  // Edict polling
+  // -----------------------------------------------------------------------
+
+  function pollEdicts() {
+    fetch('/api/repos')
+      .then(function (r) { return r.json(); })
+      .then(function (repos) {
+        edictsCache = {};
+        var fetches = repos.map(function (repo) {
+          return fetch('/api/repos/' + encodeURIComponent(repo.id) + '/edicts')
+            .then(function (r) { return r.json(); })
+            .then(function (edicts) {
+              edicts.forEach(function (e) {
+                e._repo_id = repo.id;
+                edictsCache[e.id] = e;
+              });
+            })
+            .catch(function () {});
+        });
+        return Promise.all(fetches);
+      })
+      .then(function () {
+        renderSidebar();
+        updateStats();
+      })
+      .catch(function () {});
+  }
+
+  // -----------------------------------------------------------------------
   // Session selection
   // -----------------------------------------------------------------------
 
@@ -2508,7 +2604,10 @@
   }
 
   function selectSession(id) {
-    if (selectedSessionId === id) return;
+    if (selectedSessionId === id && selectedItemType === 'session') return;
+
+    selectedItemType = 'session';
+    selectedEdictRepoId = null;
 
     // Disconnect previous SSE connections
     if (sessionEventSource) {
@@ -2552,6 +2651,55 @@
 
     // Connect SSE for logs
     connectSessionSSE(id);
+  }
+
+  function selectEdict(id) {
+    if (selectedItemType === 'edict' && selectedSessionId === id) return;
+
+    // Disconnect previous SSE connections
+    if (sessionEventSource) { sessionEventSource.close(); sessionEventSource = null; }
+    if (observeEventSource) { observeEventSource.close(); observeEventSource = null; }
+
+    selectedSessionId = id;
+    selectedItemType = 'edict';
+    selectedEdictRepoId = edictsCache[id] ? edictsCache[id]._repo_id : null;
+
+    logConsole.innerHTML = '';
+    agentNodes = {};
+    agentTreeEl.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">No agents yet.</div>';
+    eventStreamEl.innerHTML = '<div style="color:var(--dim-text);font-size:11px;padding:8px 0">Waiting for events...</div>';
+    observeLiveBadge.classList.remove('active');
+    observeSessionId = null;
+    preflightSessionId = null;
+    resetPreflightUI();
+
+    renderSidebar();
+
+    var e = edictsCache[id];
+    if (!e || !selectedEdictRepoId) { showEmptyState(); return; }
+
+    showSessionDetail();
+
+    // Reuse the session header DOM — show edict title and status
+    sessionTitle.textContent = e.title || e.id;
+    statusBadge.textContent = e.status || 'pending';
+    statusBadge.className = 'badge badge-' + (e.status || 'pending');
+    complexityBadge.classList.add('hidden');
+    // Edicts don't support pause/resume/kill from this UI yet
+    btnStart.style.display = 'none';
+    btnPause.disabled = true;
+    btnKill.disabled = true;
+    btnGuidance.disabled = true;
+
+    // Reset board state
+    boardSessionId = null;
+    boardCards = {};
+    if (boardColumnsEl) boardColumnsEl.innerHTML = '';
+    if (boardEmptyEl) boardEmptyEl.style.display = 'none';
+
+    activateTab('tickets');
+    fetchEdictTickets(id, selectedEdictRepoId);
+    connectEdictSSE(id, selectedEdictRepoId);
   }
 
   function activateTab(tabName) {
@@ -2766,7 +2914,13 @@
   var boardDragGhost  = document.getElementById('board-drag-ghost');
 
   boardRefreshBtn.addEventListener('click', function () {
-    if (boardSessionId) fetchBoard(boardSessionId);
+    if (boardSessionId) {
+      if (selectedItemType === 'edict' && selectedEdictRepoId) {
+        fetchEdictBoard(boardSessionId, selectedEdictRepoId);
+      } else {
+        fetchBoard(boardSessionId);
+      }
+    }
   });
 
   function fetchBoard(sessionId) {
@@ -3199,6 +3353,101 @@
       '</tr>'
     );
     costTbody.innerHTML = html;
+  }
+
+  // -----------------------------------------------------------------------
+  // Edict data-fetching functions
+  // -----------------------------------------------------------------------
+
+  function fetchEdictTickets(edictId, repoId) {
+    ticketsTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>';
+    conflictsSection.innerHTML = '';
+    fetch('/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/tickets')
+      .then(function (r) { return r.json(); })
+      .then(function (tickets) { renderTickets(tickets); })
+      .catch(function () {
+        ticketsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--error);padding:12px">Failed to load tickets.</td></tr>';
+      });
+  }
+
+  function fetchEdictBoard(edictId, repoId) {
+    boardSessionId = edictId;
+    if (boardLabelEl) boardLabelEl.textContent = 'Edict: ' + edictId;
+    fetch('/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/board')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        boardCards = {};
+        // The edict board endpoint returns {columns, column_order} not a flat list.
+        // Flatten all column ticket arrays into boardCards.
+        if (data && data.columns) {
+          Object.values(data.columns).forEach(function (col) {
+            if (col.tickets) {
+              col.tickets.forEach(function (c) { boardCards[c.id] = c; });
+            }
+          });
+        }
+        renderBoard();
+      })
+      .catch(function () {
+        boardColumnsEl.innerHTML = '<div style="padding:20px;color:var(--error)">Failed to load board.</div>';
+      });
+  }
+
+  function fetchEdictPlan(edictId, repoId) {
+    planContent.textContent = 'Loading...';
+    fetch('/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/plan')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        planContent.textContent = data.plan || '(no plan available)';
+      })
+      .catch(function () { planContent.textContent = 'Failed to load plan.'; });
+  }
+
+  function fetchEdictCost(edictId, repoId) {
+    costTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim-text);padding:20px">Loading...</td></tr>';
+    fetch('/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/cost')
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderCost(data); })
+      .catch(function () {
+        costTbody.innerHTML = '<tr><td colspan="4" style="color:var(--error);padding:12px">Failed to load cost.</td></tr>';
+      });
+  }
+
+  function connectEdictSSE(edictId, repoId) {
+    var url = '/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/logs';
+    var es = new EventSource(url);
+    sessionEventSource = es;
+
+    es.addEventListener('log', function (ev) {
+      try {
+        var entry = JSON.parse(ev.data);
+        appendLogLine(entry);
+      } catch (ex) { appendRawLog(ev.data); }
+    });
+
+    es.onerror = function () { setDisconnected(); };
+    es.onopen = function () { setConnected(); };
+  }
+
+  function connectEdictObserveSSE(edictId, repoId) {
+    if (observeSessionId === edictId && observeEventSource) return;
+    if (observeEventSource) { observeEventSource.close(); observeEventSource = null; }
+
+    observeSessionId = edictId;
+    agentNodes = {};
+    agentTreeEl.innerHTML = '<div style="padding:12px;color:var(--dim-text);font-size:11px">Connecting...</div>';
+    eventStreamEl.innerHTML = '';
+    observeLiveBadge.classList.remove('active');
+
+    var url = '/api/repos/' + encodeURIComponent(repoId) + '/edicts/' + encodeURIComponent(edictId) + '/observe';
+    var es = new EventSource(url);
+    observeEventSource = es;
+
+    es.onopen = function () { observeLiveBadge.classList.add('active'); };
+    es.addEventListener('agent_event', function (ev) {
+      try { handleAgentEvent(JSON.parse(ev.data)); } catch (ex) {}
+    });
+    es.onerror = function () { observeLiveBadge.classList.remove('active'); };
   }
 
   // -----------------------------------------------------------------------
@@ -3889,7 +4138,8 @@
   // -----------------------------------------------------------------------
 
   pollSessions();
-  pollTimerId = setInterval(pollSessions, 3000);
+  pollEdicts();
+  pollTimerId = setInterval(function () { pollSessions(); pollEdicts(); }, 3000);
 
 }());
 </script>
