@@ -100,10 +100,26 @@ async def _run_planner_session(
     is_retry: bool = False,
     event_bus: EventBus | None = None,
     server_url: str = "",
+    stderr_accumulator: list[str] | None = None,
 ) -> ContinuationResult:
     """Run a single planner supervised session."""
     mcp_server = create_golem_planner_mcp_server(golem_dir, config, cwd, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "planner", mcp_server)
+
+    _stderr: list[str] = stderr_accumulator if stderr_accumulator is not None else []
+
+    def _capture_stderr(line: str) -> None:
+        _stderr.append(line)
+        try:
+            log_path = golem_dir / "progress.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"[STDERR] {line}\n")
+        except OSError:
+            pass
+
+    extra_args: dict[str, str | None] = {}
+    if config.debug_sdk:
+        extra_args["debug-to-stderr"] = None
 
     options = ClaudeAgentOptions(
         model=config.planner_model,
@@ -117,6 +133,8 @@ async def _run_planner_session(
         max_budget_usd=config.planner_budget_usd,
         fallback_model=config.fallback_model,
         hooks=_build_agent_hooks(),
+        stderr=_capture_stderr,
+        extra_args=extra_args,
     )
 
     stall_cfg = stall_config_for_role("planner", config.planner_max_turns, skip_research=config.skip_research)
@@ -207,12 +225,14 @@ async def run_planner(
 
     from golem.recovery import RecoveryCoordinator, RecoveryExhausted
 
+    stderr_accumulator: list[str] = []
     coordinator = RecoveryCoordinator(config)
     try:
         session_result = await coordinator.run_with_recovery(
             session_fn=lambda: _run_planner_session(
                 original_prompt, golem_dir, config, cwd,
                 event_bus=event_bus, server_url=server_url,
+                stderr_accumulator=stderr_accumulator,
             ),
             role="planner",
             label="planner",
@@ -221,7 +241,11 @@ async def run_planner(
             event_bus=event_bus,
         )
     except RecoveryExhausted as exc:
-        raise RuntimeError(str(exc)) from exc
+        stderr_tail = stderr_accumulator[-20:]
+        diag = "\n".join(stderr_tail)
+        raise RuntimeError(
+            f"{exc}\nCLI stderr (last {len(stderr_tail)} lines):\n{diag}"
+        ) from exc
 
     if session_result is None:
         raise RuntimeError("Planner session produced no result")

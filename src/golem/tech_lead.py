@@ -260,6 +260,21 @@ async def run_tech_lead(
     mcp_server = create_golem_mcp_server(golem_dir, config, project_root, event_bus=event_bus)
     sources, mcps = resolve_agent_options(config, "tech_lead", mcp_server)
 
+    _stderr_lines: list[str] = []
+
+    def _capture_stderr(line: str) -> None:
+        _stderr_lines.append(line)
+        try:
+            log_path = golem_dir / "progress.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"[STDERR] {line}\n")
+        except OSError:
+            pass
+
+    _tl_extra_args: dict[str, str | None] = {}
+    if config.debug_sdk:
+        _tl_extra_args["debug-to-stderr"] = None
+
     options = ClaudeAgentOptions(
         model=config.tech_lead_model,
         cwd=str(project_root),
@@ -272,6 +287,8 @@ async def run_tech_lead(
         max_budget_usd=config.tech_lead_budget_usd,
         fallback_model=config.fallback_model,
         hooks=_build_agent_hooks(),
+        stderr=_capture_stderr,
+        extra_args=_tl_extra_args,
     )
 
     stall_cfg = stall_config_for_role("tech_lead", config.max_tech_lead_turns)
@@ -313,7 +330,11 @@ async def run_tech_lead(
         )
     except RecoveryExhausted as exc:
         _cleanup_golem_worktrees(golem_dir, project_root)
-        raise RuntimeError(str(exc)) from exc
+        stderr_tail = _stderr_lines[-20:]
+        diag = "\n".join(stderr_tail)
+        raise RuntimeError(
+            f"{exc}\nCLI stderr (last {len(stderr_tail)} lines):\n{diag}"
+        ) from exc
 
     if session_result is None:
         raise RuntimeError("Tech Lead session produced no result")
